@@ -192,7 +192,9 @@
     <textarea id="embed-description" placeholder="Contenu de l'annonce..."></textarea>
     <label>Couleur (hex)</label>
     <input id="embed-couleur" value="#ff2d78" />
-    <label>Image (URL, optionnel)</label>
+    <label>Image depuis ton ordinateur (optionnel)</label>
+    <input id="embed-image-fichier" type="file" accept="image/*" />
+    <label>OU Image (URL, optionnel)</label>
     <input id="embed-image" placeholder="https://..." />
     <label>Footer (optionnel)</label>
     <input id="embed-footer" placeholder="Ex: Équipe EMS" />
@@ -411,17 +413,18 @@
   }
   async function envoyerEmbed() {
     const statut = document.getElementById('embed-statut');
-    const res = await fetch('/api/send-embed', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        channelId: document.getElementById('embed-salon').value,
-        title: document.getElementById('embed-titre').value,
-        description: document.getElementById('embed-description').value,
-        color: document.getElementById('embed-couleur').value,
-        imageUrl: document.getElementById('embed-image').value,
-        footer: document.getElementById('embed-footer').value,
-      })
-    });
+    const fichier = document.getElementById('embed-image-fichier').files[0];
+
+    const donnees = new FormData();
+    donnees.append('channelId', document.getElementById('embed-salon').value);
+    donnees.append('title', document.getElementById('embed-titre').value);
+    donnees.append('description', document.getElementById('embed-description').value);
+    donnees.append('color', document.getElementById('embed-couleur').value);
+    donnees.append('imageUrl', document.getElementById('embed-image').value);
+    donnees.append('footer', document.getElementById('embed-footer').value);
+    if (fichier) donnees.append('imageFile', fichier);
+
+    const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
     const data = await res.json();
     statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
