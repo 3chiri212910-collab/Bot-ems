@@ -24,10 +24,10 @@ http
   .listen(PORT, () => console.log(`Serveur web actif sur le port ${PORT}`));
 
 // ==============================
-// CONFIGURATION - À REMPLIR
+// CONFIGURATION - À REMPLIR (ou variables d'environnement sur Render)
 // ==============================
-const TOKEN = "TON_TOKEN_DISCORD_ICI";
-const CLIENT_ID = "TON_CLIENT_ID_ICI";
+const TOKEN = process.env.TOKEN || "TON_TOKEN_DISCORD_ICI";
+const CLIENT_ID = process.env.CLIENT_ID || "TON_CLIENT_ID_ICI";
 const NOM_SERVICE = "Service Médical";
 const COULEUR_EMBED = "#ff4d94";
 
