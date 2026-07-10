@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Panel EMS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0d0d10;
+    --bg-alt: #17171c;
+    --bg-card: #1c1c22;
+    --border: #2b2b33;
+    --accent: #ff2d78;
+    --accent-dim: rgba(255,45,120,0.15);
+    --text: #eee;
+    --text-dim: #96969f;
+    --ok: #4ade80;
+    --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+  }
+  nav {
+    width: 230px;
+    background: var(--bg-alt);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  nav h1 { font-size: 16px; padding: 0 20px 16px; margin: 0; border-bottom: 1px solid var(--border); color: var(--accent); }
+  nav .tab {
+    padding: 12px 20px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 14px;
+    border-left: 3px solid transparent;
+  }
+  nav .tab.actif { color: var(--text); background: var(--accent-dim); border-left: 3px solid var(--accent); }
+  nav .tab:hover { color: var(--text); }
+  main { flex: 1; padding: 30px 40px; max-width: 760px; }
+  h2 { margin-top: 0; }
+  label { display: block; font-size: 13px; color: var(--text-dim); margin: 14px 0 6px; }
+  input, textarea, select {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  button {
+    margin-top: 18px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover { opacity: 0.9; }
+  button.secondaire { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: var(--err); }
+  button.petit { padding: 6px 12px; font-size: 12px; margin-top: 0; }
+  #compte { display: flex; align-items: center; gap: 8px; padding: 0 20px; margin-top: 16px; font-size: 13px; color: var(--text-dim); }
+  #compte img { width: 24px; height: 24px; border-radius: 50%; }
+  .carte {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .ligne { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .stats-grille { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .stat-carte { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .stat-carte .valeur { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .stat-carte .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .msg-ok { color: var(--ok); font-size: 13px; margin-top: 10px; }
+  .msg-err { color: var(--err); font-size: 13px; margin-top: 10px; }
+  .hidden { display: none; }
+  .role-badge { display: inline-block; background: var(--accent-dim); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px 4px 2px 0; }
+  .role-badge button { all: unset; cursor: pointer; margin-left: 6px; font-weight: 700; }
+  a.discret { color: var(--text-dim); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>🚑 Panel EMS</h1>
+  <div class="tab actif" data-tab="dashboard">📊 Dashboard</div>
+  <div class="tab" data-tab="moderation">🛡️ Modération</div>
+  <div class="tab" data-tab="salons">💬 Salons</div>
+  <div class="tab" data-tab="roles">🎭 Rôles</div>
+  <div class="tab" data-tab="bienvenue">👋 Bienvenue & Auto-rôle</div>
+  <div class="tab" data-tab="embed">📢 Annonces</div>
+  <div class="tab" data-tab="tickets">🎫 Tickets</div>
+  <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
+  <div id="compte"></div>
+  <div style="padding: 16px 20px; margin-top: auto;">
+    <a href="/logout" class="discret">Déconnexion</a>
+  </div>
+</nav>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <section id="vue-dashboard">
+    <h2>Dashboard</h2>
+    <div class="stats-grille" id="stats-grille"></div>
+    <button class="secondaire" onclick="chargerStats()">🔄 Rafraîchir</button>
+  </section>
+
+  <!-- MODERATION -->
+  <section id="vue-moderation" class="hidden">
+    <h2>Modération</h2>
+    <label>Rechercher un membre (pseudo)</label>
+    <input id="mod-recherche" placeholder="Tape un pseudo..." oninput="rechercherMembres(this.value)" />
+    <div id="mod-resultats" style="margin-top: 16px;"></div>
+  </section>
+
+  <!-- SALONS -->
+  <section id="vue-salons" class="hidden">
+    <h2>Salons</h2>
+    <div class="carte">
+      <label>Nouveau salon</label>
+      <input id="salon-nom" placeholder="nom-du-salon" />
+      <label>Type</label>
+      <select id="salon-type">
+        <option value="text">Texte</option>
+        <option value="voice">Vocal</option>
+      </select>
+      <button onclick="creerSalon()">Créer</button>
+      <div id="salon-statut"></div>
+    </div>
+    <div id="liste-salons"></div>
+  </section>
+
+  <!-- ROLES -->
+  <section id="vue-roles" class="hidden">
+    <h2>Rôles</h2>
+    <div class="carte">
+      <label>Nouveau rôle</label>
+      <input id="role-nom" placeholder="Nom du rôle" />
+      <label>Couleur</label>
+      <input id="role-couleur" value="#ff2d78" />
+      <button onclick="creerRole()">Créer</button>
+      <div id="role-statut"></div>
+    </div>
+    <div id="liste-roles"></div>
+  </section>
+
+  <!-- BIENVENUE -->
+  <section id="vue-bienvenue" class="hidden">
+    <h2>Bienvenue & Auto-rôle</h2>
+    <label>Rôle attribué automatiquement à l'arrivée</label>
+    <select id="param-autorole"><option value="">Aucun</option></select>
+
+    <label>Salon de bienvenue</label>
+    <select id="param-salon-bienvenue"><option value="">Aucun</option></select>
+
+    <label>Message de bienvenue ({user}, {server}, {count})</label>
+    <textarea id="param-message-bienvenue"></textarea>
+
+    <label>Salon staff pour les tickets</label>
+    <select id="param-salon-tickets"><option value="">Aucun</option></select>
+
+    <button onclick="sauverParametres()">Enregistrer</button>
+    <div id="param-statut"></div>
+  </section>
+
+  <!-- ANNONCES -->
+  <section id="vue-embed" class="hidden">
+    <h2>Envoyer une annonce / embed</h2>
+    <label>Salon</label>
+    <select id="embed-salon"></select>
+    <label>Titre</label>
+    <input id="embed-titre" placeholder="Ex: Ouverture du serveur" />
+    <label>Description</label>
+    <textarea id="embed-description" placeholder="Contenu de l'annonce..."></textarea>
+    <label>Couleur (hex)</label>
+    <input id="embed-couleur" value="#ff2d78" />
+    <label>Image (URL, optionnel)</label>
+    <input id="embed-image" placeholder="https://..." />
+    <label>Footer (optionnel)</label>
+    <input id="embed-footer" placeholder="Ex: Équipe EMS" />
+    <button onclick="envoyerEmbed()">Envoyer</button>
+    <div id="embed-statut"></div>
+  </section>
+
+  <!-- TICKETS -->
+  <section id="vue-tickets" class="hidden">
+    <h2>Tickets ouverts</h2>
+    <button class="secondaire" onclick="chargerTickets()" style="margin-bottom: 16px;">🔄 Rafraîchir</button>
+    <div id="liste-tickets"></div>
+  </section>
+
+  <!-- GIVEAWAYS -->
+  <section id="vue-giveaways" class="hidden">
+    <h2>Giveaways</h2>
+    <div class="carte">
+      <label>Salon</label>
+      <select id="giveaway-salon"></select>
+      <label>Lot</label>
+      <input id="giveaway-prize" placeholder="Ex: Grade VIP" />
+      <label>Durée (minutes)</label>
+      <input id="giveaway-duree" type="number" value="60" />
+      <label>Nombre de gagnants</label>
+      <input id="giveaway-gagnants" type="number" value="1" />
+      <button onclick="creerGiveaway()">Lancer</button>
+      <div id="giveaway-statut"></div>
+    </div>
+    <div id="liste-giveaways"></div>
+  </section>
+
+</main>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  const vues = { dashboard: chargerStats, moderation: null, salons: chargerSalonsListe, roles: chargerRolesListe, bienvenue: chargerParametres, embed: chargerSalons, tickets: chargerTickets, giveaways: chargerGiveaways };
+
+  tabs.forEach(tab => tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('actif'));
+    tab.classList.add('actif');
+    document.querySelectorAll('main section').forEach(s => s.classList.add('hidden'));
+    document.getElementById('vue-' + tab.dataset.tab).classList.remove('hidden');
+    if (vues[tab.dataset.tab]) vues[tab.dataset.tab]();
+  }));
+
+  async function chargerCompte() {
+    const res = await fetch('/api/me');
+    if (!res.ok) { window.location.href = '/login'; return; }
+    const user = await res.json();
+    document.getElementById('compte').innerHTML =
+      (user.avatar ? `<img src="${user.avatar}" />` : '') + `<span>${user.username}</span>`;
+  }
+
+  // ---- DASHBOARD ----
+  async function chargerStats() {
+    const res = await fetch('/api/stats');
+    const s = await res.json();
+    const items = [
+      ['Membres', s.memberCount], ['Salons', s.channelCount], ['Rôles', s.roleCount],
+      ['Ping', s.ping + ' ms'], ['Uptime', Math.floor(s.uptime/60) + ' min'],
+      ['Tickets ouverts', s.ticketsOuverts], ['Giveaways actifs', s.giveawaysActifs],
+    ];
+    document.getElementById('stats-grille').innerHTML = items.map(([label, val]) =>
+      `<div class="stat-carte"><div class="valeur">${val}</div><div class="label">${label}</div></div>`
+    ).join('');
+  }
+
+  // ---- MODERATION ----
+  let rechercheTimeout;
+  function rechercherMembres(q) {
+    clearTimeout(rechercheTimeout);
+    rechercheTimeout = setTimeout(async () => {
+      if (!q) { document.getElementById('mod-resultats').innerHTML = ''; return; }
+      const res = await fetch('/api/members/search?q=' + encodeURIComponent(q));
+      const membres = await res.json();
+      const roles = await (await fetch('/api/roles')).json();
+      const optionsRoles = roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+      document.getElementById('mod-resultats').innerHTML = membres.map(m => `
+        <div class="carte">
+          <div class="ligne">
+            <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${m.tag}</div>
+          </div>
+          <div style="margin-top:8px;">
+            ${m.roles.map(r => `<span class="role-badge">${r.name}<button onclick="modifierRole('${m.id}','${r.id}','remove')">×</button></span>`).join('')}
+          </div>
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <select id="role-add-${m.id}" style="width:auto;">${optionsRoles}</select>
+            <button class="petit secondaire" onclick="modifierRole('${m.id}', document.getElementById('role-add-${m.id}').value, 'add')">+ Rôle</button>
+            <button class="petit secondaire" onclick="timeoutMembre('${m.id}')">Timeout 10min</button>
+            <button class="petit danger" onclick="kickMembre('${m.id}')">Kick</button>
+            <button class="petit danger" onclick="banMembre('${m.id}')">Ban</button>
+          </div>
+        </div>
+      `).join('') || '<p style="color:var(--text-dim);">Aucun résultat.</p>';
+    }, 400);
+  }
+
+  async function modifierRole(userId, roleId, action) {
+    await fetch(`/api/members/${userId}/roles/${roleId}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action })
+    });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  }
+  async function kickMembre(userId) {
+    if (!confirm('Kick ce membre ?')) return;
+    await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  }
+  async function banMembre(userId) {
+    if (!confirm('Bannir ce membre ?')) return;
+    await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  }
+  async function timeoutMembre(userId) {
+    await fetch(`/api/members/${userId}/timeout`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 10 }) });
+  }
+
+  // ---- SALONS ----
+  async function chargerSalonsListe() {
+    const res = await fetch('/api/channels/all');
+    const salons = await res.json();
+    document.getElementById('liste-salons').innerHTML = salons.map(c => `
+      <div class="carte ligne">
+        <span>#${c.name}</span>
+        <button class="petit danger" onclick="supprimerSalon('${c.id}')">Supprimer</button>
+      </div>
+    `).join('');
+  }
+  async function creerSalon() {
+    const statut = document.getElementById('salon-statut');
+    const res = await fetch('/api/channels', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: document.getElementById('salon-nom').value, type: document.getElementById('salon-type').value })
+    });
+    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) { document.getElementById('salon-nom').value = ''; chargerSalonsListe(); }
+  }
+  async function supprimerSalon(id) {
+    if (!confirm('Supprimer ce salon ?')) return;
+    await fetch('/api/channels/' + id, { method: 'DELETE' });
+    chargerSalonsListe();
+  }
+
+  // ---- ROLES ----
+  async function chargerRolesListe() {
+    const res = await fetch('/api/roles');
+    const roles = await res.json();
+    document.getElementById('liste-roles').innerHTML = roles.map(r => `
+      <div class="carte ligne">
+        <span style="color:${r.color !== '#000000' ? r.color : 'var(--text)'};">${r.name}</span>
+        <button class="petit danger" onclick="supprimerRole('${r.id}')">Supprimer</button>
+      </div>
+    `).join('');
+  }
+  async function creerRole() {
+    const statut = document.getElementById('role-statut');
+    const res = await fetch('/api/roles', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: document.getElementById('role-nom').value, color: document.getElementById('role-couleur').value })
+    });
+    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) { document.getElementById('role-nom').value = ''; chargerRolesListe(); }
+  }
+  async function supprimerRole(id) {
+    if (!confirm('Supprimer ce rôle ?')) return;
+    await fetch('/api/roles/' + id, { method: 'DELETE' });
+    chargerRolesListe();
+  }
+
+  // ---- BIENVENUE / PARAMETRES ----
+  async function chargerParametres() {
+    const [salons, params] = await Promise.all([
+      (await fetch('/api/channels')).json(),
+      (await fetch('/api/settings')).json(),
+    ]);
+    const roles = await (await fetch('/api/roles')).json();
+
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsRoles = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+    document.getElementById('param-autorole').innerHTML = optionsRoles;
+    document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
+    document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
+
+    document.getElementById('param-autorole').value = params.autoRoleId || '';
+    document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
+    document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
+    document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
+  }
+  async function sauverParametres() {
+    const statut = document.getElementById('param-statut');
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        autoRoleId: document.getElementById('param-autorole').value,
+        welcomeChannelId: document.getElementById('param-salon-bienvenue').value,
+        welcomeMessage: document.getElementById('param-message-bienvenue').value,
+        ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  }
+
+  // ---- ANNONCES ----
+  async function chargerSalons() {
+    const res = await fetch('/api/channels');
+    const salons = await res.json();
+    const html = salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    document.getElementById('embed-salon').innerHTML = html;
+    document.getElementById('giveaway-salon').innerHTML = html;
+  }
+  async function envoyerEmbed() {
+    const statut = document.getElementById('embed-statut');
+    const res = await fetch('/api/send-embed', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        channelId: document.getElementById('embed-salon').value,
+        title: document.getElementById('embed-titre').value,
+        description: document.getElementById('embed-description').value,
+        color: document.getElementById('embed-couleur').value,
+        imageUrl: document.getElementById('embed-image').value,
+        footer: document.getElementById('embed-footer').value,
+      })
+    });
+    const data = await res.json();
+    statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  }
+
+  // ---- TICKETS ----
+  async function chargerTickets() {
+    const res = await fetch('/api/tickets');
+    const tickets = await res.json();
+    const liste = document.getElementById('liste-tickets');
+    if (tickets.length === 0) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
+    liste.innerHTML = tickets.map(t => `
+      <div class="carte">
+        <div style="font-weight:600;margin-bottom:8px;">${t.username}</div>
+        <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
+        <button onclick="repondreTicket('${t.userId}')">Répondre</button>
+        <button class="secondaire" onclick="fermerTicket('${t.userId}')">Fermer</button>
+        <div id="statut-${t.userId}"></div>
+      </div>
+    `).join('');
+  }
+  async function repondreTicket(userId) {
+    const message = document.getElementById('reply-' + userId).value;
+    const statut = document.getElementById('statut-' + userId);
+    if (!message) return;
+    const res = await fetch(`/api/tickets/${userId}/reply`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
+    });
+    statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) document.getElementById('reply-' + userId).value = '';
+  }
+  async function fermerTicket(userId) {
+    await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
+    chargerTickets();
+  }
+
+  // ---- GIVEAWAYS ----
+  async function chargerGiveaways() {
+    await chargerSalons();
+    const res = await fetch('/api/giveaways');
+    const gs = await res.json();
+    document.getElementById('liste-giveaways').innerHTML = gs.map(g => `
+      <div class="carte">
+        <div style="font-weight:600;">${g.prize} — ${g.participants.length} participant(s)</div>
+        <div style="color:var(--text-dim);font-size:13px;">${g.ended ? 'Terminé' : 'En cours'}</div>
+        ${!g.ended ? `<button class="petit secondaire" onclick="terminerGiveawayPanel('${g.id}')">Terminer maintenant</button>` : ''}
+      </div>
+    `).join('') || '<p style="color:var(--text-dim);">Aucun giveaway.</p>';
+  }
+  async function creerGiveaway() {
+    const statut = document.getElementById('giveaway-statut');
+    const res = await fetch('/api/giveaways', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        channelId: document.getElementById('giveaway-salon').value,
+        prize: document.getElementById('giveaway-prize').value,
+        durationMinutes: document.getElementById('giveaway-duree').value,
+        winnersCount: document.getElementById('giveaway-gagnants').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) chargerGiveaways();
+  }
+  async function terminerGiveawayPanel(id) {
+    await fetch(`/api/giveaways/${id}/end`, { method: 'POST' });
+    chargerGiveaways();
+  }
+
+  chargerCompte();
+  chargerStats();
+</script>
+
+</body>
+</html>
