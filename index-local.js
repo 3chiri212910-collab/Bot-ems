@@ -737,8 +737,76 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // ---- Commande /rapport ----
-  // ---- Commandes slash de gestion des tickets (à utiliser dans le fil du ticket) ----
-  const commandesTicket = ["rename", "claim", "unclaim", "add", "remove", "priority", "reopen", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"];
+  // ---- Commandes slash "générales" : utilisables dans N'IMPORTE QUEL salon/fil ----
+  const commandesGenerales = ["rename", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"];
+  if (interaction.isChatInputCommand() && commandesGenerales.includes(interaction.commandName)) {
+    if (!estStaffTicket(interaction)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+
+    const salon = interaction.channel;
+
+    switch (interaction.commandName) {
+      case "rename": {
+        const nom = interaction.options.getString("nom");
+        await salon.setName(nom.slice(0, 100)).catch(() => {});
+        return interaction.reply({ content: `✅ Salon renommé en **${nom}**.`, ephemeral: true });
+      }
+      case "transcript": {
+        await interaction.deferReply({ ephemeral: true });
+        const { buffer, nomFichier } = await envoyerTranscript(salon, "📄 Transcript demandé", `Transcript généré manuellement par <@${interaction.user.id}> dans <#${salon.id}>.`);
+        return interaction.editReply({ content: "✅ Transcript généré et envoyé dans le salon de logs.", files: [{ attachment: buffer, name: nomFichier }] });
+      }
+      case "clear": {
+        const nombre = interaction.options.getInteger("nombre");
+        await interaction.deferReply({ ephemeral: true });
+        const supprimes = await salon.bulkDelete(nombre, true).catch(() => null);
+        return interaction.editReply({ content: supprimes ? `✅ ${supprimes.size} message(s) supprimé(s).` : "⚠️ Échec (messages de plus de 14 jours ?)." });
+      }
+      case "lock": {
+        if (salon.isThread && salon.isThread()) {
+          await salon.setLocked(true).catch(() => {});
+        } else {
+          await salon.permissionOverwrites.edit(salon.guild.roles.everyone, { SendMessages: false }).catch(() => {});
+        }
+        await salon.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔒 Salon verrouillé par <@${interaction.user.id}>`)] }).catch(() => {});
+        return interaction.reply({ content: "✅ Salon verrouillé.", ephemeral: true });
+      }
+      case "unlock": {
+        if (salon.isThread && salon.isThread()) {
+          await salon.setLocked(false).catch(() => {});
+        } else {
+          await salon.permissionOverwrites.edit(salon.guild.roles.everyone, { SendMessages: null }).catch(() => {});
+        }
+        await salon.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔓 Salon déverrouillé par <@${interaction.user.id}>`)] }).catch(() => {});
+        return interaction.reply({ content: "✅ Salon déverrouillé.", ephemeral: true });
+      }
+      case "slowmode": {
+        const secondes = interaction.options.getInteger("secondes");
+        await salon.setRateLimitPerUser(secondes).catch(() => {});
+        return interaction.reply({ content: `✅ Mode lent défini sur ${secondes}s.`, ephemeral: true });
+      }
+      case "nuke": {
+        await interaction.deferReply({ ephemeral: true });
+        await envoyerTranscript(salon, "💣 Transcript — Avant nuke", `Purge complète effectuée par <@${interaction.user.id}> dans <#${salon.id}>.`).catch(() => {});
+        let total = 0;
+        while (true) {
+          const lot = await salon.messages.fetch({ limit: 100 }).catch(() => null);
+          if (!lot || !lot.size) break;
+          const supprimables = lot.filter((m) => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
+          if (!supprimables.size) break;
+          const res = await salon.bulkDelete(supprimables, true).catch(() => null);
+          if (!res || !res.size) break;
+          total += res.size;
+        }
+        return interaction.editReply({ content: `💣 ${total} message(s) purgé(s). Transcript sauvegardé dans les logs.` });
+      }
+    }
+    return;
+  }
+
+  // ---- Commandes slash propres aux TICKETS (nécessitent d'être dans un fil de ticket) ----
+  const commandesTicket = ["claim", "unclaim", "add", "remove", "priority", "reopen"];
   if (interaction.isChatInputCommand() && commandesTicket.includes(interaction.commandName)) {
     if (!estStaffTicket(interaction)) {
       return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
@@ -767,11 +835,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     switch (interaction.commandName) {
-      case "rename": {
-        const nom = interaction.options.getString("nom");
-        await thread.setName(nom.slice(0, 100)).catch(() => {});
-        return interaction.reply({ content: `✅ Ticket renommé en **${nom}**.`, ephemeral: true });
-      }
       case "claim": {
         tickets[userId].claimedBy = interaction.user.id;
         sauverTickets();
@@ -805,47 +868,6 @@ client.on("interactionCreate", async (interaction) => {
         await thread.setName(`${emoji} ${nomSansEmoji}`.slice(0, 100)).catch(() => {});
         await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`${emoji} Priorité définie sur **${niveau}** par <@${interaction.user.id}>`)] });
         return interaction.reply({ content: `✅ Priorité définie sur **${niveau}**.`, ephemeral: true });
-      }
-      case "transcript": {
-        await interaction.deferReply({ ephemeral: true });
-        const { buffer, nomFichier } = await envoyerTranscript(thread, "📄 Transcript demandé", `Transcript généré manuellement par <@${interaction.user.id}>.`);
-        return interaction.editReply({ content: "✅ Transcript généré et envoyé dans le salon de logs.", files: [{ attachment: buffer, name: nomFichier }] });
-      }
-      case "clear": {
-        const nombre = interaction.options.getInteger("nombre");
-        await interaction.deferReply({ ephemeral: true });
-        const supprimes = await thread.bulkDelete(nombre, true).catch(() => null);
-        return interaction.editReply({ content: supprimes ? `✅ ${supprimes.size} message(s) supprimé(s).` : "⚠️ Échec (messages de plus de 14 jours ?)." });
-      }
-      case "lock": {
-        await thread.setLocked(true).catch(() => {});
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔒 Ticket verrouillé par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: "✅ Ticket verrouillé.", ephemeral: true });
-      }
-      case "unlock": {
-        await thread.setLocked(false).catch(() => {});
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔓 Ticket déverrouillé par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: "✅ Ticket déverrouillé.", ephemeral: true });
-      }
-      case "slowmode": {
-        const secondes = interaction.options.getInteger("secondes");
-        await thread.setRateLimitPerUser(secondes).catch(() => {});
-        return interaction.reply({ content: `✅ Mode lent défini sur ${secondes}s.`, ephemeral: true });
-      }
-      case "nuke": {
-        await interaction.deferReply({ ephemeral: true });
-        await envoyerTranscript(thread, "💣 Transcript — Avant nuke", `Purge complète effectuée par <@${interaction.user.id}>.`).catch(() => {});
-        let total = 0;
-        while (true) {
-          const lot = await thread.messages.fetch({ limit: 100 }).catch(() => null);
-          if (!lot || !lot.size) break;
-          const supprimables = lot.filter((m) => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
-          if (!supprimables.size) break;
-          const res = await thread.bulkDelete(supprimables, true).catch(() => null);
-          if (!res || !res.size) break;
-          total += res.size;
-        }
-        return interaction.editReply({ content: `💣 ${total} message(s) purgé(s). Transcript sauvegardé dans les logs.` });
       }
     }
     return;
