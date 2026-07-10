@@ -17,8 +17,12 @@ const {
 } = require("discord.js");
 const express = require("express");
 const session = require("express-session");
+const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+
+// Upload en mémoire (le fichier n'est jamais écrit sur le disque, il part direct dans le message Discord)
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 // ==============================
 // CONFIGURATION - variables d'environnement (Render > Environment)
@@ -159,6 +163,59 @@ client.on("guildMemberAdd", async (member) => {
 // ==============================
 // SYSTEME DE TICKETS DM <-> THREAD
 // ==============================
+function boutonsTicket() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Prendre en charge").setEmoji("🙋").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket_rename").setLabel("Renommer").setEmoji("✏️").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("ticket_close").setLabel("Fermer").setEmoji("🔒").setStyle(ButtonStyle.Danger)
+  );
+}
+
+function estStaffTicket(interaction) {
+  return interaction.member && interaction.member.permissions.has(PermissionsBitField.Flags.ManageThreads);
+}
+
+async function fermerTicketParThread(threadId, fermePar) {
+  const userId = trouverUserIdParThread(threadId);
+  const thread = await client.channels.fetch(threadId).catch(() => null);
+
+  if (thread) {
+    await thread
+      .send({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COULEUR_EMBED)
+            .setTitle("🔒 Ticket fermé")
+            .setDescription(`Fermé par **${fermePar}**.`)
+            .setTimestamp(),
+        ],
+      })
+      .catch(() => {});
+    await thread.setName(`Fermé - ${thread.name}`.slice(0, 100)).catch(() => {});
+    await thread.setArchived(true).catch(() => {});
+    await thread.setLocked(true).catch(() => {});
+  }
+
+  if (userId) {
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (user) {
+      await user
+        .send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(COULEUR_EMBED)
+              .setTitle("🔒 Ticket fermé")
+              .setDescription("Ton ticket a été fermé par l'équipe. Si tu as besoin d'aide à nouveau, renvoie-moi simplement un message ici pour en ouvrir un nouveau.")
+              .setTimestamp(),
+          ],
+        })
+        .catch(() => {});
+    }
+    delete tickets[userId];
+    sauverTickets();
+  }
+}
+
 async function obtenirOuCreerThread(user) {
   if (!config.ticketStaffChannelId) throw new Error("Salon staff tickets non configuré (voir panel > Bienvenue)");
   const staffChannel = await client.channels.fetch(config.ticketStaffChannelId).catch(() => null);
@@ -170,7 +227,7 @@ async function obtenirOuCreerThread(user) {
     const thread = await client.channels.fetch(existant.threadId).catch(() => null);
     if (thread) {
       if (thread.archived) await thread.setArchived(false).catch(() => {});
-      return thread;
+      return { thread, nouveau: false };
     }
   }
 
@@ -192,9 +249,10 @@ async function obtenirOuCreerThread(user) {
         .setDescription(`Ouvert par **${user.tag}** (\`${user.id}\`)\n\nRépondez directement dans ce fil, ça part en DM à la personne.`)
         .setTimestamp(),
     ],
+    components: [boutonsTicket()],
   });
 
-  return thread;
+  return { thread, nouveau: true };
 }
 
 client.on("messageCreate", async (message) => {
@@ -202,13 +260,28 @@ client.on("messageCreate", async (message) => {
 
   if (message.channel.type === ChannelType.DM) {
     try {
-      const thread = await obtenirOuCreerThread(message.author);
+      const { thread, nouveau } = await obtenirOuCreerThread(message.author);
       await thread.send({
         content: `**${message.author.tag}** :\n${message.content || "*(pièce jointe / message vide)*"}`,
         files: [...message.attachments.values()],
       });
+
+      if (nouveau) {
+        await message.author.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(COULEUR_EMBED)
+              .setTitle("🎫 Ticket ouvert")
+              .setDescription("Ton message a bien été transmis à l'équipe. Ton ticket va être pris en charge, tu peux continuer à écrire ici, ça arrive directement au staff.")
+              .setTimestamp(),
+          ],
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error("Erreur relais DM->thread:", e);
+      await message.author.send(
+        "⚠️ Désolé, le système de tickets n'est pas encore configuré côté serveur. Contacte le staff autrement en attendant."
+      ).catch(() => {});
     }
     return;
   }
@@ -280,6 +353,54 @@ function planifierFinGiveaway(g) {
 }
 
 client.on("interactionCreate", async (interaction) => {
+  // ---- Boutons ticket ----
+  if (interaction.isButton() && interaction.customId === "ticket_claim") {
+    if (!estStaffTicket(interaction)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+    await interaction.channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setDescription(`🙋 Ticket pris en charge par <@${interaction.user.id}>`),
+      ],
+    });
+    return interaction.reply({ content: "Tu as pris ce ticket en charge.", ephemeral: true });
+  }
+
+  if (interaction.isButton() && interaction.customId === "ticket_rename") {
+    if (!estStaffTicket(interaction)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+    const modal = new ModalBuilder().setCustomId("ticket_rename_modal").setTitle("Renommer le ticket");
+    const nomInput = new TextInputBuilder()
+      .setCustomId("nouveau_nom")
+      .setLabel("Nouveau nom du ticket")
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder("Ex: Ticket - Angel Santiago (urgent)")
+      .setMaxLength(90)
+      .setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(nomInput));
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId === "ticket_rename_modal") {
+    const nouveauNom = interaction.fields.getTextInputValue("nouveau_nom");
+    if (interaction.channel && interaction.channel.isThread && interaction.channel.isThread()) {
+      await interaction.channel.setName(nouveauNom.slice(0, 100)).catch(() => {});
+    }
+    return interaction.reply({ content: `✅ Ticket renommé en **${nouveauNom}**.`, ephemeral: true });
+  }
+
+  if (interaction.isButton() && interaction.customId === "ticket_close") {
+    if (!estStaffTicket(interaction)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+    await interaction.reply({ content: "🔒 Fermeture du ticket en cours...", ephemeral: true });
+    await fermerTicketParThread(interaction.channel.id, interaction.user.tag);
+    return;
+  }
+
   // ---- Bouton giveaway ----
   if (interaction.isButton() && interaction.customId.startsWith("giveaway_")) {
     const id = interaction.customId.replace("giveaway_", "");
@@ -797,7 +918,7 @@ app.post("/api/settings", authRequis, (req, res) => {
 });
 
 // ---- Annonces / Embeds ----
-app.post("/api/send-embed", authRequis, async (req, res) => {
+app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, res) => {
   const { channelId, title, description, color, imageUrl, footer } = req.body;
   if (!channelId || !title) return res.status(400).json({ erreur: "channelId et title sont requis" });
 
@@ -807,10 +928,21 @@ app.post("/api/send-embed", authRequis, async (req, res) => {
 
     const embed = new EmbedBuilder().setTitle(title).setColor(color || COULEUR_EMBED).setTimestamp();
     if (description) embed.setDescription(description);
-    if (imageUrl) embed.setImage(imageUrl);
     if (footer) embed.setFooter({ text: footer });
 
-    await channel.send({ embeds: [embed] });
+    const options = { embeds: [embed] };
+
+    if (req.file) {
+      // Image envoyée depuis l'ordinateur : elle part en pièce jointe avec le message
+      const nomFichier = "image" + path.extname(req.file.originalname || "").slice(0, 10) || "image.png";
+      embed.setImage(`attachment://${nomFichier}`);
+      options.files = [{ attachment: req.file.buffer, name: nomFichier }];
+    } else if (imageUrl) {
+      // Sinon, si une URL a été fournie, on l'utilise telle quelle
+      embed.setImage(imageUrl);
+    }
+
+    await channel.send(options);
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur envoi embed:", e);
@@ -851,11 +983,7 @@ app.post("/api/tickets/:userId/close", authRequis, async (req, res) => {
   if (!ticket) return res.status(404).json({ erreur: "Ticket introuvable" });
 
   try {
-    const thread = await client.channels.fetch(ticket.threadId).catch(() => null);
-    if (thread) {
-      await thread.setArchived(true).catch(() => {});
-      await thread.setLocked(true).catch(() => {});
-    }
+    await fermerTicketParThread(ticket.threadId, req.session.user.username + " (panel)");
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur fermeture ticket:", e);
