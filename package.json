@@ -1,0 +1,12 @@
+{
+  "name": "rapport-bot",
+  "version": "1.0.0",
+  "description": "Bot Discord de rapport medical RP",
+  "main": "index-local.js",
+  "scripts": {
+    "start": "node index-local.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1"
+  }
+}
