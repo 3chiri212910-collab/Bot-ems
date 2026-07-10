@@ -1,12 +1,17 @@
 {
-  "name": "rapport-bot",
+  "name": "ems-bot",
   "version": "1.0.0",
-  "description": "Bot Discord de rapport medical RP",
+  "description": "Bot Discord EMS - panel de gestion complet (moderation, salons, roles, bienvenue, tickets, giveaways)",
   "main": "index-local.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node index-local.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1"
+    "discord.js": "^14.14.1",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
   }
 }
