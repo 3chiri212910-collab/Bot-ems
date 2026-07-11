@@ -67,6 +67,23 @@ function ecrire(fichier, data) {
   }
 }
 
+// ---- Valeurs par défaut du système de validation des candidatures (tickets) ----
+const CANDIDATURES_DEFAUT = {
+  actif: false,
+  salonValidation: null,
+  salonRefus: null, // si vide, on retombe sur salonValidation
+  roleValid: null,
+  roleRefus: null,
+  mpActif: true,
+  mentionUser: true,
+  fermetureAuto: false,
+  fermetureDelai: 10, // secondes
+  messageValidation: "✅ {mention} Ta candidature (**{ticket}**) a été **validée** par {staff}.",
+  messageRefus: "❌ {mention} Ta candidature (**{ticket}**) a été **refusée** par {staff}.",
+  mpValidation: "Bonjour **{username}**,\nTa candidature sur **{server}** a été **validée** par {staff}.\n📅 {date}",
+  mpRefus: "Bonjour **{username}**,\nTa candidature sur **{server}** a été **refusée** par {staff}.\n📅 {date}",
+};
+
 let config = lire(CONFIG_FILE, {
   autoRoleId: null,
   welcomeChannelId: null,
@@ -74,12 +91,36 @@ let config = lire(CONFIG_FILE, {
   ticketStaffChannelId: null,
   ticketLogsChannelId: null, // salon où partent les transcripts / logs de tickets (fallback: ticketStaffChannelId)
   ticketCounter: 0,
+  candidatures: { ...CANDIDATURES_DEFAUT },
 });
+// Fusion défensive : si le config.json existant ne contient pas (encore) le bloc "candidatures"
+// (ancienne installation), on l'ajoute avec les valeurs par défaut sans écraser le reste.
+config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
+
 let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority } }
 let giveaways = lire(GIVEAWAYS_FILE, {}); // { [id]: {...} }
 let closedTickets = lire(CLOSED_TICKETS_FILE, {}); // { [threadId]: { userId, username, number, closedAt } } - pour /reopen
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
+
+// ---- Remplacement des variables dans les messages personnalisables ----
+function remplacerVariables(texte, vars) {
+  return String(texte || "")
+    .replaceAll("{user}", vars.user ?? "")
+    .replaceAll("{mention}", vars.mention ?? "")
+    .replaceAll("{username}", vars.username ?? "")
+    .replaceAll("{server}", vars.server ?? "")
+    .replaceAll("{staff}", vars.staff ?? "")
+    .replaceAll("{ticket}", vars.ticket ?? "")
+    .replaceAll("{date}", vars.date ?? "")
+    .replaceAll("{raison}", vars.raison ?? "");
+}
+
+function estAutoriseCandidature(interaction, roleId) {
+  if (interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
+  if (!roleId) return false;
+  return interaction.member.roles.cache.has(roleId);
+}
 function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
 function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
 function sauverClosedTickets() { ecrire(CLOSED_TICKETS_FILE, closedTickets); }
@@ -164,6 +205,16 @@ const commands = [
     .setDescription("Définir le mode lent du ticket en cours")
     .addIntegerOption((o) => o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)),
   new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du ticket en cours"),
+
+  // ---- Validation des candidatures (à utiliser DANS le fil du ticket) ----
+  new SlashCommandBuilder()
+    .setName("valid")
+    .setDescription("Valider la candidature du ticket en cours")
+    .addStringOption((o) => o.setName("raison").setDescription("Commentaire (optionnel)").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("refuser")
+    .setDescription("Refuser la candidature du ticket en cours")
+    .addStringOption((o) => o.setName("raison").setDescription("Raison du refus (optionnel)").setRequired(false)),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -874,6 +925,107 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
+  // ---- Commandes /valid et /refuser (validation des candidatures) ----
+  if (interaction.isChatInputCommand() && (interaction.commandName === "valid" || interaction.commandName === "refuser")) {
+    const cfg = config.candidatures;
+    const estValidation = interaction.commandName === "valid";
+
+    if (!cfg.actif) {
+      return interaction.reply({ content: "⛔ Le système de validation des candidatures est désactivé (panel web).", ephemeral: true });
+    }
+
+    const roleAutorise = estValidation ? cfg.roleValid : cfg.roleRefus;
+    if (!estAutoriseCandidature(interaction, roleAutorise)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+
+    const thread = interaction.channel;
+    const estThread = thread && thread.isThread && thread.isThread();
+    const userId = estThread ? trouverUserIdParThread(thread.id) : null;
+
+    if (!estThread || !userId) {
+      return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket ouvert.", ephemeral: true });
+    }
+
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) {
+      return interaction.reply({ content: "⚠️ Impossible de retrouver le créateur de ce ticket.", ephemeral: true });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const raison = interaction.options.getString("raison") || "";
+    const maintenant = new Date();
+    const dateStr = `${maintenant.toLocaleDateString("fr-FR")} ${maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+
+    const vars = {
+      user: user.tag,
+      mention: `<@${user.id}>`,
+      username: user.username,
+      server: interaction.guild.name,
+      staff: interaction.user.tag,
+      ticket: thread.name,
+      date: dateStr,
+      raison,
+    };
+
+    const salonId = (estValidation ? cfg.salonValidation : cfg.salonRefus) || cfg.salonValidation;
+    const messageTemplate = estValidation ? cfg.messageValidation : cfg.messageRefus;
+    const mpTemplate = estValidation ? cfg.mpValidation : cfg.mpRefus;
+    const couleur = estValidation ? "#2ecc71" : "#e74c3c";
+
+    let texteResultat = remplacerVariables(messageTemplate, vars);
+    if (raison) texteResultat += `\n**Raison :** ${raison}`;
+
+    // ---- Envoi dans le salon de résultat configuré ----
+    if (salonId) {
+      const salonResultat = await client.channels.fetch(salonId).catch(() => null);
+      if (salonResultat) {
+        await salonResultat
+          .send({
+            content: cfg.mentionUser ? vars.mention : undefined,
+            embeds: [
+              new EmbedBuilder()
+                .setColor(couleur)
+                .setDescription(texteResultat)
+                .setFooter({ text: `Par ${interaction.user.tag}` })
+                .setTimestamp(),
+            ],
+          })
+          .catch((e) => console.error("Erreur envoi salon résultat candidature:", e));
+      }
+    }
+
+    // ---- Envoi en MP ----
+    let mpEnvoye = false;
+    if (cfg.mpActif) {
+      let texteMp = remplacerVariables(mpTemplate, vars);
+      if (raison) texteMp += `\n**Raison :** ${raison}`;
+      mpEnvoye = await user
+        .send({ embeds: [new EmbedBuilder().setColor(couleur).setDescription(texteMp).setTimestamp()] })
+        .then(() => true)
+        .catch(() => false);
+    }
+
+    // ---- Confirmation éphémère au staff ----
+    const suffixeMp = cfg.mpActif ? (mpEnvoye ? " (MP envoyé ✅)" : " (⚠️ MP non envoyé, DMs fermés ?)") : "";
+    await interaction.editReply({
+      content: `${estValidation ? "✅" : "❌"} Candidature de <@${userId}> ${estValidation ? "validée" : "refusée"}.${suffixeMp}`,
+    });
+
+    // ---- Fermeture automatique du ticket ----
+    if (cfg.fermetureAuto) {
+      const delaiMs = Math.max(0, parseInt(cfg.fermetureDelai, 10) || 0) * 1000;
+      setTimeout(() => {
+        fermerTicketParThread(thread.id, `${interaction.user.tag} (${estValidation ? "validation" : "refus"} auto)`).catch((e) =>
+          console.error("Erreur fermeture auto ticket:", e)
+        );
+      }, delaiMs);
+    }
+
+    return;
+  }
+
   if (interaction.isChatInputCommand() && interaction.commandName === "rapport") {
     const modal = new ModalBuilder()
       .setCustomId("rapportModal")
@@ -1239,15 +1391,56 @@ app.post("/api/members/:id/roles/:roleId", authRequis, async (req, res) => {
 app.get("/api/settings", authRequis, (req, res) => res.json(config));
 
 app.post("/api/settings", authRequis, (req, res) => {
-  const { autoRoleId, welcomeChannelId, welcomeMessage, ticketStaffChannelId } = req.body;
-  config = {
-    autoRoleId: autoRoleId || null,
-    welcomeChannelId: welcomeChannelId || null,
-    welcomeMessage: welcomeMessage || config.welcomeMessage,
-    ticketStaffChannelId: ticketStaffChannelId || null,
-  };
+  const { autoRoleId, welcomeChannelId, welcomeMessage, ticketStaffChannelId, ticketLogsChannelId } = req.body;
+  // Fusion (et non écrasement) pour ne pas perdre ticketCounter / candidatures / etc.
+  config.autoRoleId = autoRoleId || null;
+  config.welcomeChannelId = welcomeChannelId || null;
+  config.welcomeMessage = welcomeMessage || config.welcomeMessage;
+  config.ticketStaffChannelId = ticketStaffChannelId || null;
+  config.ticketLogsChannelId = ticketLogsChannelId || null;
   sauverConfig();
   res.json({ succes: true });
+});
+
+// ---- Gestion des candidatures (validation/refus de tickets via /valid et /refuser) ----
+app.get("/api/settings/candidatures", authRequis, (req, res) => {
+  res.json(config.candidatures);
+});
+
+app.post("/api/settings/candidatures", authRequis, (req, res) => {
+  const {
+    actif,
+    salonValidation,
+    salonRefus,
+    roleValid,
+    roleRefus,
+    mpActif,
+    mentionUser,
+    fermetureAuto,
+    fermetureDelai,
+    messageValidation,
+    messageRefus,
+    mpValidation,
+    mpRefus,
+  } = req.body;
+
+  config.candidatures = {
+    actif: !!actif,
+    salonValidation: salonValidation || null,
+    salonRefus: salonRefus || null,
+    roleValid: roleValid || null,
+    roleRefus: roleRefus || null,
+    mpActif: mpActif !== undefined ? !!mpActif : config.candidatures.mpActif,
+    mentionUser: mentionUser !== undefined ? !!mentionUser : config.candidatures.mentionUser,
+    fermetureAuto: !!fermetureAuto,
+    fermetureDelai: Math.max(0, parseInt(fermetureDelai, 10) || 0),
+    messageValidation: messageValidation || CANDIDATURES_DEFAUT.messageValidation,
+    messageRefus: messageRefus || CANDIDATURES_DEFAUT.messageRefus,
+    mpValidation: mpValidation || CANDIDATURES_DEFAUT.mpValidation,
+    mpRefus: mpRefus || CANDIDATURES_DEFAUT.mpRefus,
+  };
+  sauverConfig();
+  res.json({ succes: true, candidatures: config.candidatures });
 });
 
 // ---- Annonces / Embeds ----
