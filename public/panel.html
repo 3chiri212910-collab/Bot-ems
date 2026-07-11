@@ -94,6 +94,14 @@
   .role-badge { display: inline-block; background: var(--accent-dim); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px 4px 2px 0; }
   .role-badge button { all: unset; cursor: pointer; margin-left: 6px; font-weight: 700; }
   a.discret { color: var(--text-dim); font-size: 13px; }
+  .case-ligne { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
+  .case-ligne input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+  .case-ligne label { margin: 0; color: var(--text); font-size: 14px; cursor: pointer; }
+  .variables-info { font-size: 12px; color: var(--text-dim); background: var(--bg-alt); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-top: 6px; line-height: 1.6; }
+  .variables-info code { color: var(--accent); }
+  .sous-titre { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin: 26px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .sous-titre:first-of-type { margin-top: 4px; }
+  .deux-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 </style>
 </head>
 <body>
@@ -105,6 +113,7 @@
   <div class="tab" data-tab="salons">💬 Salons</div>
   <div class="tab" data-tab="roles">🎭 Rôles</div>
   <div class="tab" data-tab="bienvenue">👋 Bienvenue & Auto-rôle</div>
+  <div class="tab" data-tab="candidatures">✅ Candidatures</div>
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
@@ -177,8 +186,82 @@
     <label>Salon staff pour les tickets</label>
     <select id="param-salon-tickets"><option value="">Aucun</option></select>
 
+    <label>Salon des logs de tickets (transcripts, ouvertures/fermetures)</label>
+    <select id="param-salon-logs-tickets"><option value="">Aucun (utilise le salon staff)</option></select>
+
     <button onclick="sauverParametres()">Enregistrer</button>
     <div id="param-statut"></div>
+  </section>
+
+  <!-- CANDIDATURES -->
+  <section id="vue-candidatures" class="hidden">
+    <h2>Gestion des candidatures</h2>
+
+    <div class="case-ligne">
+      <input type="checkbox" id="cand-actif" />
+      <label for="cand-actif">Activer le système de validation (/valid, /refuser)</label>
+    </div>
+
+    <div class="sous-titre">Salons de résultat</div>
+    <div class="deux-col">
+      <div>
+        <label>Salon des validations</label>
+        <select id="cand-salon-validation"><option value="">Aucun</option></select>
+      </div>
+      <div>
+        <label>Salon des refus (optionnel)</label>
+        <select id="cand-salon-refus"><option value="">Utiliser le même que validation</option></select>
+      </div>
+    </div>
+
+    <div class="sous-titre">Permissions</div>
+    <div class="deux-col">
+      <div>
+        <label>Rôle autorisé à utiliser /valid</label>
+        <select id="cand-role-valid"><option value="">Administrateurs uniquement</option></select>
+      </div>
+      <div>
+        <label>Rôle autorisé à utiliser /refuser</label>
+        <select id="cand-role-refus"><option value="">Administrateurs uniquement</option></select>
+      </div>
+    </div>
+
+    <div class="sous-titre">Options</div>
+    <div class="case-ligne">
+      <input type="checkbox" id="cand-mp-actif" />
+      <label for="cand-mp-actif">Envoyer un message privé au candidat</label>
+    </div>
+    <div class="case-ligne">
+      <input type="checkbox" id="cand-mention-user" />
+      <label for="cand-mention-user">Mentionner le candidat dans le salon de résultat</label>
+    </div>
+    <div class="case-ligne">
+      <input type="checkbox" id="cand-fermeture-auto" />
+      <label for="cand-fermeture-auto">Fermer automatiquement le ticket après validation/refus</label>
+    </div>
+    <label>Délai avant fermeture automatique (secondes)</label>
+    <input id="cand-fermeture-delai" type="number" min="0" value="10" />
+
+    <div class="sous-titre">Messages personnalisés</div>
+    <div class="variables-info">
+      Variables disponibles : <code>{user}</code> <code>{mention}</code> <code>{username}</code>
+      <code>{server}</code> <code>{staff}</code> <code>{ticket}</code> <code>{date}</code> <code>{raison}</code>
+    </div>
+
+    <label>Message envoyé dans le salon de résultat lors d'une validation</label>
+    <textarea id="cand-msg-validation"></textarea>
+
+    <label>Message envoyé dans le salon de résultat lors d'un refus</label>
+    <textarea id="cand-msg-refus"></textarea>
+
+    <label>Message privé (MP) envoyé lors d'une validation</label>
+    <textarea id="cand-mp-validation"></textarea>
+
+    <label>Message privé (MP) envoyé lors d'un refus</label>
+    <textarea id="cand-mp-refus"></textarea>
+
+    <button onclick="sauverCandidatures()">Enregistrer</button>
+    <div id="cand-statut"></div>
   </section>
 
   <!-- ANNONCES -->
@@ -231,7 +314,17 @@
 
 <script>
   const tabs = document.querySelectorAll('.tab');
-  const vues = { dashboard: chargerStats, moderation: null, salons: chargerSalonsListe, roles: chargerRolesListe, bienvenue: chargerParametres, embed: chargerSalons, tickets: chargerTickets, giveaways: chargerGiveaways };
+  const vues = {
+    dashboard: chargerStats,
+    moderation: null,
+    salons: chargerSalonsListe,
+    roles: chargerRolesListe,
+    bienvenue: chargerParametres,
+    candidatures: chargerCandidatures,
+    embed: chargerSalons,
+    tickets: chargerTickets,
+    giveaways: chargerGiveaways,
+  };
 
   tabs.forEach(tab => tab.addEventListener('click', () => {
     tabs.forEach(t => t.classList.remove('actif'));
@@ -382,11 +475,13 @@
     document.getElementById('param-autorole').innerHTML = optionsRoles;
     document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
     document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
+    document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun (utilise le salon staff)</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
 
     document.getElementById('param-autorole').value = params.autoRoleId || '';
     document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
     document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
     document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
+    document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
   }
   async function sauverParametres() {
     const statut = document.getElementById('param-statut');
@@ -397,6 +492,63 @@
         welcomeChannelId: document.getElementById('param-salon-bienvenue').value,
         welcomeMessage: document.getElementById('param-message-bienvenue').value,
         ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
+        ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  }
+
+  // ---- CANDIDATURES ----
+  async function chargerCandidatures() {
+    const [salons, roles, cfg] = await Promise.all([
+      (await fetch('/api/channels')).json(),
+      (await fetch('/api/roles')).json(),
+      (await fetch('/api/settings/candidatures')).json(),
+    ]);
+
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsSalonRefus = '<option value="">Utiliser le même que validation</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsRoles = '<option value="">Administrateurs uniquement</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+    document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
+    document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
+    document.getElementById('cand-role-valid').innerHTML = optionsRoles;
+    document.getElementById('cand-role-refus').innerHTML = optionsRoles;
+
+    document.getElementById('cand-actif').checked = !!cfg.actif;
+    document.getElementById('cand-salon-validation').value = cfg.salonValidation || '';
+    document.getElementById('cand-salon-refus').value = cfg.salonRefus || '';
+    document.getElementById('cand-role-valid').value = cfg.roleValid || '';
+    document.getElementById('cand-role-refus').value = cfg.roleRefus || '';
+    document.getElementById('cand-mp-actif').checked = cfg.mpActif !== false;
+    document.getElementById('cand-mention-user').checked = cfg.mentionUser !== false;
+    document.getElementById('cand-fermeture-auto').checked = !!cfg.fermetureAuto;
+    document.getElementById('cand-fermeture-delai').value = cfg.fermetureDelai ?? 10;
+    document.getElementById('cand-msg-validation').value = cfg.messageValidation || '';
+    document.getElementById('cand-msg-refus').value = cfg.messageRefus || '';
+    document.getElementById('cand-mp-validation').value = cfg.mpValidation || '';
+    document.getElementById('cand-mp-refus').value = cfg.mpRefus || '';
+  }
+
+  async function sauverCandidatures() {
+    const statut = document.getElementById('cand-statut');
+    const res = await fetch('/api/settings/candidatures', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        actif: document.getElementById('cand-actif').checked,
+        salonValidation: document.getElementById('cand-salon-validation').value,
+        salonRefus: document.getElementById('cand-salon-refus').value,
+        roleValid: document.getElementById('cand-role-valid').value,
+        roleRefus: document.getElementById('cand-role-refus').value,
+        mpActif: document.getElementById('cand-mp-actif').checked,
+        mentionUser: document.getElementById('cand-mention-user').checked,
+        fermetureAuto: document.getElementById('cand-fermeture-auto').checked,
+        fermetureDelai: document.getElementById('cand-fermeture-delai').value,
+        messageValidation: document.getElementById('cand-msg-validation').value,
+        messageRefus: document.getElementById('cand-msg-refus').value,
+        mpValidation: document.getElementById('cand-mp-validation').value,
+        mpRefus: document.getElementById('cand-mp-refus').value,
       })
     });
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
