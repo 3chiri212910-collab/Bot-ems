@@ -37,6 +37,12 @@ const SESSION_SECRET = process.env.SESSION_SECRET || "change-moi-en-prod";
 const PORT = process.env.PORT || 3000;
 const GUILD_ID = process.env.GUILD_ID || "TON_GUILD_ID_ICI";
 
+// Upstash Redis (stockage persistant gratuit - survit aux redémarrages/redéploiements Render,
+// contrairement au disque local qui est effacé à chaque fois sur le plan gratuit)
+const UPSTASH_URL = (process.env.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
+const REDIS_ACTIF = !!(UPSTASH_URL && UPSTASH_TOKEN);
+
 // Rôles autorisés à accéder au panel (en plus des administrateurs)
 const ROLES_AUTORISES = ["1524935532914933837", "1524975599460814888"];
 
@@ -44,7 +50,7 @@ const NOM_SERVEUR = "EMS";
 const COULEUR_EMBED = "#ff2d78"; // rose
 
 // ==============================
-// STOCKAGE (fichiers JSON locaux - simples, gratuits, pas de DB)
+// STOCKAGE (fichiers JSON locaux + copie persistante sur Upstash Redis)
 // ==============================
 const DATA_DIR = __dirname;
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
@@ -64,6 +70,36 @@ function ecrire(fichier, data) {
     fs.writeFileSync(fichier, JSON.stringify(data, null, 2));
   } catch (e) {
     console.error(`Erreur écriture ${fichier}:`, e);
+  }
+  // Sauvegarde persistante sur Upstash Redis (le disque Render gratuit est effacé à chaque redémarrage)
+  redisSet(path.basename(fichier, ".json"), data);
+}
+
+// ---- Upstash Redis : stockage persistant (gratuit) qui survit aux redémarrages Render ----
+async function redisGet(cle) {
+  if (!REDIS_ACTIF) return null;
+  try {
+    const res = await fetch(`${UPSTASH_URL}/get/${cle}`, {
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+    });
+    const data = await res.json();
+    return data && data.result ? JSON.parse(data.result) : null;
+  } catch (e) {
+    console.error(`Erreur lecture Redis (${cle}):`, e.message);
+    return null;
+  }
+}
+
+async function redisSet(cle, valeur) {
+  if (!REDIS_ACTIF) return;
+  try {
+    await fetch(`${UPSTASH_URL}/set/${cle}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+      body: JSON.stringify(valeur),
+    });
+  } catch (e) {
+    console.error(`Erreur écriture Redis (${cle}):`, e.message);
   }
 }
 
@@ -100,6 +136,26 @@ config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) }
 let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority } }
 let giveaways = lire(GIVEAWAYS_FILE, {}); // { [id]: {...} }
 let closedTickets = lire(CLOSED_TICKETS_FILE, {}); // { [threadId]: { userId, username, number, closedAt } } - pour /reopen
+
+// ---- Recharge les données depuis Upstash Redis au démarrage ----
+// (le fichier local est vide/par défaut juste après un redémarrage ou redéploiement Render)
+async function chargerDepuisRedis() {
+  if (!REDIS_ACTIF) {
+    console.log("⚠️  UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés : la config et les tickets ne survivront PAS aux redémarrages Render.");
+    return;
+  }
+  const [c, t, g, ct] = await Promise.all([
+    redisGet("config"),
+    redisGet("tickets"),
+    redisGet("giveaways"),
+    redisGet("closed-tickets"),
+  ]);
+  if (c) config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
+  if (t) tickets = t;
+  if (g) giveaways = g;
+  if (ct) closedTickets = ct;
+  console.log("✅ Config, tickets et giveaways rechargés depuis Upstash Redis.");
+}
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
 
@@ -220,12 +276,14 @@ const commands = [
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
+  await chargerDepuisRedis();
   try {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log("Commande /rapport enregistrée avec succès.");
+    console.log("Commandes slash enregistrées avec succès.");
   } catch (error) {
     console.error(error);
   }
+  client.login(TOKEN);
 })();
 
 client.once("ready", () => {
@@ -1085,8 +1143,6 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.reply({ embeds: [embed] });
   }
 });
-
-client.login(TOKEN);
 
 // ==================================================================
 // ==================================================================
