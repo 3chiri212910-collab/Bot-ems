@@ -226,6 +226,10 @@
       </div>
     </div>
 
+    <div class="sous-titre">Récompense</div>
+    <label>Rôle attribué automatiquement au candidat lors d'une validation (/valid)</label>
+    <select id="cand-role-attribution"><option value="">Aucun</option></select>
+
     <div class="sous-titre">Options</div>
     <div class="case-ligne">
       <input type="checkbox" id="cand-mp-actif" />
@@ -510,17 +514,20 @@
     const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
     const optionsSalonRefus = '<option value="">Utiliser le même que validation</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
     const optionsRoles = '<option value="">Administrateurs uniquement</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    const optionsRolesAttribution = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
 
     document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
     document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
     document.getElementById('cand-role-valid').innerHTML = optionsRoles;
     document.getElementById('cand-role-refus').innerHTML = optionsRoles;
+    document.getElementById('cand-role-attribution').innerHTML = optionsRolesAttribution;
 
     document.getElementById('cand-actif').checked = !!cfg.actif;
     document.getElementById('cand-salon-validation').value = cfg.salonValidation || '';
     document.getElementById('cand-salon-refus').value = cfg.salonRefus || '';
     document.getElementById('cand-role-valid').value = cfg.roleValid || '';
     document.getElementById('cand-role-refus').value = cfg.roleRefus || '';
+    document.getElementById('cand-role-attribution').value = cfg.roleAValider || '';
     document.getElementById('cand-mp-actif').checked = cfg.mpActif !== false;
     document.getElementById('cand-mention-user').checked = cfg.mentionUser !== false;
     document.getElementById('cand-fermeture-auto').checked = !!cfg.fermetureAuto;
@@ -541,6 +548,7 @@
         salonRefus: document.getElementById('cand-salon-refus').value,
         roleValid: document.getElementById('cand-role-valid').value,
         roleRefus: document.getElementById('cand-role-refus').value,
+        roleAValider: document.getElementById('cand-role-attribution').value,
         mpActif: document.getElementById('cand-mp-actif').checked,
         mentionUser: document.getElementById('cand-mention-user').checked,
         fermetureAuto: document.getElementById('cand-fermeture-auto').checked,
