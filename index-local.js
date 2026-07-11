@@ -879,13 +879,6 @@ client.on("interactionCreate", async (interaction) => {
       .setCustomId("rapportModal")
       .setTitle("Rapport d'intervention médicale");
 
-    const soignantInput = new TextInputBuilder()
-      .setCustomId("soignant")
-      .setLabel("Ton nom et prénom (intervenant)")
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder("Ex: Roberto Galavera")
-      .setRequired(true);
-
     const patientInput = new TextInputBuilder()
       .setCustomId("patient")
       .setLabel("Nom et prénom du patient")
@@ -901,7 +894,6 @@ client.on("interactionCreate", async (interaction) => {
       .setRequired(true);
 
     modal.addComponents(
-      new ActionRowBuilder().addComponents(soignantInput),
       new ActionRowBuilder().addComponents(patientInput),
       new ActionRowBuilder().addComponents(situationInput)
     );
@@ -910,7 +902,6 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
-    const soignant = interaction.fields.getTextInputValue("soignant");
     const patient = interaction.fields.getTextInputValue("patient");
     const situation = interaction.fields.getTextInputValue("situation");
 
@@ -928,7 +919,7 @@ client.on("interactionCreate", async (interaction) => {
       .setTitle(`📋 Rapport Médical - ${NOM_SERVEUR}`)
       .addFields(
         { name: "👤 Patient", value: patient, inline: true },
-        { name: "🩺 Intervenant", value: soignant, inline: true },
+        { name: "🩺 Intervenant", value: `<@${interaction.user.id}>`, inline: true },
         { name: "🕒 Date et heure", value: `${dateStr} - ${heureStr}`, inline: false },
         { name: "📌 Motif de prise en charge", value: situation, inline: false },
         { name: "🔍 Examen réalisé", value: rapport.examen, inline: false },
@@ -936,7 +927,7 @@ client.on("interactionCreate", async (interaction) => {
         { name: "💉 Prise en charge", value: soinsTexte, inline: false },
         { name: "📝 Observations", value: rapport.observations, inline: false }
       )
-      .setFooter({ text: `Rapport généré par ${soignant}` })
+      .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
