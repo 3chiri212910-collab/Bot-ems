@@ -110,6 +110,7 @@ const CANDIDATURES_DEFAUT = {
   salonRefus: null, // si vide, on retombe sur salonValidation
   roleValid: null,
   roleRefus: null,
+  roleAValider: null, // 🆕 rôle attribué automatiquement au candidat quand /valid est utilisé
   mpActif: true,
   mentionUser: true,
   fermetureAuto: false,
@@ -1012,6 +1013,21 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.deferReply({ ephemeral: true });
 
+    // ---- Attribution automatique du rôle au candidat lors d'une validation (/valid) ----
+    let roleAttribue = false;
+    if (estValidation && cfg.roleAValider) {
+      const membreCible = await interaction.guild.members.fetch(userId).catch(() => null);
+      if (membreCible) {
+        roleAttribue = await membreCible.roles
+          .add(cfg.roleAValider)
+          .then(() => true)
+          .catch((e) => {
+            console.error("Erreur attribution rôle validation:", e.message);
+            return false;
+          });
+      }
+    }
+
     const raison = interaction.options.getString("raison") || "";
     const maintenant = new Date();
     const dateStr = `${maintenant.toLocaleDateString("fr-FR")} ${maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
@@ -1067,8 +1083,9 @@ client.on("interactionCreate", async (interaction) => {
 
     // ---- Confirmation éphémère au staff ----
     const suffixeMp = cfg.mpActif ? (mpEnvoye ? " (MP envoyé ✅)" : " (⚠️ MP non envoyé, DMs fermés ?)") : "";
+    const suffixeRole = estValidation && cfg.roleAValider ? (roleAttribue ? " (rôle attribué ✅)" : " (⚠️ rôle non attribué)") : "";
     await interaction.editReply({
-      content: `${estValidation ? "✅" : "❌"} Candidature de <@${userId}> ${estValidation ? "validée" : "refusée"}.${suffixeMp}`,
+      content: `${estValidation ? "✅" : "❌"} Candidature de <@${userId}> ${estValidation ? "validée" : "refusée"}.${suffixeMp}${suffixeRole}`,
     });
 
     // ---- Fermeture automatique du ticket ----
@@ -1470,6 +1487,7 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
     salonRefus,
     roleValid,
     roleRefus,
+    roleAValider,
     mpActif,
     mentionUser,
     fermetureAuto,
@@ -1486,6 +1504,7 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
     salonRefus: salonRefus || null,
     roleValid: roleValid || null,
     roleRefus: roleRefus || null,
+    roleAValider: roleAValider || null,
     mpActif: mpActif !== undefined ? !!mpActif : config.candidatures.mpActif,
     mentionUser: mentionUser !== undefined ? !!mentionUser : config.candidatures.mentionUser,
     fermetureAuto: !!fermetureAuto,
