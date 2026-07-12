@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Bot-ems Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07080d;
+    --accent: #ff2d78;
+    --accent-b: #3b82f6;
+    --accent-grad: linear-gradient(135deg, var(--accent), var(--accent-b));
+    --card-bg: rgba(20,23,35,0.68);
+    --border: rgba(148,163,184,0.10);
+    --text: #f2f3f7;
+    --text-dim: #8890a4;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* même ambiance que le panel : lueur rose/bleue en fond */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(circle at 78% 82%, rgba(255,45,120,0.20), transparent 42%),
+      radial-gradient(circle at 15% 15%, rgba(59,130,246,0.14), transparent 46%),
+      var(--bg);
+    animation: emsDrift 24s ease-in-out infinite alternate;
+  }
+  @keyframes emsDrift {
+    0%   { background-position: 0% 0%, 0% 0%; }
+    100% { background-position: 3% 3%, -3% -3%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body::before { animation: none; }
+  }
+
+  .carte {
+    position: relative;
+    z-index: 1;
+    width: min(400px, calc(100vw - 48px));
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 40px 36px 34px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 22px 60px -22px rgba(255,45,120,0.28), 0 10px 34px -14px rgba(0,0,0,0.6);
+    text-align: left;
+  }
+
+  .mark {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: var(--accent-grad);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+    margin-bottom: 22px;
+    box-shadow: 0 10px 26px -8px rgba(255,45,120,0.55);
+  }
+
+  h1 {
+    font-family: 'Sora', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 10px;
+  }
+
+  p.sous-titre {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 28px;
+  }
+
+  .boutons { display: flex; gap: 10px; }
+
+  a.bouton {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+  }
+  a.bouton.principal {
+    background: var(--accent-grad);
+    color: #fff;
+    box-shadow: 0 8px 22px -8px rgba(255,45,120,0.5);
+    border: none;
+  }
+  a.bouton.principal:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(255,45,120,0.65); }
+
+  a.bouton.secondaire {
+    background: #10121c;
+    border: 1px solid var(--border);
+    color: var(--text);
+    box-shadow: none;
+    flex: 0 0 auto;
+    padding: 12px 16px;
+  }
+  a.bouton.secondaire:hover { border-color: rgba(255,45,120,0.35); }
+
+  .footer-note {
+    margin-top: 22px;
+    font-size: 12px;
+    color: #545c72;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+  <div class="carte">
+    <div class="mark">🚑</div>
+    <h1>Bot-ems Dashboard</h1>
+    <p class="sous-titre">Gère les paramètres du bot en te connectant avec Discord.</p>
+    <div class="boutons">
+      <a class="bouton principal" href="/auth/discord">Login with Discord</a>
+      <a class="bouton secondaire" href="/login">Refresh</a>
+    </div>
+  </div>
+
+  <div class="footer-note">RoseFA · EMS</div>
+
+</body>
+</html>
