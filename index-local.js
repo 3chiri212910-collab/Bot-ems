@@ -57,6 +57,8 @@ const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const GIVEAWAYS_FILE = path.join(DATA_DIR, "giveaways.json");
 const CLOSED_TICKETS_FILE = path.join(DATA_DIR, "closed-tickets.json");
+const WARNS_FILE = path.join(DATA_DIR, "warns.json");
+const CAND_HISTORY_FILE = path.join(DATA_DIR, "candidatures-history.json");
 
 function lire(fichier, defaut) {
   try {
@@ -110,7 +112,7 @@ const CANDIDATURES_DEFAUT = {
   salonRefus: null, // si vide, on retombe sur salonValidation
   roleValid: null,
   roleRefus: null,
-  roleAValider: null, // 🆕 rôle attribué automatiquement au candidat quand /valid est utilisé
+  roleAValider: null, // rôle attribué automatiquement au candidat quand /valid est utilisé
   mpActif: true,
   mentionUser: true,
   fermetureAuto: false,
@@ -127,16 +129,22 @@ let config = lire(CONFIG_FILE, {
   welcomeMessage: "Bienvenue {user} sur **{server}** ! Tu es le membre **#{count}**.",
   ticketStaffChannelId: null,
   ticketLogsChannelId: null, // salon où partent les transcripts / logs de tickets (fallback: ticketStaffChannelId)
+  modLogsChannelId: null, // 🆕 salon des logs de modération (kick/ban/timeout/warn)
+  ticketAutoCloseHours: 0, // 🆕 auto-fermeture des tickets inactifs (0 = désactivé)
   ticketCounter: 0,
   candidatures: { ...CANDIDATURES_DEFAUT },
 });
-// Fusion défensive : si le config.json existant ne contient pas (encore) le bloc "candidatures"
-// (ancienne installation), on l'ajoute avec les valeurs par défaut sans écraser le reste.
+// Fusion défensive : si le config.json existant ne contient pas (encore) certains champs
+// (ancienne installation), on les ajoute avec les valeurs par défaut sans écraser le reste.
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
+if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
+if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
 
-let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority } }
+let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority, note, lastActivity } }
 let giveaways = lire(GIVEAWAYS_FILE, {}); // { [id]: {...} }
 let closedTickets = lire(CLOSED_TICKETS_FILE, {}); // { [threadId]: { userId, username, number, closedAt } } - pour /reopen
+let warns = lire(WARNS_FILE, {}); // 🆕 { [userId]: [{ id, reason, staffId, staffTag, date }] }
+let candHistory = lire(CAND_HISTORY_FILE, []); // 🆕 [{ id, userId, username, ticketNumber, result, staffId, staffTag, raison, date }]
 
 // ---- Recharge les données depuis Upstash Redis au démarrage ----
 // (le fichier local est vide/par défaut juste après un redémarrage ou redéploiement Render)
@@ -145,20 +153,33 @@ async function chargerDepuisRedis() {
     console.log("⚠️  UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés : la config et les tickets ne survivront PAS aux redémarrages Render.");
     return;
   }
-  const [c, t, g, ct] = await Promise.all([
+  const [c, t, g, ct, w, ch] = await Promise.all([
     redisGet("config"),
     redisGet("tickets"),
     redisGet("giveaways"),
     redisGet("closed-tickets"),
+    redisGet("warns"),
+    redisGet("candidatures-history"),
   ]);
-  if (c) config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
+  if (c) {
+    config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
+    if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
+    if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
+  }
   if (t) tickets = t;
   if (g) giveaways = g;
   if (ct) closedTickets = ct;
-  console.log("✅ Config, tickets et giveaways rechargés depuis Upstash Redis.");
+  if (w) warns = w;
+  if (ch) candHistory = ch;
+  console.log("✅ Config, tickets, giveaways, warns et historique rechargés depuis Upstash Redis.");
 }
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
+function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
+function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
+function sauverClosedTickets() { ecrire(CLOSED_TICKETS_FILE, closedTickets); }
+function sauverWarns() { ecrire(WARNS_FILE, warns); } // 🆕
+function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); } // 🆕
 
 // ---- Remplacement des variables dans les messages personnalisables ----
 function remplacerVariables(texte, vars) {
@@ -178,9 +199,6 @@ function estAutoriseCandidature(interaction, roleId) {
   if (!roleId) return false;
   return interaction.member.roles.cache.has(roleId);
 }
-function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
-function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
-function sauverClosedTickets() { ecrire(CLOSED_TICKETS_FILE, closedTickets); }
 
 function trouverUserIdParThread(threadId) {
   for (const [userId, t] of Object.entries(tickets)) {
@@ -196,6 +214,26 @@ function prochainNumeroTicket() {
 }
 
 const EMOJIS_PRIORITE = { basse: "🟢", normale: "🟡", haute: "🟠", urgente: "🔴" };
+
+// ---- 🆕 Logs de modération (kick / ban / timeout / warn) ----
+async function envoyerLogModeration(embed) {
+  if (!config.modLogsChannelId) return;
+  const salon = await client.channels.fetch(config.modLogsChannelId).catch(() => null);
+  if (!salon) return;
+  await salon.send({ embeds: [embed] }).catch(() => {});
+}
+
+function embedLogModeration({ action, couleur, emoji, cibleTag, cibleId, parTag, raison }) {
+  return new EmbedBuilder()
+    .setColor(couleur)
+    .setTitle(`${emoji} ${action}`)
+    .addFields(
+      { name: "Membre", value: `${cibleTag} (\`${cibleId}\`)`, inline: true },
+      { name: "Par", value: parTag, inline: true },
+      { name: "Raison", value: raison || "Aucune raison fournie", inline: false }
+    )
+    .setTimestamp();
+}
 
 // ==============================
 // CLIENT DISCORD
@@ -272,6 +310,17 @@ const commands = [
     .setName("refuser")
     .setDescription("Refuser la candidature du ticket en cours")
     .addStringOption((o) => o.setName("raison").setDescription("Raison du refus (optionnel)").setRequired(false)),
+
+  // ---- 🆕 Modération : warn ----
+  new SlashCommandBuilder()
+    .setName("warn")
+    .setDescription("Avertir un membre")
+    .addUserOption((o) => o.setName("membre").setDescription("Membre à avertir").setRequired(true))
+    .addStringOption((o) => o.setName("raison").setDescription("Raison de l'avertissement").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("warns")
+    .setDescription("Voir les avertissements d'un membre")
+    .addUserOption((o) => o.setName("membre").setDescription("Membre à consulter").setRequired(true)),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -293,7 +342,29 @@ client.once("ready", () => {
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
   }
+  // 🆕 démarre la vérification périodique des tickets inactifs
+  setInterval(verifierTicketsInactifs, 15 * 60 * 1000); // toutes les 15 minutes
+  verifierTicketsInactifs();
 });
+
+// ---- 🆕 Auto-fermeture des tickets inactifs ----
+async function verifierTicketsInactifs() {
+  const heures = parseFloat(config.ticketAutoCloseHours) || 0;
+  if (heures <= 0) return;
+  const seuilMs = heures * 60 * 60 * 1000;
+  const maintenant = Date.now();
+
+  for (const [userId, t] of Object.entries(tickets)) {
+    const derniereActivite = t.lastActivity ? new Date(t.lastActivity).getTime() : 0;
+    if (!derniereActivite) continue;
+    if (maintenant - derniereActivite >= seuilMs) {
+      console.log(`⏰ Auto-fermeture du ticket #${t.number} (${t.username}) pour inactivité.`);
+      await fermerTicketParThread(t.threadId, "Système (auto-fermeture inactivité)").catch((e) =>
+        console.error("Erreur auto-fermeture:", e)
+      );
+    }
+  }
+}
 
 // ==============================
 // AUTO-ROLE + BIENVENUE (configurable via panel)
@@ -511,7 +582,15 @@ async function reouvrirTicketParThread(threadId, rouvertPar) {
   const nomOriginal = thread.name.replace(/^Fermé - /, "");
   await thread.setName(nomOriginal.slice(0, 100)).catch(() => {});
 
-  tickets[infos.userId] = { threadId, username: infos.username, number: infos.number, claimedBy: null, priority: "normale" };
+  tickets[infos.userId] = {
+    threadId,
+    username: infos.username,
+    number: infos.number,
+    claimedBy: null,
+    priority: "normale",
+    note: "",
+    lastActivity: new Date().toISOString(),
+  };
   sauverTickets();
   delete closedTickets[threadId];
   sauverClosedTickets();
@@ -569,7 +648,15 @@ async function obtenirOuCreerThread(user) {
     reason: `Nouveau ticket de ${user.tag}`,
   });
 
-  tickets[user.id] = { threadId: thread.id, username: user.username, number: numero, claimedBy: null, priority: "normale" };
+  tickets[user.id] = {
+    threadId: thread.id,
+    username: user.username,
+    number: numero,
+    claimedBy: null,
+    priority: "normale",
+    note: "",
+    lastActivity: new Date().toISOString(),
+  };
   sauverTickets();
 
   await thread.send({
@@ -605,6 +692,12 @@ client.on("messageCreate", async (message) => {
         files: [...message.attachments.values()],
       });
 
+      // 🆕 met à jour la dernière activité (pour l'auto-fermeture)
+      if (tickets[message.author.id]) {
+        tickets[message.author.id].lastActivity = new Date().toISOString();
+        sauverTickets();
+      }
+
       if (nouveau) {
         await message.author.send({
           embeds: [
@@ -636,6 +729,11 @@ client.on("messageCreate", async (message) => {
         content: message.content || undefined,
         files: [...message.attachments.values()],
       });
+      // 🆕 met à jour la dernière activité (pour l'auto-fermeture)
+      if (tickets[userId]) {
+        tickets[userId].lastActivity = new Date().toISOString();
+        sauverTickets();
+      }
     } catch (e) {
       console.error("Erreur relais thread->DM:", e);
       await message.reply("⚠️ Impossible d'envoyer le DM (DMs fermés par l'utilisateur ?).");
@@ -1081,6 +1179,22 @@ client.on("interactionCreate", async (interaction) => {
         .catch(() => false);
     }
 
+    // ---- 🆕 Historique des candidatures ----
+    candHistory.unshift({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      userId,
+      username: user.tag,
+      ticketNumber: tickets[userId]?.number || null,
+      threadName: thread.name,
+      result: estValidation ? "validee" : "refusee",
+      staffId: interaction.user.id,
+      staffTag: interaction.user.tag,
+      raison,
+      date: new Date().toISOString(),
+    });
+    if (candHistory.length > 500) candHistory = candHistory.slice(0, 500); // garde les 500 dernières
+    sauverCandHistory();
+
     // ---- Confirmation éphémère au staff ----
     const suffixeMp = cfg.mpActif ? (mpEnvoye ? " (MP envoyé ✅)" : " (⚠️ MP non envoyé, DMs fermés ?)") : "";
     const suffixeRole = estValidation && cfg.roleAValider ? (roleAttribue ? " (rôle attribué ✅)" : " (⚠️ rôle non attribué)") : "";
@@ -1099,6 +1213,76 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     return;
+  }
+
+  // ---- 🆕 Commande /warn ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "warn") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+    const membre = interaction.options.getUser("membre");
+    const raison = interaction.options.getString("raison");
+
+    if (!warns[membre.id]) warns[membre.id] = [];
+    warns[membre.id].push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      reason: raison,
+      staffId: interaction.user.id,
+      staffTag: interaction.user.tag,
+      date: new Date().toISOString(),
+    });
+    sauverWarns();
+
+    await envoyerLogModeration(
+      embedLogModeration({
+        action: "Avertissement",
+        couleur: "#f59e0b",
+        emoji: "⚠️",
+        cibleTag: membre.tag,
+        cibleId: membre.id,
+        parTag: interaction.user.tag,
+        raison,
+      })
+    );
+
+    await membre
+      .send({
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#f59e0b")
+            .setTitle(`⚠️ Tu as reçu un avertissement sur ${NOM_SERVEUR}`)
+            .setDescription(`**Raison :** ${raison}`)
+            .setTimestamp(),
+        ],
+      })
+      .catch(() => {});
+
+    return interaction.reply({
+      content: `⚠️ ${membre.tag} a été averti (${warns[membre.id].length} avertissement(s) au total). Raison : ${raison}`,
+      ephemeral: true,
+    });
+  }
+
+  // ---- 🆕 Commande /warns ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "warns") {
+    const membre = interaction.options.getUser("membre");
+    const liste = warns[membre.id] || [];
+    if (!liste.length) {
+      return interaction.reply({ content: `${membre.tag} n'a aucun avertissement.`, ephemeral: true });
+    }
+    const texte = liste
+      .map((w, i) => `**${i + 1}.** ${w.reason} — *par ${w.staffTag}, le ${new Date(w.date).toLocaleDateString("fr-FR")}*`)
+      .join("\n");
+    return interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("#f59e0b")
+          .setTitle(`⚠️ Avertissements de ${membre.tag}`)
+          .setDescription(texte)
+          .setFooter({ text: `${liste.length} avertissement(s) au total` }),
+      ],
+      ephemeral: true,
+    });
   }
 
   if (interaction.isChatInputCommand() && interaction.commandName === "rapport") {
@@ -1168,7 +1352,7 @@ client.on("interactionCreate", async (interaction) => {
 // ==================================================================
 const app = express();
 app.set("trust proxy", 1);
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use(
   session({
@@ -1396,6 +1580,7 @@ app.get("/api/members/search", authRequis, async (req, res) => {
         avatar: m.user.displayAvatarURL(),
         roles: m.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name })),
         joinedAt: m.joinedAt,
+        warnCount: (warns[m.id] || []).length, // 🆕
       }))
     );
   } catch (e) {
@@ -1409,7 +1594,21 @@ app.post("/api/members/:id/kick", authRequis, async (req, res) => {
   if (!guild) return;
   try {
     const membre = await guild.members.fetch(req.params.id);
-    await membre.kick(req.body.reason || "Aucune raison fournie");
+    const raison = req.body.reason || "Aucune raison fournie";
+    const tag = membre.user.tag;
+    await membre.kick(raison);
+    // 🆕 log modération
+    await envoyerLogModeration(
+      embedLogModeration({
+        action: "Kick",
+        couleur: "#fb923c",
+        emoji: "👢",
+        cibleTag: tag,
+        cibleId: req.params.id,
+        parTag: req.session.user.username + " (panel)",
+        raison,
+      })
+    );
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur kick:", e);
@@ -1421,7 +1620,23 @@ app.post("/api/members/:id/ban", authRequis, async (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
   try {
-    await guild.members.ban(req.params.id, { reason: req.body.reason || "Aucune raison fournie" });
+    const raison = req.body.reason || "Aucune raison fournie";
+    let tag = req.params.id;
+    const membre = await guild.members.fetch(req.params.id).catch(() => null);
+    if (membre) tag = membre.user.tag;
+    await guild.members.ban(req.params.id, { reason: raison });
+    // 🆕 log modération
+    await envoyerLogModeration(
+      embedLogModeration({
+        action: "Ban",
+        couleur: "#ef4444",
+        emoji: "🔨",
+        cibleTag: tag,
+        cibleId: req.params.id,
+        parTag: req.session.user.username + " (panel)",
+        raison,
+      })
+    );
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur ban:", e);
@@ -1435,7 +1650,20 @@ app.post("/api/members/:id/timeout", authRequis, async (req, res) => {
   try {
     const membre = await guild.members.fetch(req.params.id);
     const minutes = parseInt(req.body.minutes, 10) || 10;
-    await membre.timeout(minutes * 60 * 1000, req.body.reason || "Aucune raison fournie");
+    const raison = req.body.reason || "Aucune raison fournie";
+    await membre.timeout(minutes * 60 * 1000, raison);
+    // 🆕 log modération
+    await envoyerLogModeration(
+      embedLogModeration({
+        action: `Timeout (${minutes} min)`,
+        couleur: "#facc15",
+        emoji: "⏱️",
+        cibleTag: membre.user.tag,
+        cibleId: req.params.id,
+        parTag: req.session.user.username + " (panel)",
+        raison,
+      })
+    );
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur timeout:", e);
@@ -1460,17 +1688,91 @@ app.post("/api/members/:id/roles/:roleId", authRequis, async (req, res) => {
   }
 });
 
+// ---- 🆕 Warns (avertissements) ----
+app.get("/api/members/:id/warns", authRequis, (req, res) => {
+  res.json(warns[req.params.id] || []);
+});
+
+app.post("/api/members/:id/warn", authRequis, async (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const raison = (req.body.reason || "").trim();
+  if (!raison) return res.status(400).json({ erreur: "reason requis" });
+
+  try {
+    const membre = await guild.members.fetch(req.params.id).catch(() => null);
+    if (!warns[req.params.id]) warns[req.params.id] = [];
+    warns[req.params.id].push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      reason: raison,
+      staffId: req.session.user.id,
+      staffTag: req.session.user.username + " (panel)",
+      date: new Date().toISOString(),
+    });
+    sauverWarns();
+
+    await envoyerLogModeration(
+      embedLogModeration({
+        action: "Avertissement",
+        couleur: "#f59e0b",
+        emoji: "⚠️",
+        cibleTag: membre ? membre.user.tag : req.params.id,
+        cibleId: req.params.id,
+        parTag: req.session.user.username + " (panel)",
+        raison,
+      })
+    );
+
+    if (membre) {
+      await membre.user
+        .send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor("#f59e0b")
+              .setTitle(`⚠️ Tu as reçu un avertissement sur ${NOM_SERVEUR}`)
+              .setDescription(`**Raison :** ${raison}`)
+              .setTimestamp(),
+          ],
+        })
+        .catch(() => {});
+    }
+
+    res.json({ succes: true, warns: warns[req.params.id] });
+  } catch (e) {
+    console.error("Erreur ajout warn:", e);
+    res.status(500).json({ erreur: "Échec de l'ajout de l'avertissement" });
+  }
+});
+
+app.delete("/api/members/:id/warns/:warnId", authRequis, (req, res) => {
+  const liste = warns[req.params.id] || [];
+  const avant = liste.length;
+  warns[req.params.id] = liste.filter((w) => w.id !== req.params.warnId);
+  sauverWarns();
+  res.json({ succes: true, supprime: avant !== warns[req.params.id].length });
+});
+
 // ---- Paramètres (auto-rôle, bienvenue, tickets) ----
 app.get("/api/settings", authRequis, (req, res) => res.json(config));
 
 app.post("/api/settings", authRequis, (req, res) => {
-  const { autoRoleId, welcomeChannelId, welcomeMessage, ticketStaffChannelId, ticketLogsChannelId } = req.body;
+  const {
+    autoRoleId,
+    welcomeChannelId,
+    welcomeMessage,
+    ticketStaffChannelId,
+    ticketLogsChannelId,
+    modLogsChannelId, // 🆕
+    ticketAutoCloseHours, // 🆕
+  } = req.body;
   // Fusion (et non écrasement) pour ne pas perdre ticketCounter / candidatures / etc.
   config.autoRoleId = autoRoleId || null;
   config.welcomeChannelId = welcomeChannelId || null;
   config.welcomeMessage = welcomeMessage || config.welcomeMessage;
   config.ticketStaffChannelId = ticketStaffChannelId || null;
   config.ticketLogsChannelId = ticketLogsChannelId || null;
+  config.modLogsChannelId = modLogsChannelId || null;
+  config.ticketAutoCloseHours = Math.max(0, parseFloat(ticketAutoCloseHours) || 0);
   sauverConfig();
   res.json({ succes: true });
 });
@@ -1518,6 +1820,21 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
   res.json({ succes: true, candidatures: config.candidatures });
 });
 
+// ---- 🆕 Historique des candidatures ----
+app.get("/api/candidatures/history", authRequis, (req, res) => {
+  const q = (req.query.q || "").toLowerCase();
+  let liste = candHistory;
+  if (q) {
+    liste = liste.filter(
+      (h) =>
+        h.username.toLowerCase().includes(q) ||
+        (h.threadName || "").toLowerCase().includes(q) ||
+        (h.staffTag || "").toLowerCase().includes(q)
+    );
+  }
+  res.json(liste.slice(0, 200));
+});
+
 // ---- Annonces / Embeds ----
 app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, res) => {
   const { channelId, title, description, color, imageUrl, footer } = req.body;
@@ -1553,7 +1870,17 @@ app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, 
 
 // ---- Tickets ----
 app.get("/api/tickets", authRequis, (req, res) => {
-  res.json(Object.entries(tickets).map(([userId, t]) => ({ userId, username: t.username, threadId: t.threadId })));
+  res.json(
+    Object.entries(tickets).map(([userId, t]) => ({
+      userId,
+      username: t.username,
+      threadId: t.threadId,
+      number: t.number,
+      priority: t.priority,
+      note: t.note || "", // 🆕
+      lastActivity: t.lastActivity || null, // 🆕
+    }))
+  );
 });
 
 app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
@@ -1571,11 +1898,25 @@ app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
     const thread = await client.channels.fetch(ticket.threadId).catch(() => null);
     if (thread) await thread.send(`**${req.session.user.username} (panel)** : ${message}`);
 
+    // 🆕 met à jour la dernière activité
+    ticket.lastActivity = new Date().toISOString();
+    sauverTickets();
+
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur réponse ticket:", e);
     res.status(500).json({ erreur: "Échec de l'envoi (DM peut-être fermés)" });
   }
+});
+
+// ---- 🆕 Note interne (visible uniquement dans le panel) sur un ticket ----
+app.post("/api/tickets/:userId/note", authRequis, (req, res) => {
+  const { userId } = req.params;
+  const ticket = tickets[userId];
+  if (!ticket) return res.status(404).json({ erreur: "Ticket introuvable" });
+  ticket.note = (req.body.note || "").slice(0, 2000);
+  sauverTickets();
+  res.json({ succes: true });
 });
 
 app.post("/api/tickets/:userId/close", authRequis, async (req, res) => {
@@ -1648,6 +1989,44 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
     res.json({ succes: true });
   } catch (e) {
     res.status(500).json({ erreur: "Échec" });
+  }
+});
+
+// ==============================
+// 🆕 BACKUP / EXPORT / IMPORT
+// ==============================
+app.get("/api/backup", authRequis, (req, res) => {
+  const backup = {
+    generatedAt: new Date().toISOString(),
+    config,
+    tickets,
+    giveaways,
+    closedTickets,
+    warns,
+    candHistory,
+  };
+  const nomFichier = `backup-ems-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader("Content-Disposition", `attachment; filename="${nomFichier}"`);
+  res.setHeader("Content-Type", "application/json");
+  res.send(JSON.stringify(backup, null, 2));
+});
+
+app.post("/api/backup/import", authRequis, (req, res) => {
+  try {
+    const data = req.body || {};
+    if (data.config) {
+      config = { ...config, ...data.config, candidatures: { ...CANDIDATURES_DEFAUT, ...(data.config.candidatures || {}) } };
+      sauverConfig();
+    }
+    if (data.tickets) { tickets = data.tickets; sauverTickets(); }
+    if (data.giveaways) { giveaways = data.giveaways; sauverGiveaways(); }
+    if (data.closedTickets) { closedTickets = data.closedTickets; sauverClosedTickets(); }
+    if (data.warns) { warns = data.warns; sauverWarns(); }
+    if (data.candHistory) { candHistory = data.candHistory; sauverCandHistory(); }
+    res.json({ succes: true });
+  } catch (e) {
+    console.error("Erreur import backup:", e);
+    res.status(500).json({ erreur: "Fichier de backup invalide" });
   }
 });
 
