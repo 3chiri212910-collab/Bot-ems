@@ -59,6 +59,7 @@ const GIVEAWAYS_FILE = path.join(DATA_DIR, "giveaways.json");
 const CLOSED_TICKETS_FILE = path.join(DATA_DIR, "closed-tickets.json");
 const WARNS_FILE = path.join(DATA_DIR, "warns.json");
 const CAND_HISTORY_FILE = path.join(DATA_DIR, "candidatures-history.json");
+const INTERVENTIONS_FILE = path.join(DATA_DIR, "interventions.json"); // 🆕
 
 function lire(fichier, defaut) {
   try {
@@ -129,8 +130,9 @@ let config = lire(CONFIG_FILE, {
   welcomeMessage: "Bienvenue {user} sur **{server}** ! Tu es le membre **#{count}**.",
   ticketStaffChannelId: null,
   ticketLogsChannelId: null, // salon où partent les transcripts / logs de tickets (fallback: ticketStaffChannelId)
-  modLogsChannelId: null, // 🆕 salon des logs de modération (kick/ban/timeout/warn)
-  ticketAutoCloseHours: 0, // 🆕 auto-fermeture des tickets inactifs (0 = désactivé)
+  modLogsChannelId: null, // salon des logs de modération (kick/ban/timeout/warn)
+  interventionsChannelId: null, // 🆕 salon où sont loggées les interventions /intervention
+  ticketAutoCloseHours: 0, // auto-fermeture des tickets inactifs (0 = désactivé)
   ticketCounter: 0,
   candidatures: { ...CANDIDATURES_DEFAUT },
 });
@@ -139,12 +141,14 @@ let config = lire(CONFIG_FILE, {
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
 if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
 if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
+if (config.interventionsChannelId === undefined) config.interventionsChannelId = null; // 🆕
 
 let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority, note, lastActivity } }
 let giveaways = lire(GIVEAWAYS_FILE, {}); // { [id]: {...} }
 let closedTickets = lire(CLOSED_TICKETS_FILE, {}); // { [threadId]: { userId, username, number, closedAt } } - pour /reopen
-let warns = lire(WARNS_FILE, {}); // 🆕 { [userId]: [{ id, reason, staffId, staffTag, date }] }
-let candHistory = lire(CAND_HISTORY_FILE, []); // 🆕 [{ id, userId, username, ticketNumber, result, staffId, staffTag, raison, date }]
+let warns = lire(WARNS_FILE, {}); // { [userId]: [{ id, reason, staffId, staffTag, date }] }
+let candHistory = lire(CAND_HISTORY_FILE, []); // [{ id, userId, username, ticketNumber, result, staffId, staffTag, raison, date }]
+let interventions = lire(INTERVENTIONS_FILE, []); // 🆕 [{ id, type, gravite, patient, staffId, staffTag, date }]
 
 // ---- Recharge les données depuis Upstash Redis au démarrage ----
 // (le fichier local est vide/par défaut juste après un redémarrage ou redéploiement Render)
@@ -153,33 +157,37 @@ async function chargerDepuisRedis() {
     console.log("⚠️  UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés : la config et les tickets ne survivront PAS aux redémarrages Render.");
     return;
   }
-  const [c, t, g, ct, w, ch] = await Promise.all([
+  const [c, t, g, ct, w, ch, iv] = await Promise.all([
     redisGet("config"),
     redisGet("tickets"),
     redisGet("giveaways"),
     redisGet("closed-tickets"),
     redisGet("warns"),
     redisGet("candidatures-history"),
+    redisGet("interventions"), // 🆕
   ]);
   if (c) {
     config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
     if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
     if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
+    if (config.interventionsChannelId === undefined) config.interventionsChannelId = null; // 🆕
   }
   if (t) tickets = t;
   if (g) giveaways = g;
   if (ct) closedTickets = ct;
   if (w) warns = w;
   if (ch) candHistory = ch;
-  console.log("✅ Config, tickets, giveaways, warns et historique rechargés depuis Upstash Redis.");
+  if (iv) interventions = iv; // 🆕
+  console.log("✅ Config, tickets, giveaways, warns, historique et interventions rechargés depuis Upstash Redis.");
 }
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
 function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
 function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
 function sauverClosedTickets() { ecrire(CLOSED_TICKETS_FILE, closedTickets); }
-function sauverWarns() { ecrire(WARNS_FILE, warns); } // 🆕
-function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); } // 🆕
+function sauverWarns() { ecrire(WARNS_FILE, warns); }
+function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); }
+function sauverInterventions() { ecrire(INTERVENTIONS_FILE, interventions); } // 🆕
 
 // ---- Remplacement des variables dans les messages personnalisables ----
 function remplacerVariables(texte, vars) {
@@ -215,7 +223,38 @@ function prochainNumeroTicket() {
 
 const EMOJIS_PRIORITE = { basse: "🟢", normale: "🟡", haute: "🟠", urgente: "🔴" };
 
-// ---- 🆕 Logs de modération (kick / ban / timeout / warn) ----
+// ---- 🆕 Interventions : labels + calcul des stats ----
+const LABELS_TYPE_INTERVENTION = {
+  accident_circulation: "🚗 Accident de circulation",
+  arme: "🔫 Arme à feu / arme blanche",
+  agression: "🥊 Bagarre / agression",
+  overdose: "💊 Overdose / intoxication",
+  noyade: "🌊 Noyade",
+  chute: "🤕 Chute",
+  malaise: "😵 Malaise",
+  autre: "❓ Autre",
+};
+const LABELS_GRAVITE_INTERVENTION = {
+  legere: "🟢 Légère",
+  moyenne: "🟡 Moyenne",
+  critique: "🟠 Critique",
+  deces: "⚫ Décès",
+};
+
+function statsInterventions() {
+  const parType = {};
+  const parGravite = {};
+  const parMois = {};
+  for (const iv of interventions) {
+    parType[iv.type] = (parType[iv.type] || 0) + 1;
+    parGravite[iv.gravite] = (parGravite[iv.gravite] || 0) + 1;
+    const mois = iv.date.slice(0, 7); // "2026-07"
+    parMois[mois] = (parMois[mois] || 0) + 1;
+  }
+  return { total: interventions.length, parType, parGravite, parMois };
+}
+
+// ---- Logs de modération (kick / ban / timeout / warn) ----
 async function envoyerLogModeration(embed) {
   if (!config.modLogsChannelId) return;
   const salon = await client.channels.fetch(config.modLogsChannelId).catch(() => null);
@@ -256,6 +295,32 @@ const commands = [
   new SlashCommandBuilder()
     .setName("rapport")
     .setDescription("Générer un rapport médical d'intervention"),
+
+  // 🆕 ---- Logging d'intervention pour les statistiques ----
+  new SlashCommandBuilder()
+    .setName("intervention")
+    .setDescription("Logger une intervention pour les statistiques")
+    .addStringOption((o) =>
+      o.setName("type").setDescription("Type d'intervention").setRequired(true).addChoices(
+        { name: "🚗 Accident de circulation", value: "accident_circulation" },
+        { name: "🔫 Arme à feu / arme blanche", value: "arme" },
+        { name: "🥊 Bagarre / agression", value: "agression" },
+        { name: "💊 Overdose / intoxication", value: "overdose" },
+        { name: "🌊 Noyade", value: "noyade" },
+        { name: "🤕 Chute", value: "chute" },
+        { name: "😵 Malaise", value: "malaise" },
+        { name: "❓ Autre", value: "autre" }
+      )
+    )
+    .addStringOption((o) =>
+      o.setName("gravite").setDescription("Gravité").setRequired(true).addChoices(
+        { name: "🟢 Légère", value: "legere" },
+        { name: "🟡 Moyenne", value: "moyenne" },
+        { name: "🟠 Critique", value: "critique" },
+        { name: "⚫ Décès", value: "deces" }
+      )
+    )
+    .addStringOption((o) => o.setName("patient").setDescription("Nom du patient (optionnel)").setRequired(false)),
 
   // ---- Commandes de gestion des tickets (à utiliser DANS le fil du ticket) ----
   new SlashCommandBuilder()
@@ -311,7 +376,7 @@ const commands = [
     .setDescription("Refuser la candidature du ticket en cours")
     .addStringOption((o) => o.setName("raison").setDescription("Raison du refus (optionnel)").setRequired(false)),
 
-  // ---- 🆕 Modération : warn ----
+  // ---- Modération : warn ----
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("Avertir un membre")
@@ -342,12 +407,12 @@ client.once("ready", () => {
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
   }
-  // 🆕 démarre la vérification périodique des tickets inactifs
+  // démarre la vérification périodique des tickets inactifs
   setInterval(verifierTicketsInactifs, 15 * 60 * 1000); // toutes les 15 minutes
   verifierTicketsInactifs();
 });
 
-// ---- 🆕 Auto-fermeture des tickets inactifs ----
+// ---- Auto-fermeture des tickets inactifs ----
 async function verifierTicketsInactifs() {
   const heures = parseFloat(config.ticketAutoCloseHours) || 0;
   if (heures <= 0) return;
@@ -692,7 +757,7 @@ client.on("messageCreate", async (message) => {
         files: [...message.attachments.values()],
       });
 
-      // 🆕 met à jour la dernière activité (pour l'auto-fermeture)
+      // met à jour la dernière activité (pour l'auto-fermeture)
       if (tickets[message.author.id]) {
         tickets[message.author.id].lastActivity = new Date().toISOString();
         sauverTickets();
@@ -729,7 +794,7 @@ client.on("messageCreate", async (message) => {
         content: message.content || undefined,
         files: [...message.attachments.values()],
       });
-      // 🆕 met à jour la dernière activité (pour l'auto-fermeture)
+      // met à jour la dernière activité (pour l'auto-fermeture)
       if (tickets[userId]) {
         tickets[userId].lastActivity = new Date().toISOString();
         sauverTickets();
@@ -945,7 +1010,6 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "✅ Tu participes au giveaway !", ephemeral: true });
   }
 
-  // ---- Commande /rapport ----
   // ---- Commandes slash "générales" : utilisables dans N'IMPORTE QUEL salon/fil ----
   const commandesGenerales = ["rename", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"];
   if (interaction.isChatInputCommand() && commandesGenerales.includes(interaction.commandName)) {
@@ -1179,7 +1243,7 @@ client.on("interactionCreate", async (interaction) => {
         .catch(() => false);
     }
 
-    // ---- 🆕 Historique des candidatures ----
+    // ---- Historique des candidatures ----
     candHistory.unshift({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       userId,
@@ -1215,7 +1279,7 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  // ---- 🆕 Commande /warn ----
+  // ---- Commande /warn ----
   if (interaction.isChatInputCommand() && interaction.commandName === "warn") {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
@@ -1263,7 +1327,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // ---- 🆕 Commande /warns ----
+  // ---- Commande /warns ----
   if (interaction.isChatInputCommand() && interaction.commandName === "warns") {
     const membre = interaction.options.getUser("membre");
     const liste = warns[membre.id] || [];
@@ -1281,6 +1345,50 @@ client.on("interactionCreate", async (interaction) => {
           .setDescription(texte)
           .setFooter({ text: `${liste.length} avertissement(s) au total` }),
       ],
+      ephemeral: true,
+    });
+  }
+
+  // 🆕 ---- Commande /intervention ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "intervention") {
+    const type = interaction.options.getString("type");
+    const gravite = interaction.options.getString("gravite");
+    const patient = interaction.options.getString("patient") || null;
+
+    const entree = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      type,
+      gravite,
+      patient,
+      staffId: interaction.user.id,
+      staffTag: interaction.user.tag,
+      date: new Date().toISOString(),
+    };
+    interventions.push(entree);
+    sauverInterventions();
+
+    if (config.interventionsChannelId) {
+      const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
+      if (salon) {
+        await salon.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(COULEUR_EMBED)
+              .setTitle("🚑 Intervention loggée")
+              .addFields(
+                { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
+                { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
+                { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true },
+                { name: "Patient", value: patient || "Non précisé", inline: false }
+              )
+              .setTimestamp(),
+          ],
+        }).catch(() => {});
+      }
+    }
+
+    return interaction.reply({
+      content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]})${patient ? ` — patient : ${patient}` : ""}`,
       ephemeral: true,
     });
   }
@@ -1380,7 +1488,15 @@ function getGuild(res) {
 }
 
 // ---- Auth Discord OAuth2 ----
+// 🆕 /login affiche maintenant une page d'accueil (comme le panel Arrkii) avant de lancer l'auth Discord.
+// Si la session existe déjà, on renvoie direct vers /panel.
 app.get("/login", (req, res) => {
+  if (req.session.user) return res.redirect("/panel");
+  res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+// 🆕 Le vrai lancement de l'authentification Discord (bouton "Login with Discord" sur la page /login)
+app.get("/auth/discord", (req, res) => {
   const url =
     `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
@@ -1580,7 +1696,7 @@ app.get("/api/members/search", authRequis, async (req, res) => {
         avatar: m.user.displayAvatarURL(),
         roles: m.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name })),
         joinedAt: m.joinedAt,
-        warnCount: (warns[m.id] || []).length, // 🆕
+        warnCount: (warns[m.id] || []).length,
       }))
     );
   } catch (e) {
@@ -1597,7 +1713,6 @@ app.post("/api/members/:id/kick", authRequis, async (req, res) => {
     const raison = req.body.reason || "Aucune raison fournie";
     const tag = membre.user.tag;
     await membre.kick(raison);
-    // 🆕 log modération
     await envoyerLogModeration(
       embedLogModeration({
         action: "Kick",
@@ -1625,7 +1740,6 @@ app.post("/api/members/:id/ban", authRequis, async (req, res) => {
     const membre = await guild.members.fetch(req.params.id).catch(() => null);
     if (membre) tag = membre.user.tag;
     await guild.members.ban(req.params.id, { reason: raison });
-    // 🆕 log modération
     await envoyerLogModeration(
       embedLogModeration({
         action: "Ban",
@@ -1652,7 +1766,6 @@ app.post("/api/members/:id/timeout", authRequis, async (req, res) => {
     const minutes = parseInt(req.body.minutes, 10) || 10;
     const raison = req.body.reason || "Aucune raison fournie";
     await membre.timeout(minutes * 60 * 1000, raison);
-    // 🆕 log modération
     await envoyerLogModeration(
       embedLogModeration({
         action: `Timeout (${minutes} min)`,
@@ -1688,7 +1801,7 @@ app.post("/api/members/:id/roles/:roleId", authRequis, async (req, res) => {
   }
 });
 
-// ---- 🆕 Warns (avertissements) ----
+// ---- Warns (avertissements) ----
 app.get("/api/members/:id/warns", authRequis, (req, res) => {
   res.json(warns[req.params.id] || []);
 });
@@ -1762,8 +1875,9 @@ app.post("/api/settings", authRequis, (req, res) => {
     welcomeMessage,
     ticketStaffChannelId,
     ticketLogsChannelId,
-    modLogsChannelId, // 🆕
-    ticketAutoCloseHours, // 🆕
+    modLogsChannelId,
+    interventionsChannelId, // 🆕
+    ticketAutoCloseHours,
   } = req.body;
   // Fusion (et non écrasement) pour ne pas perdre ticketCounter / candidatures / etc.
   config.autoRoleId = autoRoleId || null;
@@ -1772,6 +1886,7 @@ app.post("/api/settings", authRequis, (req, res) => {
   config.ticketStaffChannelId = ticketStaffChannelId || null;
   config.ticketLogsChannelId = ticketLogsChannelId || null;
   config.modLogsChannelId = modLogsChannelId || null;
+  config.interventionsChannelId = interventionsChannelId || null; // 🆕
   config.ticketAutoCloseHours = Math.max(0, parseFloat(ticketAutoCloseHours) || 0);
   sauverConfig();
   res.json({ succes: true });
@@ -1820,7 +1935,7 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
   res.json({ succes: true, candidatures: config.candidatures });
 });
 
-// ---- 🆕 Historique des candidatures ----
+// ---- Historique des candidatures ----
 app.get("/api/candidatures/history", authRequis, (req, res) => {
   const q = (req.query.q || "").toLowerCase();
   let liste = candHistory;
@@ -1833,6 +1948,32 @@ app.get("/api/candidatures/history", authRequis, (req, res) => {
     );
   }
   res.json(liste.slice(0, 200));
+});
+
+// 🆕 ---- Interventions ----
+app.get("/api/interventions/stats", authRequis, (req, res) => {
+  res.json(statsInterventions());
+});
+
+app.get("/api/interventions", authRequis, (req, res) => {
+  const q = (req.query.q || "").toLowerCase();
+  let liste = [...interventions].reverse();
+  if (q) {
+    liste = liste.filter(
+      (iv) =>
+        (iv.patient || "").toLowerCase().includes(q) ||
+        (iv.staffTag || "").toLowerCase().includes(q) ||
+        iv.type.toLowerCase().includes(q)
+    );
+  }
+  res.json(liste.slice(0, 200));
+});
+
+app.delete("/api/interventions/:id", authRequis, (req, res) => {
+  const avant = interventions.length;
+  interventions = interventions.filter((iv) => iv.id !== req.params.id);
+  sauverInterventions();
+  res.json({ succes: true, supprime: avant !== interventions.length });
 });
 
 // ---- Annonces / Embeds ----
@@ -1877,8 +2018,8 @@ app.get("/api/tickets", authRequis, (req, res) => {
       threadId: t.threadId,
       number: t.number,
       priority: t.priority,
-      note: t.note || "", // 🆕
-      lastActivity: t.lastActivity || null, // 🆕
+      note: t.note || "",
+      lastActivity: t.lastActivity || null,
     }))
   );
 });
@@ -1898,7 +2039,6 @@ app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
     const thread = await client.channels.fetch(ticket.threadId).catch(() => null);
     if (thread) await thread.send(`**${req.session.user.username} (panel)** : ${message}`);
 
-    // 🆕 met à jour la dernière activité
     ticket.lastActivity = new Date().toISOString();
     sauverTickets();
 
@@ -1909,7 +2049,7 @@ app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
   }
 });
 
-// ---- 🆕 Note interne (visible uniquement dans le panel) sur un ticket ----
+// ---- Note interne (visible uniquement dans le panel) sur un ticket ----
 app.post("/api/tickets/:userId/note", authRequis, (req, res) => {
   const { userId } = req.params;
   const ticket = tickets[userId];
@@ -1993,7 +2133,7 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
 });
 
 // ==============================
-// 🆕 BACKUP / EXPORT / IMPORT
+// BACKUP / EXPORT / IMPORT
 // ==============================
 app.get("/api/backup", authRequis, (req, res) => {
   const backup = {
@@ -2004,6 +2144,7 @@ app.get("/api/backup", authRequis, (req, res) => {
     closedTickets,
     warns,
     candHistory,
+    interventions, // 🆕
   };
   const nomFichier = `backup-ems-${new Date().toISOString().slice(0, 10)}.json`;
   res.setHeader("Content-Disposition", `attachment; filename="${nomFichier}"`);
@@ -2023,6 +2164,7 @@ app.post("/api/backup/import", authRequis, (req, res) => {
     if (data.closedTickets) { closedTickets = data.closedTickets; sauverClosedTickets(); }
     if (data.warns) { warns = data.warns; sauverWarns(); }
     if (data.candHistory) { candHistory = data.candHistory; sauverCandHistory(); }
+    if (data.interventions) { interventions = data.interventions; sauverInterventions(); } // 🆕
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur import backup:", e);
