@@ -24,6 +24,7 @@
     --text-faint: #545c72;
     --ok: #34d399;
     --err: #fb7185;
+    --warn: #f59e0b;
     --radius-lg: 18px;
     --radius-md: 12px;
     --radius-sm: 9px;
@@ -184,6 +185,7 @@
   }
   button.secondaire:hover { border-color: var(--border-hover); box-shadow: none; }
   button.danger { background: linear-gradient(135deg,#fb7185,#ef4444); box-shadow: 0 8px 22px -8px rgba(239,68,68,0.5); }
+  button.avertir { background: linear-gradient(135deg,#fbbf24,#f59e0b); box-shadow: 0 8px 22px -8px rgba(245,158,11,0.5); }
   button.petit { padding: 7px 13px; font-size: 12px; margin-top: 0; }
 
   #compte {
@@ -271,6 +273,44 @@
   }
   .role-badge button:hover { opacity: 1; }
 
+  .warn-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(245,158,11,0.12);
+    color: var(--warn);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    margin: 3px 5px 3px 0;
+    border: 1px solid rgba(245,158,11,0.25);
+    cursor: pointer;
+  }
+  .warn-liste { margin-top: 10px; display: none; }
+  .warn-liste.ouvert { display: block; }
+  .warn-item {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 9px 12px;
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .warn-item .infos { color: var(--text); }
+  .warn-item .meta { color: var(--text-faint); font-size: 11px; margin-top: 3px; }
+  .warn-item button {
+    all: unset;
+    cursor: pointer;
+    color: var(--err);
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
   a.discret { color: var(--text-faint); font-size: 12.5px; text-decoration: none; transition: color .15s ease; }
   a.discret:hover { color: var(--text-dim); }
 
@@ -337,6 +377,36 @@
 
   .deux-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
 
+  .hist-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .hist-badge {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .hist-badge.validee { background: rgba(52,211,153,0.12); color: var(--ok); border: 1px solid rgba(52,211,153,0.25); }
+  .hist-badge.refusee { background: rgba(251,113,133,0.12); color: var(--err); border: 1px solid rgba(251,113,133,0.25); }
+
+  .note-zone { margin-top: 12px; }
+  .note-zone textarea { min-height: 60px; font-size: 12.5px; }
+
+  .encart-info {
+    font-size: 12.5px;
+    color: var(--text-dim);
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
@@ -361,9 +431,11 @@
   <div class="tab" data-tab="roles">🎭 Rôles</div>
   <div class="tab" data-tab="bienvenue">👋 Bienvenue & Auto-rôle</div>
   <div class="tab" data-tab="candidatures">✅ Candidatures</div>
+  <div class="tab" data-tab="historique">🕘 Historique candidatures</div>
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
+  <div class="tab" data-tab="backup">💾 Sauvegarde</div>
   <div id="compte"></div>
   <div style="padding: 14px 10px 0; margin-top: auto;">
     <a href="/logout" class="discret">↪ Déconnexion</a>
@@ -430,11 +502,19 @@
     <label>Message de bienvenue ({user}, {server}, {count})</label>
     <textarea id="param-message-bienvenue"></textarea>
 
+    <div class="sous-titre">Tickets</div>
     <label>Salon staff pour les tickets</label>
     <select id="param-salon-tickets"><option value="">Aucun</option></select>
 
     <label>Salon des logs de tickets (transcripts, ouvertures/fermetures)</label>
     <select id="param-salon-logs-tickets"><option value="">Aucun (utilise le salon staff)</option></select>
+
+    <label>Auto-fermeture des tickets après X heures d'inactivité (0 = désactivé)</label>
+    <input id="param-autoclose-heures" type="number" min="0" step="0.5" value="0" />
+
+    <div class="sous-titre">Modération</div>
+    <label>Salon des logs de modération (kick / ban / timeout / warn)</label>
+    <select id="param-salon-modlogs"><option value="">Aucun</option></select>
 
     <button onclick="sauverParametres()">Enregistrer</button>
     <div id="param-statut"></div>
@@ -515,6 +595,15 @@
     <div id="cand-statut"></div>
   </section>
 
+  <!-- HISTORIQUE CANDIDATURES -->
+  <section id="vue-historique" class="hidden">
+    <h2>Historique des candidatures</h2>
+    <div class="encart-info">Les 200 dernières validations / refus effectués via <code>/valid</code> et <code>/refuser</code> (ou le panel).</div>
+    <label>Rechercher (pseudo, ticket, staff)</label>
+    <input id="hist-recherche" placeholder="Tape pour filtrer..." oninput="chargerHistorique()" />
+    <div id="liste-historique" style="margin-top:16px;"></div>
+  </section>
+
   <!-- ANNONCES -->
   <section id="vue-embed" class="hidden">
     <h2>Envoyer une annonce / embed</h2>
@@ -561,6 +650,24 @@
     <div id="liste-giveaways"></div>
   </section>
 
+  <!-- BACKUP -->
+  <section id="vue-backup" class="hidden">
+    <h2>Sauvegarde</h2>
+    <div class="carte">
+      <h3 style="margin-top:0;font-size:15px;">📤 Exporter</h3>
+      <p style="color:var(--text-dim);font-size:13px;">Télécharge un fichier JSON contenant toute la config, les tickets, giveaways, avertissements et l'historique des candidatures.</p>
+      <button onclick="exporterBackup()">Télécharger la sauvegarde</button>
+    </div>
+    <div class="carte">
+      <h3 style="margin-top:0;font-size:15px;">📥 Importer</h3>
+      <p style="color:var(--text-dim);font-size:13px;">⚠️ Ceci écrase les données actuelles (config, tickets, giveaways, avertissements, historique) avec celles du fichier.</p>
+      <label>Fichier de sauvegarde (.json)</label>
+      <input id="backup-fichier" type="file" accept="application/json" />
+      <button class="danger" onclick="importerBackup()">Importer et écraser</button>
+      <div id="backup-statut"></div>
+    </div>
+  </section>
+
 </main>
 
 <script>
@@ -572,9 +679,11 @@
     roles: chargerRolesListe,
     bienvenue: chargerParametres,
     candidatures: chargerCandidatures,
+    historique: chargerHistorique,
     embed: chargerSalons,
     tickets: chargerTickets,
     giveaways: chargerGiveaways,
+    backup: null,
   };
 
   tabs.forEach(tab => tab.addEventListener('click', () => {
@@ -622,20 +731,60 @@
         <div class="carte">
           <div class="ligne">
             <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${m.tag}</div>
+            <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
           </div>
           <div style="margin-top:8px;">
             ${m.roles.map(r => `<span class="role-badge">${r.name}<button onclick="modifierRole('${m.id}','${r.id}','remove')">×</button></span>`).join('')}
           </div>
+          <div id="warn-liste-${m.id}" class="warn-liste"></div>
           <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
             <select id="role-add-${m.id}" style="width:auto;">${optionsRoles}</select>
             <button class="petit secondaire" onclick="modifierRole('${m.id}', document.getElementById('role-add-${m.id}').value, 'add')">+ Rôle</button>
             <button class="petit secondaire" onclick="timeoutMembre('${m.id}')">Timeout 10min</button>
+            <button class="petit avertir" onclick="avertirMembre('${m.id}')">⚠️ Avertir</button>
             <button class="petit danger" onclick="kickMembre('${m.id}')">Kick</button>
             <button class="petit danger" onclick="banMembre('${m.id}')">Ban</button>
           </div>
         </div>
       `).join('') || '<p style="color:var(--text-dim);">Aucun résultat.</p>';
     }, 400);
+  }
+
+  async function toggleWarns(userId) {
+    const zone = document.getElementById('warn-liste-' + userId);
+    if (zone.classList.contains('ouvert')) { zone.classList.remove('ouvert'); return; }
+    const res = await fetch(`/api/members/${userId}/warns`);
+    const liste = await res.json();
+    zone.innerHTML = liste.length
+      ? liste.map(w => `
+        <div class="warn-item">
+          <div>
+            <div class="infos">${w.reason}</div>
+            <div class="meta">Par ${w.staffTag} — ${new Date(w.date).toLocaleString('fr-FR')}</div>
+          </div>
+          <button onclick="supprimerWarn('${userId}','${w.id}')">Supprimer</button>
+        </div>
+      `).join('')
+      : '<p style="color:var(--text-dim);font-size:12.5px;">Aucun avertissement.</p>';
+    zone.classList.add('ouvert');
+  }
+
+  async function avertirMembre(userId) {
+    const raison = prompt("Raison de l'avertissement ?");
+    if (!raison) return;
+    const res = await fetch(`/api/members/${userId}/warn`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison })
+    });
+    if (res.ok) rechercherMembres(document.getElementById('mod-recherche').value);
+    else alert("Échec de l'avertissement.");
+  }
+
+  async function supprimerWarn(userId, warnId) {
+    if (!confirm('Supprimer cet avertissement ?')) return;
+    await fetch(`/api/members/${userId}/warns/${warnId}`, { method: 'DELETE' });
+    toggleWarns(userId); toggleWarns(userId); // referme puis rouvre proprement
+    document.getElementById('warn-liste-' + userId).classList.remove('ouvert');
+    toggleWarns(userId);
   }
 
   async function modifierRole(userId, roleId, action) {
@@ -645,17 +794,20 @@
     rechercherMembres(document.getElementById('mod-recherche').value);
   }
   async function kickMembre(userId) {
+    const raison = prompt('Raison du kick ? (optionnel)') || '';
     if (!confirm('Kick ce membre ?')) return;
-    await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
     rechercherMembres(document.getElementById('mod-recherche').value);
   }
   async function banMembre(userId) {
+    const raison = prompt('Raison du ban ? (optionnel)') || '';
     if (!confirm('Bannir ce membre ?')) return;
-    await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
     rechercherMembres(document.getElementById('mod-recherche').value);
   }
   async function timeoutMembre(userId) {
     await fetch(`/api/members/${userId}/timeout`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 10 }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
   }
 
   // ---- SALONS ----
@@ -727,12 +879,15 @@
     document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
     document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
     document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun (utilise le salon staff)</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
 
     document.getElementById('param-autorole').value = params.autoRoleId || '';
     document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
     document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
     document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
     document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
+    document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
+    document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
   }
   async function sauverParametres() {
     const statut = document.getElementById('param-statut');
@@ -744,6 +899,8 @@
         welcomeMessage: document.getElementById('param-message-bienvenue').value,
         ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
         ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
+        modLogsChannelId: document.getElementById('param-salon-modlogs').value,
+        ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
       })
     });
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
@@ -810,6 +967,29 @@
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   }
 
+  // ---- HISTORIQUE CANDIDATURES ----
+  let histTimeout;
+  function chargerHistorique() {
+    clearTimeout(histTimeout);
+    histTimeout = setTimeout(async () => {
+      const q = document.getElementById('hist-recherche') ? document.getElementById('hist-recherche').value : '';
+      const res = await fetch('/api/candidatures/history?q=' + encodeURIComponent(q));
+      const liste = await res.json();
+      document.getElementById('liste-historique').innerHTML = liste.length ? liste.map(h => `
+        <div class="carte">
+          <div class="hist-item">
+            <div>
+              <div style="font-weight:600;">${h.username} ${h.ticketNumber ? '— ticket #' + h.ticketNumber : ''}</div>
+              <div style="color:var(--text-dim);font-size:12.5px;margin-top:3px;">Par ${h.staffTag} — ${new Date(h.date).toLocaleString('fr-FR')}</div>
+              ${h.raison ? `<div style="margin-top:6px;font-size:12.5px;">💬 ${h.raison}</div>` : ''}
+            </div>
+            <span class="hist-badge ${h.result}">${h.result === 'validee' ? '✅ Validée' : '❌ Refusée'}</span>
+          </div>
+        </div>
+      `).join('') : `<p style="color:var(--text-dim);">Aucune entrée dans l'historique.</p>`;
+    }, 250);
+  }
+
   // ---- ANNONCES ----
   async function chargerSalons() {
     const res = await fetch('/api/channels');
@@ -845,11 +1025,18 @@
     if (tickets.length === 0) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
     liste.innerHTML = tickets.map(t => `
       <div class="carte">
-        <div style="font-weight:600;margin-bottom:8px;">${t.username}</div>
+        <div style="font-weight:600;margin-bottom:2px;">#${t.number || '?'} — ${t.username}</div>
+        ${t.lastActivity ? `<div style="color:var(--text-faint);font-size:11.5px;margin-bottom:8px;">Dernière activité : ${new Date(t.lastActivity).toLocaleString('fr-FR')}</div>` : ''}
         <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
         <button onclick="repondreTicket('${t.userId}')">Répondre</button>
         <button class="secondaire" onclick="fermerTicket('${t.userId}')">Fermer</button>
         <div id="statut-${t.userId}"></div>
+        <div class="note-zone">
+          <label>📝 Note interne (visible uniquement dans le panel)</label>
+          <textarea id="note-${t.userId}" placeholder="Note staff...">${t.note || ''}</textarea>
+          <button class="petit secondaire" onclick="sauverNoteTicket('${t.userId}')">Enregistrer la note</button>
+          <span id="note-statut-${t.userId}" style="margin-left:8px;font-size:12px;"></span>
+        </div>
       </div>
     `).join('');
   }
@@ -863,6 +1050,16 @@
     statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     if (res.ok) document.getElementById('reply-' + userId).value = '';
+  }
+  async function sauverNoteTicket(userId) {
+    const note = document.getElementById('note-' + userId).value;
+    const statut = document.getElementById('note-statut-' + userId);
+    const res = await fetch(`/api/tickets/${userId}/note`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
+    });
+    statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    setTimeout(() => { statut.textContent = ''; }, 2500);
   }
   async function fermerTicket(userId) {
     await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
@@ -900,6 +1097,30 @@
   async function terminerGiveawayPanel(id) {
     await fetch(`/api/giveaways/${id}/end`, { method: 'POST' });
     chargerGiveaways();
+  }
+
+  // ---- BACKUP ----
+  function exporterBackup() {
+    window.location.href = '/api/backup';
+  }
+  async function importerBackup() {
+    const statut = document.getElementById('backup-statut');
+    const fichier = document.getElementById('backup-fichier').files[0];
+    if (!fichier) { statut.textContent = '❌ Choisis un fichier .json'; statut.className = 'msg-err'; return; }
+    if (!confirm('Cette action va écraser les données actuelles avec celles du fichier. Continuer ?')) return;
+
+    try {
+      const texte = await fichier.text();
+      const data = JSON.parse(texte);
+      const res = await fetch('/api/backup/import', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+      });
+      statut.textContent = res.ok ? '✅ Sauvegarde importée avec succès' : "❌ Échec de l'import";
+      statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    } catch (e) {
+      statut.textContent = '❌ Fichier invalide';
+      statut.className = 'msg-err';
+    }
   }
 
   chargerCompte();
