@@ -407,6 +407,28 @@
     margin-bottom: 16px;
   }
 
+  /* XP & GRADES */
+  .tab-xp {
+    padding: 8px 16px;
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all .18s ease;
+    font-family: inherit;
+  }
+  .tab-xp:hover { border-color: var(--border-hover); color: var(--text); }
+  .tab-xp.actif {
+    background: var(--accent-grad);
+    color: white;
+    border-color: transparent;
+  }
+  .xp-content { display: block; }
+  .xp-content.hidden { display: none; }
+
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
@@ -435,6 +457,7 @@
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
+  <div class="tab" data-tab="xp">🏆 Grades & XP</div>
   <div class="tab" data-tab="backup">💾 Sauvegarde</div>
   <div id="compte"></div>
   <div style="padding: 14px 10px 0; margin-top: auto;">
@@ -650,6 +673,207 @@
     <div id="liste-giveaways"></div>
   </section>
 
+  <!-- GRADES & XP -->
+  <section id="vue-xp" class="hidden">
+    <h2>🏆 Système de Grades & XP</h2>
+    
+    <!-- Sous-onglets -->
+    <div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
+      <button class="tab-xp actif" data-xp-tab="dashboard">📊 Dashboard</button>
+      <button class="tab-xp" data-xp-tab="grades">🎖️ Grades</button>
+      <button class="tab-xp" data-xp-tab="settings">⚙️ Paramètres</button>
+      <button class="tab-xp" data-xp-tab="leaderboard">🏅 Classement</button>
+      <button class="tab-xp" data-xp-tab="profile">👤 Profil</button>
+      <button class="tab-xp" data-xp-tab="logs">📋 Logs</button>
+    </div>
+
+    <!-- Dashboard XP -->
+    <div id="xp-dashboard" class="xp-content">
+      <div class="stats-grille" id="xp-stats"></div>
+      <div class="carte">
+        <h3 style="margin-top:0;">Top 5 des membres</h3>
+        <div id="xp-top5"></div>
+      </div>
+    </div>
+
+    <!-- Gestion des Grades -->
+    <div id="xp-grades" class="xp-content hidden">
+      <div class="carte">
+        <h3 style="margin-top:0;">Nouveau grade</h3>
+        <div class="deux-col">
+          <div>
+            <label>Nom du grade</label>
+            <input id="grade-nom" placeholder="Ex: Médecin Chef" />
+          </div>
+          <div>
+            <label>ID du grade (unique)</label>
+            <input id="grade-id" placeholder="ex: medecin_chef" />
+          </div>
+        </div>
+        <div class="deux-col">
+          <div>
+            <label>Niveau</label>
+            <input id="grade-niveau" type="number" value="1" />
+          </div>
+          <div>
+            <label>XP requis</label>
+            <input id="grade-xp" type="number" value="0" />
+          </div>
+        </div>
+        <div class="deux-col">
+          <div>
+            <label>Icône (emoji)</label>
+            <input id="grade-icone" value="🟢" />
+          </div>
+          <div>
+            <label>Couleur (hex)</label>
+            <input id="grade-couleur" value="#34d399" />
+          </div>
+        </div>
+        <label>Privilèges (séparés par des virgules)</label>
+        <input id="grade-perks" placeholder="Ex: Accès admin, Gestion des rapports" />
+        <div class="case-ligne">
+          <input type="checkbox" id="grade-notifications" checked />
+          <label for="grade-notifications">Notifications de montée de grade</label>
+        </div>
+        <button onclick="creerGrade()">Créer le grade</button>
+        <div id="grade-statut"></div>
+      </div>
+
+      <div id="liste-grades"></div>
+    </div>
+
+    <!-- Paramètres XP -->
+    <div id="xp-settings" class="xp-content hidden">
+      <div class="carte">
+        <h3 style="margin-top:0;">Gains d'XP</h3>
+        <div class="deux-col">
+          <div>
+            <label>XP par minute en service</label>
+            <input id="xp-per-minute" type="number" step="0.1" />
+          </div>
+          <div>
+            <label>XP par intervention</label>
+            <input id="xp-per-intervention" type="number" />
+          </div>
+        </div>
+        <div class="deux-col">
+          <div>
+            <label>XP par message</label>
+            <input id="xp-per-message" type="number" step="0.1" />
+          </div>
+          <div>
+            <label>XP par minute vocal</label>
+            <input id="xp-per-voice" type="number" step="0.1" />
+          </div>
+        </div>
+        
+        <h3 style="margin-top:24px;">Pénalités</h3>
+        <div class="deux-col">
+          <div>
+            <label>XP par avertissement</label>
+            <input id="xp-per-warn" type="number" />
+          </div>
+          <div>
+            <label>XP par kick</label>
+            <input id="xp-per-kick" type="number" />
+          </div>
+        </div>
+        <div>
+          <label>XP par ban</label>
+          <input id="xp-per-ban" type="number" />
+        </div>
+
+        <h3 style="margin-top:24px;">Cooldowns (secondes)</h3>
+        <div class="deux-col">
+          <div>
+            <label>Messages</label>
+            <input id="xp-cooldown-message" type="number" />
+          </div>
+          <div>
+            <label>Vocal</label>
+            <input id="xp-cooldown-voice" type="number" />
+          </div>
+        </div>
+
+        <h3 style="margin-top:24px;">Multiplicateurs</h3>
+        <div class="deux-col">
+          <div>
+            <label>Weekend</label>
+            <input id="xp-boost-weekend" type="number" step="0.1" />
+          </div>
+          <div>
+            <label>Événement</label>
+            <input id="xp-boost-event" type="number" step="0.1" />
+          </div>
+        </div>
+
+        <h3 style="margin-top:24px;">Messages</h3>
+        <label>Message de montée de grade</label>
+        <input id="xp-levelup-message" placeholder="{user} {grade} {level}" />
+        <label>Message de statut XP</label>
+        <input id="xp-status-message" placeholder="{user} {level} {xp} {grade}" />
+
+        <div class="case-ligne">
+          <input type="checkbox" id="xp-notifications" checked />
+          <label for="xp-notifications">Activer les notifications</label>
+        </div>
+
+        <button onclick="sauverXPSettings()">Enregistrer</button>
+        <div id="xp-settings-statut"></div>
+      </div>
+    </div>
+
+    <!-- Classement -->
+    <div id="xp-leaderboard" class="xp-content hidden">
+      <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+        <select id="lb-sort" onchange="chargerLeaderboard()">
+          <option value="xp">XP total</option>
+          <option value="level">Niveau</option>
+          <option value="interventions">Interventions</option>
+          <option value="serviceTime">Temps en service</option>
+          <option value="messages">Messages</option>
+          <option value="voiceTime">Temps vocal</option>
+        </select>
+        <input id="lb-search" placeholder="Rechercher..." oninput="chargerLeaderboard()" style="width:200px;" />
+        <select id="lb-grade-filter" onchange="chargerLeaderboard()">
+          <option value="all">Tous les grades</option>
+        </select>
+      </div>
+      <div id="leaderboard-liste"></div>
+    </div>
+
+    <!-- Profil -->
+    <div id="xp-profile" class="xp-content hidden">
+      <div style="display:flex; gap:12px; margin-bottom:16px;">
+        <input id="profile-search" placeholder="ID ou pseudo du membre..." style="flex:1;" />
+        <button onclick="chargerProfil()" style="margin:0;">Rechercher</button>
+      </div>
+      <div id="profile-content">
+        <div class="carte" style="text-align:center; color:var(--text-dim);">
+          Entrez un ID ou un pseudo pour voir le profil
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs XP -->
+    <div id="xp-logs" class="xp-content hidden">
+      <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+        <input id="logs-search" placeholder="Rechercher..." oninput="chargerXPLogs()" style="flex:1;" />
+        <select id="logs-type" onchange="chargerXPLogs()">
+          <option value="all">Tous les types</option>
+          <option value="intervention">Interventions</option>
+          <option value="message">Messages</option>
+          <option value="voice">Vocal</option>
+          <option value="service">Temps de service</option>
+          <option value="manual">Manuel</option>
+          <option value="penalty">Pénalité</option>
+        </select>
+      </div>
+      <div id="logs-liste"></div>
+    </div>
+  </section>
+
   <!-- BACKUP -->
   <section id="vue-backup" class="hidden">
     <h2>Sauvegarde</h2>
@@ -683,6 +907,7 @@
     embed: chargerSalons,
     tickets: chargerTickets,
     giveaways: chargerGiveaways,
+    xp: null,
     backup: null,
   };
 
@@ -782,7 +1007,7 @@
   async function supprimerWarn(userId, warnId) {
     if (!confirm('Supprimer cet avertissement ?')) return;
     await fetch(`/api/members/${userId}/warns/${warnId}`, { method: 'DELETE' });
-    toggleWarns(userId); toggleWarns(userId); // referme puis rouvre proprement
+    toggleWarns(userId); toggleWarns(userId);
     document.getElementById('warn-liste-' + userId).classList.remove('ouvert');
     toggleWarns(userId);
   }
@@ -1121,6 +1346,337 @@
       statut.textContent = '❌ Fichier invalide';
       statut.className = 'msg-err';
     }
+  }
+
+  // ---- XP & GRADES ----
+  // Gestion des onglets XP
+  document.querySelectorAll('.tab-xp').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab-xp').forEach(t => t.classList.remove('actif'));
+      tab.classList.add('actif');
+      document.querySelectorAll('.xp-content').forEach(c => c.classList.add('hidden'));
+      document.getElementById('xp-' + tab.dataset.xpTab).classList.remove('hidden');
+      
+      const actions = {
+        dashboard: chargerXPDashboard,
+        grades: chargerGradesListe,
+        settings: chargerXPSettings,
+        leaderboard: chargerLeaderboard,
+        profile: null,
+        logs: chargerXPLogs
+      };
+      if (actions[tab.dataset.xpTab]) actions[tab.dataset.xpTab]();
+    });
+  });
+
+  async function chargerXPDashboard() {
+    const res = await fetch('/api/xp/stats');
+    const stats = await res.json();
+    
+    document.getElementById('xp-stats').innerHTML = [
+      ['Total XP', stats.totalXp || 0],
+      ['Membres actifs', stats.activeMembers || 0],
+      ['Total interventions', stats.totalInterventions || 0],
+      ['Grade moyen', stats.averageGrade || 'N/A']
+    ].map(([label, val]) => `
+      <div class="stat-carte">
+        <div class="valeur">${val}</div>
+        <div class="label">${label}</div>
+      </div>
+    `).join('');
+
+    const topRes = await fetch('/api/xp/top5');
+    const top = await topRes.json();
+    document.getElementById('xp-top5').innerHTML = top.map((m, i) => `
+      <div class="carte" style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong>#${i+1}</strong> ${m.username}
+            <span style="color:var(--text-dim);font-size:12px;">${m.grade}</span>
+          </div>
+          <div>
+            <span style="font-weight:600;">${m.xp}</span> XP - Niveau ${m.level}
+          </div>
+        </div>
+      </div>
+    `).join('') || '<p style="color:var(--text-dim);">Aucun membre</p>';
+  }
+
+  async function chargerGradesListe() {
+    const res = await fetch('/api/grades');
+    const data = await res.json();
+    
+    document.getElementById('liste-grades').innerHTML = data.grades.map(g => `
+      <div class="carte">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div style="font-size:20px;font-weight:700;color:${g.color}">
+              ${g.icon} ${g.name}
+            </div>
+            <div style="color:var(--text-dim);font-size:13px;">
+              Niveau ${g.level} • ${g.xpRequired} XP requis
+            </div>
+            <div style="margin-top:6px;">
+              ${(g.perks || []).map(p => `<span class="role-badge">${p}</span>`).join('')}
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="petit danger" onclick="supprimerGrade('${g.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>
+    `).join('') || '<p style="color:var(--text-dim);">Aucun grade configuré.</p>';
+  }
+
+  async function creerGrade() {
+    const statut = document.getElementById('grade-statut');
+    const data = {
+      id: document.getElementById('grade-id').value.trim(),
+      name: document.getElementById('grade-nom').value.trim(),
+      level: parseInt(document.getElementById('grade-niveau').value) || 1,
+      xpRequired: parseInt(document.getElementById('grade-xp').value) || 0,
+      icon: document.getElementById('grade-icone').value || '🟢',
+      color: document.getElementById('grade-couleur').value || '#34d399',
+      perks: document.getElementById('grade-perks').value.split(',').map(s => s.trim()).filter(Boolean),
+      notifications: document.getElementById('grade-notifications').checked
+    };
+    
+    if (!data.id || !data.name) {
+      statut.textContent = '❌ ID et Nom sont requis';
+      statut.className = 'msg-err';
+      return;
+    }
+    
+    const res = await fetch('/api/grades', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    
+    statut.textContent = res.ok ? '✅ Grade créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) {
+      document.getElementById('grade-id').value = '';
+      document.getElementById('grade-nom').value = '';
+      chargerGradesListe();
+    }
+  }
+
+  async function supprimerGrade(id) {
+    if (!confirm('Supprimer ce grade ?')) return;
+    await fetch(`/api/grades/${id}`, { method: 'DELETE' });
+    chargerGradesListe();
+  }
+
+  async function chargerXPSettings() {
+    const res = await fetch('/api/xp/settings');
+    const settings = await res.json();
+    
+    document.getElementById('xp-per-minute').value = settings.xpPerMinute || 1;
+    document.getElementById('xp-per-intervention').value = settings.xpPerIntervention || 50;
+    document.getElementById('xp-per-message').value = settings.xpPerMessage || 0.5;
+    document.getElementById('xp-per-voice').value = settings.xpPerVoiceMinute || 2;
+    document.getElementById('xp-per-warn').value = settings.xpPerWarn || -25;
+    document.getElementById('xp-per-kick').value = settings.xpPerKick || -50;
+    document.getElementById('xp-per-ban').value = settings.xpPerBan || -100;
+    document.getElementById('xp-cooldown-message').value = settings.cooldowns?.message || 60;
+    document.getElementById('xp-cooldown-voice').value = settings.cooldowns?.voice || 300;
+    document.getElementById('xp-boost-weekend').value = settings.xpBoosts?.weekend || 1.5;
+    document.getElementById('xp-boost-event').value = settings.xpBoosts?.event || 2.0;
+    document.getElementById('xp-levelup-message').value = settings.levelUpMessage || '';
+    document.getElementById('xp-status-message').value = settings.xpMessage || '';
+    document.getElementById('xp-notifications').checked = settings.notifications !== false;
+  }
+
+  async function sauverXPSettings() {
+    const statut = document.getElementById('xp-settings-statut');
+    const data = {
+      xpPerMinute: parseFloat(document.getElementById('xp-per-minute').value) || 1,
+      xpPerIntervention: parseInt(document.getElementById('xp-per-intervention').value) || 50,
+      xpPerMessage: parseFloat(document.getElementById('xp-per-message').value) || 0.5,
+      xpPerVoiceMinute: parseFloat(document.getElementById('xp-per-voice').value) || 2,
+      xpPerWarn: parseInt(document.getElementById('xp-per-warn').value) || -25,
+      xpPerKick: parseInt(document.getElementById('xp-per-kick').value) || -50,
+      xpPerBan: parseInt(document.getElementById('xp-per-ban').value) || -100,
+      cooldowns: {
+        message: parseInt(document.getElementById('xp-cooldown-message').value) || 60,
+        voice: parseInt(document.getElementById('xp-cooldown-voice').value) || 300
+      },
+      xpBoosts: {
+        weekend: parseFloat(document.getElementById('xp-boost-weekend').value) || 1.5,
+        event: parseFloat(document.getElementById('xp-boost-event').value) || 2.0
+      },
+      levelUpMessage: document.getElementById('xp-levelup-message').value,
+      xpMessage: document.getElementById('xp-status-message').value,
+      notifications: document.getElementById('xp-notifications').checked
+    };
+    
+    const res = await fetch('/api/xp/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    
+    statut.textContent = res.ok ? '✅ Paramètres enregistrés' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  }
+
+  async function chargerLeaderboard() {
+    const sort = document.getElementById('lb-sort').value;
+    const search = document.getElementById('lb-search').value;
+    const gradeFilter = document.getElementById('lb-grade-filter').value;
+    
+    const params = new URLSearchParams({ sort, search, grade: gradeFilter });
+    const res = await fetch(`/api/xp/leaderboard?${params}`);
+    const data = await res.json();
+    
+    document.getElementById('leaderboard-liste').innerHTML = data.map((m, i) => `
+      <div class="carte" style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <span style="font-weight:700;color:var(--text-dim);">#${i+1}</span>
+            <span style="font-weight:600;">${m.username}</span>
+            <span style="font-size:12px;color:${m.gradeColor};font-weight:600;">${m.gradeIcon} ${m.grade}</span>
+          </div>
+          <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:13px;">
+            <span>🏆 ${m.xp} XP</span>
+            <span>📊 Niv. ${m.level}</span>
+            <span>🚑 ${m.interventions} interventions</span>
+            <span>⏱️ ${Math.floor(m.serviceTime / 3600)}h</span>
+          </div>
+        </div>
+      </div>
+    `).join('') || '<p style="color:var(--text-dim);">Aucun membre trouvé.</p>';
+    
+    // Mettre à jour le filtre des grades
+    const grades = await (await fetch('/api/grades')).json();
+    const select = document.getElementById('lb-grade-filter');
+    const currentVal = select.value;
+    select.innerHTML = '<option value="all">Tous les grades</option>' + 
+      grades.grades.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    select.value = currentVal;
+  }
+
+  async function chargerProfil() {
+    const search = document.getElementById('profile-search').value.trim();
+    if (!search) return;
+    
+    const res = await fetch(`/api/xp/profile?search=${encodeURIComponent(search)}`);
+    const data = await res.json();
+    
+    if (!data || !data.username) {
+      document.getElementById('profile-content').innerHTML = `
+        <div class="carte" style="text-align:center; color:var(--text-dim);">
+          Membre non trouvé
+        </div>
+      `;
+      return;
+    }
+    
+    const { level, currentXp, nextXp } = getLevelInfo(data.xp);
+    const progress = nextXp ? Math.round((currentXp / nextXp) * 100) : 100;
+    
+    document.getElementById('profile-content').innerHTML = `
+      <div class="carte">
+        <div style="text-align:center; margin-bottom:20px;">
+          <div style="font-size:48px; line-height:1.2;">${data.gradeIcon || '👤'}</div>
+          <div style="font-size:24px; font-weight:700; color:${data.gradeColor || 'var(--text)'};">
+            ${data.grade || 'Aucun grade'}
+          </div>
+          <div style="font-size:20px; font-weight:600;">${data.username}</div>
+          <div style="color:var(--text-dim); font-size:14px;">ID: ${data.userId}</div>
+        </div>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:12px; margin:16px 0;">
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${level}</div>
+            <div class="label">Niveau</div>
+          </div>
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${data.xp}</div>
+            <div class="label">XP total</div>
+          </div>
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${data.interventions || 0}</div>
+            <div class="label">Interventions</div>
+          </div>
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${Math.floor((data.serviceTime || 0) / 3600)}h</div>
+            <div class="label">Temps de service</div>
+          </div>
+        </div>
+        
+        ${nextXp ? `
+          <div style="margin:16px 0;">
+            <div style="display:flex; justify-content:space-between; font-size:13px; color:var(--text-dim);">
+              <span>Progression</span>
+              <span>${currentXp} / ${nextXp} XP</span>
+            </div>
+            <div style="background:var(--bg-input); height:8px; border-radius:999px; overflow:hidden; margin-top:4px;">
+              <div style="background:var(--accent-grad); height:100%; width:${progress}%; transition:width 0.6s ease;"></div>
+            </div>
+            <div style="text-align:right; font-size:12px; color:var(--text-dim); margin-top:2px;">
+              ${progress}%
+            </div>
+          </div>
+        ` : '<div style="color:var(--ok); text-align:center; margin:12px 0;">🏆 Niveau maximum atteint !</div>'}
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px; margin-top:12px;">
+          <div style="color:var(--text-dim);">Messages: <strong style="color:var(--text);">${data.messages || 0}</strong></div>
+          <div style="color:var(--text-dim);">Temps vocal: <strong style="color:var(--text);">${Math.floor((data.voiceTime || 0) / 3600)}h</strong></div>
+          <div style="color:var(--text-dim);">Dernière activité: <strong style="color:var(--text);">${new Date(data.lastActivity).toLocaleDateString('fr-FR')}</strong></div>
+        </div>
+        
+        ${data.perks && data.perks.length ? `
+          <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
+            <div style="font-weight:600; margin-bottom:8px;">Privilèges</div>
+            ${data.perks.map(p => `<span class="role-badge">${p}</span>`).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function getLevelInfo(xp) {
+    let level = 1;
+    let xpNeeded = 100;
+    let totalXp = 0;
+    while (totalXp + xpNeeded <= xp) {
+      totalXp += xpNeeded;
+      level++;
+      xpNeeded = Math.floor(xpNeeded * 1.2);
+    }
+    return { level, currentXp: xp - totalXp, nextXp: xpNeeded };
+  }
+
+  let logsTimeout;
+  function chargerXPLogs() {
+    clearTimeout(logsTimeout);
+    logsTimeout = setTimeout(async () => {
+      const search = document.getElementById('logs-search').value;
+      const type = document.getElementById('logs-type').value;
+      
+      const params = new URLSearchParams({ search, type });
+      const res = await fetch(`/api/xp/logs?${params}`);
+      const logs = await res.json();
+      
+      document.getElementById('logs-liste').innerHTML = logs.slice(0, 100).map(log => `
+        <div class="carte" style="margin-bottom:6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+              <strong>${log.username}</strong>
+              <span style="color:var(--text-dim);font-size:12px;">${log.type}</span>
+              <span style="font-size:12px;color:${log.amount >= 0 ? 'var(--ok)' : 'var(--err)'};">
+                ${log.amount >= 0 ? '+' : ''}${log.amount} XP
+              </span>
+            </div>
+            <div style="font-size:12px;color:var(--text-dim);">
+              ${log.reason || ''} • ${new Date(log.date).toLocaleString('fr-FR')}
+            </div>
+          </div>
+        </div>
+      `).join('') || '<p style="color:var(--text-dim);">Aucun log trouvé.</p>';
+    }, 300);
   }
 
   chargerCompte();
