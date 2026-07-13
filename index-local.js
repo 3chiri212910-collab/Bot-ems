@@ -292,7 +292,6 @@ async function startService(userId) {
   
   serviceData[userId].active = true;
   serviceData[userId].startTime = now.toISOString();
-  serviceData[userId].sessionStart = now.toISOString();
   serviceData[userId].lastPing = now.toISOString();
   
   sauverService();
@@ -305,7 +304,7 @@ async function stopService(userId) {
   
   const now = new Date();
   const start = new Date(data.startTime);
-  const duration = Math.floor((now - start) / 1000); // en secondes
+  const duration = Math.floor((now - start) / 1000);
   
   data.active = false;
   data.endTime = now.toISOString();
@@ -320,7 +319,6 @@ async function stopService(userId) {
   
   sauverService();
   
-  // Donner l'XP pour le temps de service
   const xpPerMinute = gradesConfig.settings.xpPerMinute || 1;
   const minutes = Math.floor(duration / 60);
   const xpGain = minutes * xpPerMinute;
@@ -353,6 +351,13 @@ function getActiveServices() {
     }
   }
   return active;
+}
+
+function getServiceDuration(userId) {
+  const data = serviceData[userId];
+  if (!data || !data.active) return null;
+  const start = new Date(data.startTime);
+  return Math.floor((Date.now() - start) / 1000);
 }
 
 // ==============================
@@ -591,7 +596,7 @@ const commands = [
         .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
     ),
 
-  // Service
+  // SERVICE - Commandes
   new SlashCommandBuilder()
     .setName("service")
     .setDescription("Gérer ton service")
@@ -691,12 +696,9 @@ client.once("ready", async () => {
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) return;
       
-      const members = await guild.members.fetch();
-      const now = new Date();
-      const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+      const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
       const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
       
-      // XP pour les membres en service
       const activeServices = getActiveServices();
       for (const service of activeServices) {
         const start = new Date(service.startTime);
@@ -723,12 +725,13 @@ client.once("ready", async () => {
         if (!member || member.presence?.status === 'offline') {
           console.log(`🛑 Service arrêté automatiquement pour ${member?.user?.username || service.userId} (offline)`);
           await stopService(service.userId);
+          await mettreAJourMessageService(service.userId);
         }
       }
     } catch (e) {
       console.error("Erreur vérification services orphelins:", e);
     }
-  }, 300000); // toutes les 5 minutes
+  }, 300000);
 });
 
 // ==============================
@@ -741,7 +744,6 @@ async function envoyerMessageService() {
     const channel = await client.channels.fetch(config.serviceChannelId);
     if (!channel || !channel.isTextBased()) return;
     
-    // Supprimer l'ancien message si existant
     if (config.serviceMessageId) {
       try {
         const oldMsg = await channel.messages.fetch(config.serviceMessageId);
@@ -749,21 +751,21 @@ async function envoyerMessageService() {
       } catch (e) {}
     }
     
-    const embed = new EmbedBuilder()
-      .setColor(COULEUR_EMBED)
-      .setTitle("🟢 Prise de service")
-      .setDescription("Clique sur le bouton ci-dessous pour prendre ou déposer ton service.")
-      .addFields(
-        { name: "📊 En service actuellement", value: "Aucun membre", inline: false }
-      )
-      .setFooter({ text: NOM_SERVEUR })
-      .setTimestamp();
-
+    const embed = await construireEmbedService();
+    
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId("service_toggle")
+        .setCustomId("service_start")
         .setLabel("🟢 Prendre mon service")
-        .setStyle(ButtonStyle.Success)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("service_stop")
+        .setLabel("🔴 Arrêter mon service")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("service_status")
+        .setLabel("⏱️ Voir mon temps en service")
+        .setStyle(ButtonStyle.Secondary)
     );
 
     const message = await channel.send({ embeds: [embed], components: [row] });
@@ -771,39 +773,57 @@ async function envoyerMessageService() {
     sauverConfig();
     
     // Mettre à jour le message périodiquement
-    setInterval(() => mettreAJourMessageService(message), 60000);
-    await mettreAJourMessageService(message);
+    setInterval(async () => {
+      const newEmbed = await construireEmbedService();
+      await message.edit({ embeds: [newEmbed] }).catch(() => {});
+    }, 30000);
     
   } catch (e) {
     console.error("Erreur envoi message service:", e);
   }
 }
 
-async function mettreAJourMessageService(message) {
+async function construireEmbedService() {
+  const activeServices = getActiveServices();
+  
+  const embed = new EmbedBuilder()
+    .setColor(COULEUR_EMBED)
+    .setTitle("🟢 Système de service")
+    .setDescription("Utilise les boutons ci-dessous pour gérer ton service.\n\n" +
+      "• **Prendre mon service** : Débute ta garde\n" +
+      "• **Arrêter mon service** : Termine ta garde\n" +
+      "• **Voir mon temps** : Affiche ta durée en service")
+    .setFooter({ text: NOM_SERVEUR })
+    .setTimestamp();
+
+  if (activeServices.length === 0) {
+    embed.addFields({ name: "📊 En service actuellement", value: "Aucun membre", inline: false });
+  } else {
+    const liste = await Promise.all(activeServices.map(async (s) => {
+      const user = await client.users.fetch(s.userId).catch(() => null);
+      const start = new Date(s.startTime);
+      const duration = Math.floor((Date.now() - start) / 60000);
+      const hours = Math.floor(duration / 60);
+      const minutes = duration % 60;
+      return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
+    }));
+    embed.addFields({ name: "📊 En service actuellement", value: liste.join('\n'), inline: false });
+  }
+
+  return embed;
+}
+
+async function mettreAJourMessageService(userId) {
+  if (!config.serviceMessageId || !config.serviceChannelId) return;
+  
   try {
-    const activeServices = getActiveServices();
-    const embed = new EmbedBuilder()
-      .setColor(COULEUR_EMBED)
-      .setTitle("🟢 Prise de service")
-      .setDescription("Clique sur le bouton ci-dessous pour prendre ou déposer ton service.")
-      .setFooter({ text: NOM_SERVEUR })
-      .setTimestamp();
-
-    if (activeServices.length === 0) {
-      embed.addFields({ name: "📊 En service actuellement", value: "Aucun membre", inline: false });
-    } else {
-      const liste = await Promise.all(activeServices.map(async (s) => {
-        const user = await client.users.fetch(s.userId).catch(() => null);
-        const start = new Date(s.startTime);
-        const duration = Math.floor((Date.now() - start) / 60000);
-        const hours = Math.floor(duration / 60);
-        const minutes = duration % 60;
-        return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
-      }));
-      embed.addFields({ name: "📊 En service actuellement", value: liste.join('\n') || "Aucun", inline: false });
-    }
-
-    await message.edit({ embeds: [embed] });
+    const channel = await client.channels.fetch(config.serviceChannelId);
+    if (!channel) return;
+    const message = await channel.messages.fetch(config.serviceMessageId).catch(() => null);
+    if (!message) return;
+    
+    const embed = await construireEmbedService();
+    await message.edit({ embeds: [embed] }).catch(() => {});
   } catch (e) {
     console.error("Erreur mise à jour message service:", e);
   }
@@ -1278,30 +1298,60 @@ function planifierFinGiveaway(g) {
 // INTERACTIONS
 // ==============================
 client.on("interactionCreate", async (interaction) => {
-  // ---- Bouton SERVICE ----
-  if (interaction.isButton() && interaction.customId === "service_toggle") {
+  // ---- BOUTONS SERVICE ----
+  if (interaction.isButton() && ["service_start", "service_stop", "service_status"].includes(interaction.customId)) {
     await interaction.deferReply({ ephemeral: true });
-    
     const userId = interaction.user.id;
-    const status = getServiceStatus(userId);
-    
-    if (status) {
-      // Arrêter le service
-      const result = await stopService(userId);
-      if (result) {
-        const duration = Math.floor(result.duration / 60);
-        await interaction.editReply({
-          content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`
-        });
-        await mettreAJourMessageService(await interaction.channel.messages.fetch(config.serviceMessageId).catch(() => null));
+
+    if (interaction.customId === "service_start") {
+      const status = getServiceStatus(userId);
+      if (status) {
+        return interaction.editReply({ content: "❌ Tu es déjà en service !" });
       }
-    } else {
-      // Démarrer le service
       await startService(userId);
-      await interaction.editReply({
-        content: "✅ Tu as pris ton service ! 🟢"
+      await interaction.editReply({ content: "✅ Tu as pris ton service ! 🟢" });
+      await mettreAJourMessageService(userId);
+    }
+
+    else if (interaction.customId === "service_stop") {
+      const status = getServiceStatus(userId);
+      if (!status) {
+        return interaction.editReply({ content: "❌ Tu n'es pas en service !" });
+      }
+      const result = await stopService(userId);
+      const duration = Math.floor(result.duration / 60);
+      await interaction.editReply({ 
+        content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`
       });
-      await mettreAJourMessageService(await interaction.channel.messages.fetch(config.serviceMessageId).catch(() => null));
+      await mettreAJourMessageService(userId);
+    }
+
+    else if (interaction.customId === "service_status") {
+      const status = getServiceStatus(userId);
+      if (!status) {
+        return interaction.editReply({ 
+          embeds: [new EmbedBuilder()
+            .setColor(COULEUR_EMBED)
+            .setDescription("❌ Tu n'es pas en service.")
+          ]
+        });
+      }
+      const start = new Date(status.startTime);
+      const duration = Math.floor((Date.now() - start) / 60000);
+      const hours = Math.floor(duration / 60);
+      const minutes = duration % 60;
+      
+      const embed = new EmbedBuilder()
+        .setColor("#34d399")
+        .setTitle("🟢 En service")
+        .setDescription(`Tu es en service depuis **${hours}h${minutes}**`)
+        .addFields(
+          { name: "Heure de début", value: start.toLocaleTimeString("fr-FR"), inline: true },
+          { name: "Temps total", value: `${hours}h${minutes}`, inline: true }
+        )
+        .setTimestamp();
+      
+      await interaction.editReply({ embeds: [embed] });
     }
     return;
   }
@@ -1903,7 +1953,7 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.reply({ embeds: [embed] });
   }
 
-  // ---- Commande /service ----
+  // ---- Commande /service (slash) ----
   if (interaction.isChatInputCommand() && interaction.commandName === "service") {
     const sub = interaction.options.getSubcommand();
     const userId = interaction.user.id;
@@ -1915,15 +1965,7 @@ client.on("interactionCreate", async (interaction) => {
       }
       await startService(userId);
       await interaction.reply({ content: "✅ Tu as pris ton service ! 🟢", ephemeral: true });
-      
-      // Mettre à jour le message de service
-      if (config.serviceChannelId) {
-        const channel = await client.channels.fetch(config.serviceChannelId).catch(() => null);
-        if (channel && config.serviceMessageId) {
-          const msg = await channel.messages.fetch(config.serviceMessageId).catch(() => null);
-          if (msg) await mettreAJourMessageService(msg);
-        }
-      }
+      await mettreAJourMessageService(userId);
     }
 
     else if (sub === "stop") {
@@ -1937,14 +1979,7 @@ client.on("interactionCreate", async (interaction) => {
         content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`,
         ephemeral: true 
       });
-      
-      if (config.serviceChannelId) {
-        const channel = await client.channels.fetch(config.serviceChannelId).catch(() => null);
-        if (channel && config.serviceMessageId) {
-          const msg = await channel.messages.fetch(config.serviceMessageId).catch(() => null);
-          if (msg) await mettreAJourMessageService(msg);
-        }
-      }
+      await mettreAJourMessageService(userId);
     }
 
     else if (sub === "status") {
