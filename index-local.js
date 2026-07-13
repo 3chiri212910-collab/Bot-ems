@@ -13,6 +13,7 @@ const {
   ButtonStyle,
   EmbedBuilder,
   UserSelectMenuBuilder,
+  StringSelectMenuBuilder,
   REST,
   Routes,
 } = require("discord.js");
@@ -22,9 +23,6 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const { trouverSituation } = require("./situations.js");
-
-// Upload en mémoire
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 // ==============================
 // CONFIGURATION
@@ -45,6 +43,14 @@ const ROLES_AUTORISES = ["1524935532914933837", "1524975599460814888"];
 
 const NOM_SERVEUR = "EMS";
 const COULEUR_EMBED = "#ff2d78";
+
+// ==============================
+// UPLOAD
+// ==============================
+const upload = multer({ 
+  storage: multer.memoryStorage(), 
+  limits: { fileSize: 8 * 1024 * 1024 } 
+});
 
 // ==============================
 // STOCKAGE
@@ -76,6 +82,7 @@ const GRADES_DEFAUT = {
   settings: {
     xpPerMinute: 1,
     xpPerIntervention: 50,
+    xpPerRapport: 50,
     xpPerMessage: 0.5,
     xpPerVoiceMinute: 2,
     xpPerWarn: -25,
@@ -89,6 +96,9 @@ const GRADES_DEFAUT = {
   }
 };
 
+// ==============================
+// FONCTIONS DE LECTURE/ÉCRITURE
+// ==============================
 function lire(fichier, defaut) {
   try {
     return JSON.parse(fs.readFileSync(fichier, "utf8"));
@@ -96,13 +106,16 @@ function lire(fichier, defaut) {
     return defaut;
   }
 }
+
 function ecrire(fichier, data) {
   try {
     fs.writeFileSync(fichier, JSON.stringify(data, null, 2));
   } catch (e) {
     console.error(`Erreur écriture ${fichier}:`, e);
   }
-  redisSet(path.basename(fichier, ".json"), data);
+  if (REDIS_ACTIF) {
+    redisSet(path.basename(fichier, ".json"), data).catch(() => {});
+  }
 }
 
 async function redisGet(cle) {
@@ -124,7 +137,10 @@ async function redisSet(cle, valeur) {
   try {
     await fetch(`${UPSTASH_URL}/set/${cle}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+      headers: { 
+        Authorization: `Bearer ${UPSTASH_TOKEN}`,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify(valeur),
     });
   } catch (e) {
@@ -132,13 +148,16 @@ async function redisSet(cle, valeur) {
   }
 }
 
+// ==============================
+// CHARGEMENT DES DONNÉES
+// ==============================
 const CANDIDATURES_DEFAUT = {
   actif: false,
   salonValidation: null,
   salonRefus: null,
-  roleValid: null,
-  roleRefus: null,
-  roleAValider: null,
+  rolesValid: [], // ✅ CHANGÉ: tableau de rôles
+  rolesRefus: [], // ✅ CHANGÉ: tableau de rôles
+  rolesAttribution: [], // ✅ CHANGÉ: tableau de rôles
   mpActif: true,
   mentionUser: true,
   fermetureAuto: false,
@@ -150,7 +169,7 @@ const CANDIDATURES_DEFAUT = {
 };
 
 let config = lire(CONFIG_FILE, {
-  autoRoleId: null,
+  autoRoleIds: [], // ✅ CHANGÉ: tableau de rôles
   welcomeChannelId: null,
   welcomeMessage: "Bienvenue {user} sur **{server}** ! Tu es le membre **#{count}**.",
   ticketStaffChannelId: null,
@@ -168,16 +187,24 @@ let config = lire(CONFIG_FILE, {
   candidatures: { ...CANDIDATURES_DEFAUT },
 });
 
+// Migration des anciennes données
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
-if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
-if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
-if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
-if (config.serviceChannelId === undefined) config.serviceChannelId = null;
-if (config.serviceMessageId === undefined) config.serviceMessageId = null;
-if (config.rapportChannelId === undefined) config.rapportChannelId = null;
-if (config.rapportMessageId === undefined) config.rapportMessageId = null;
-if (config.interventionChannelId === undefined) config.interventionChannelId = null;
-if (config.interventionMessageId === undefined) config.interventionMessageId = null;
+if (!Array.isArray(config.candidatures.rolesValid)) {
+  config.candidatures.rolesValid = config.candidatures.roleValid ? [config.candidatures.roleValid] : [];
+  delete config.candidatures.roleValid;
+}
+if (!Array.isArray(config.candidatures.rolesRefus)) {
+  config.candidatures.rolesRefus = config.candidatures.roleRefus ? [config.candidatures.roleRefus] : [];
+  delete config.candidatures.roleRefus;
+}
+if (!Array.isArray(config.candidatures.rolesAttribution)) {
+  config.candidatures.rolesAttribution = config.candidatures.roleAValider ? [config.candidatures.roleAValider] : [];
+  delete config.candidatures.roleAValider;
+}
+if (!Array.isArray(config.autoRoleIds)) {
+  config.autoRoleIds = config.autoRoleId ? [config.autoRoleId] : [];
+  delete config.autoRoleId;
+}
 
 let tickets = lire(TICKETS_FILE, {});
 let giveaways = lire(GIVEAWAYS_FILE, {});
@@ -203,14 +230,14 @@ function sauverXpLogs() { ecrire(XP_LOGS_FILE, xpLogs); }
 function sauverService() { ecrire(SERVICE_FILE, serviceData); }
 
 // ==============================
-// FONCTIONS XP
+// FONCTIONS XP CORRIGÉES
 // ==============================
 function getGradeForXp(xp) {
   const sorted = [...gradesConfig.grades].sort((a, b) => b.xpRequired - a.xpRequired);
   for (const grade of sorted) {
     if (xp >= grade.xpRequired) return grade;
   }
-  return sorted[sorted.length - 1];
+  return sorted[sorted.length - 1] || gradesConfig.grades[0];
 }
 
 function getLevelFromXp(xp) {
@@ -247,7 +274,9 @@ async function addXp(userId, amount, source, reason) {
       rapports: 0,
       messages: 0,
       voiceTime: 0,
-      lastActivity: new Date().toISOString()
+      lastActivity: new Date().toISOString(),
+      lastMessage: 0,
+      lastVoice: 0
     };
   }
   
@@ -259,7 +288,9 @@ async function addXp(userId, amount, source, reason) {
   if (source === 'rapport') xpData[userId].rapports = (xpData[userId].rapports || 0) + 1;
   if (source === 'message') xpData[userId].messages = (xpData[userId].messages || 0) + 1;
   if (source === 'voice') xpData[userId].voiceTime = (xpData[userId].voiceTime || 0) + Math.abs(amount) / 2;
-  if (source === 'service') xpData[userId].serviceTime = (xpData[userId].serviceTime || 0) + Math.abs(amount);
+  if (source === 'service') {
+    xpData[userId].serviceTime = (xpData[userId].serviceTime || 0) + Math.abs(amount);
+  }
   
   sauverXp();
   
@@ -282,12 +313,40 @@ async function addXp(userId, amount, source, reason) {
 }
 
 // ==============================
-// FONCTIONS SERVICE
+// FONCTIONS SERVICE CORRIGÉES
 // ==============================
 function getServiceStatus(userId) {
   const data = serviceData[userId];
   if (!data || !data.active) return null;
+  // Vérifier si le service est toujours valide (max 24h)
+  const start = new Date(data.startTime);
+  if (Date.now() - start.getTime() > 24 * 60 * 60 * 1000) {
+    // Service trop long, arrêt automatique
+    stopService(userId).catch(() => {});
+    return null;
+  }
   return data;
+}
+
+function getActiveServices() {
+  const active = [];
+  for (const [userId, data] of Object.entries(serviceData)) {
+    if (data.active) {
+      const start = new Date(data.startTime);
+      if (Date.now() - start.getTime() <= 24 * 60 * 60 * 1000) {
+        active.push({
+          userId,
+          startTime: data.startTime,
+          lastPing: data.lastPing || data.startTime,
+          totalTime: data.totalTime || 0
+        });
+      } else {
+        // Service expiré, arrêt automatique
+        stopService(userId).catch(() => {});
+      }
+    }
+  }
+  return active;
 }
 
 async function startService(userId) {
@@ -300,9 +359,15 @@ async function startService(userId) {
     };
   }
   
+  // Empêcher le double service
+  if (serviceData[userId].active) {
+    return null;
+  }
+  
   serviceData[userId].active = true;
   serviceData[userId].startTime = now.toISOString();
   serviceData[userId].lastPing = now.toISOString();
+  serviceData[userId].xpEarned = 0;
   
   sauverService();
   return serviceData[userId];
@@ -315,6 +380,13 @@ async function stopService(userId) {
   const now = new Date();
   const start = new Date(data.startTime);
   const duration = Math.floor((now - start) / 1000);
+  
+  // Ne pas enregistrer si moins de 30 secondes
+  if (duration < 30) {
+    data.active = false;
+    sauverService();
+    return { duration: 0, xpGain: 0 };
+  }
   
   data.active = false;
   data.endTime = now.toISOString();
@@ -329,14 +401,19 @@ async function stopService(userId) {
   
   sauverService();
   
+  // Calcul de l'XP gagnée pendant le service
   const xpPerMinute = gradesConfig.settings.xpPerMinute || 1;
   const minutes = Math.floor(duration / 60);
-  const xpGain = minutes * xpPerMinute;
+  const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+  const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
+  const xpGain = Math.round(minutes * xpPerMinute * boost);
   
   if (xpGain > 0) {
     await addXp(userId, xpGain, "service", `${minutes} minutes de service`);
+    data.xpEarned = xpGain;
   }
   
+  sauverService();
   return { duration, xpGain };
 }
 
@@ -348,209 +425,11 @@ async function updateServicePing(userId) {
   return data;
 }
 
-function getActiveServices() {
-  const active = [];
-  for (const [userId, data] of Object.entries(serviceData)) {
-    if (data.active) {
-      active.push({
-        userId,
-        startTime: data.startTime,
-        lastPing: data.lastPing,
-        totalTime: data.totalTime || 0
-      });
-    }
-  }
-  return active;
-}
-
 function getServiceDuration(userId) {
   const data = serviceData[userId];
   if (!data || !data.active) return null;
   const start = new Date(data.startTime);
   return Math.floor((Date.now() - start) / 1000);
-}
-
-// ==============================
-// FONCTIONS RAPPORT & INTERVENTION (EMBEDS)
-// ==============================
-
-// Construire l'embed de rapport
-async function construireEmbedRapport() {
-  const embed = new EmbedBuilder()
-    .setColor(COULEUR_EMBED)
-    .setTitle("📋 Système de rapports médicaux")
-    .setDescription("Utilise les boutons ci-dessous pour gérer tes rapports médicaux.\n\n" +
-      "• **📝 Nouveau rapport** : Créer un rapport médical détaillé\n" +
-      "• **📊 Mes rapports** : Voir le nombre de rapports que tu as faits\n" +
-      "• **🏆 Classement** : Voir le classement des rapporteurs")
-    .setFooter({ text: NOM_SERVEUR })
-    .setTimestamp();
-
-  // Stats globales
-  const totalRapports = Object.values(xpData).reduce((sum, d) => sum + (d.rapports || 0), 0);
-  const rapporteurs = Object.keys(xpData).filter(id => (xpData[id]?.rapports || 0) > 0).length;
-  
-  embed.addFields(
-    { name: "📊 Total rapports", value: String(totalRapports), inline: true },
-    { name: "👨‍⚕️ Rapporteurs actifs", value: String(rapporteurs), inline: true }
-  );
-
-  // Top 3 rapporteurs
-  const topRapporteurs = Object.entries(xpData)
-    .filter(([_, data]) => (data.rapports || 0) > 0)
-    .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
-    .slice(0, 3);
-
-  if (topRapporteurs.length > 0) {
-    const topListe = await Promise.all(topRapporteurs.map(async ([userId, data], i) => {
-      const user = await client.users.fetch(userId).catch(() => null);
-      return `**${i+1}.** ${user?.username || userId} — ${data.rapports} rapport(s)`;
-    }));
-    embed.addFields({ name: "🏆 Top rapporteurs", value: topListe.join('\n'), inline: false });
-  }
-
-  return embed;
-}
-
-// Construire l'embed d'intervention
-async function construireEmbedIntervention() {
-  const stats = statsInterventions();
-  
-  const embed = new EmbedBuilder()
-    .setColor(COULEUR_EMBED)
-    .setTitle("🚑 Système d'interventions")
-    .setDescription("Utilise les boutons ci-dessous pour gérer tes interventions.\n\n" +
-      "• **📝 Nouvelle intervention** : Logger une intervention rapide\n" +
-      "• **📊 Mes interventions** : Voir le nombre d'interventions que tu as faites\n" +
-      "• **🏆 Classement** : Voir le classement des intervenants")
-    .setFooter({ text: NOM_SERVEUR })
-    .setTimestamp();
-
-  embed.addFields(
-    { name: "📊 Total interventions", value: String(stats.total), inline: true },
-    { name: "🚑 Intervenants actifs", value: String(Object.keys(xpData).filter(id => (xpData[id]?.interventions || 0) > 0).length), inline: true }
-  );
-
-  // Top 3 intervenants
-  const topIntervenants = Object.entries(xpData)
-    .filter(([_, data]) => (data.interventions || 0) > 0)
-    .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
-    .slice(0, 3);
-
-  if (topIntervenants.length > 0) {
-    const topListe = await Promise.all(topIntervenants.map(async ([userId, data], i) => {
-      const user = await client.users.fetch(userId).catch(() => null);
-      return `**${i+1}.** ${user?.username || userId} — ${data.interventions} intervention(s)`;
-    }));
-    embed.addFields({ name: "🏆 Top intervenants", value: topListe.join('\n'), inline: false });
-  }
-
-  // Dernières interventions
-  const recent = interventions.slice(-3).reverse();
-  if (recent.length > 0) {
-    const recentListe = recent.map(iv => {
-      const type = LABELS_TYPE_INTERVENTION[iv.type] || iv.type;
-      const gravite = LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite;
-      return `• ${type} (${gravite}) — ${iv.patient || 'Patient inconnu'}`;
-    });
-    embed.addFields({ name: "📋 Dernières interventions", value: recentListe.join('\n'), inline: false });
-  }
-
-  return embed;
-}
-
-// Envoyer le message de rapport
-async function envoyerMessageRapport() {
-  if (!config.rapportChannelId) return;
-  
-  try {
-    const channel = await client.channels.fetch(config.rapportChannelId);
-    if (!channel || !channel.isTextBased()) return;
-    
-    if (config.rapportMessageId) {
-      try {
-        const oldMsg = await channel.messages.fetch(config.rapportMessageId);
-        if (oldMsg) await oldMsg.delete();
-      } catch (e) {}
-    }
-    
-    const embed = await construireEmbedRapport();
-    
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("rapport_new")
-        .setLabel("📝 Nouveau rapport")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("rapport_mes_stats")
-        .setLabel("📊 Mes rapports")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("rapport_top")
-        .setLabel("🏆 Classement")
-        .setStyle(ButtonStyle.Success)
-    );
-
-    const message = await channel.send({ embeds: [embed], components: [row] });
-    config.rapportMessageId = message.id;
-    sauverConfig();
-    
-    // Mettre à jour toutes les 2 minutes
-    setInterval(async () => {
-      const newEmbed = await construireEmbedRapport();
-      await message.edit({ embeds: [newEmbed] }).catch(() => {});
-    }, 120000);
-    
-  } catch (e) {
-    console.error("Erreur envoi message rapport:", e);
-  }
-}
-
-// Envoyer le message d'intervention
-async function envoyerMessageIntervention() {
-  if (!config.interventionChannelId) return;
-  
-  try {
-    const channel = await client.channels.fetch(config.interventionChannelId);
-    if (!channel || !channel.isTextBased()) return;
-    
-    if (config.interventionMessageId) {
-      try {
-        const oldMsg = await channel.messages.fetch(config.interventionMessageId);
-        if (oldMsg) await oldMsg.delete();
-      } catch (e) {}
-    }
-    
-    const embed = await construireEmbedIntervention();
-    
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("intervention_new")
-        .setLabel("📝 Nouvelle intervention")
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId("intervention_mes_stats")
-        .setLabel("📊 Mes interventions")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("intervention_top")
-        .setLabel("🏆 Classement")
-        .setStyle(ButtonStyle.Success)
-    );
-
-    const message = await channel.send({ embeds: [embed], components: [row] });
-    config.interventionMessageId = message.id;
-    sauverConfig();
-    
-    // Mettre à jour toutes les 2 minutes
-    setInterval(async () => {
-      const newEmbed = await construireEmbedIntervention();
-      await message.edit({ embeds: [newEmbed] }).catch(() => {});
-    }, 120000);
-    
-  } catch (e) {
-    console.error("Erreur envoi message intervention:", e);
-  }
 }
 
 // ==============================
@@ -568,10 +447,10 @@ function remplacerVariables(texte, vars) {
     .replaceAll("{raison}", vars.raison ?? "");
 }
 
-function estAutoriseCandidature(interaction, roleId) {
+function estAutoriseCandidature(interaction, roleIds) {
   if (interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
-  if (!roleId) return false;
-  return interaction.member.roles.cache.has(roleId);
+  if (!roleIds || roleIds.length === 0) return false;
+  return roleIds.some(id => interaction.member.roles.cache.has(id));
 }
 
 function trouverUserIdParThread(threadId) {
@@ -599,6 +478,7 @@ const LABELS_TYPE_INTERVENTION = {
   malaise: "😵 Malaise",
   autre: "❓ Autre",
 };
+
 const LABELS_GRAVITE_INTERVENTION = {
   legere: "🟢 Légère",
   moyenne: "🟡 Moyenne",
@@ -649,6 +529,7 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Channel, Partials.Message],
 });
@@ -835,15 +716,23 @@ async function chargerDepuisRedis() {
   ]);
   if (c) {
     config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
-    if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
-    if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
-    if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
-    if (config.serviceChannelId === undefined) config.serviceChannelId = null;
-    if (config.serviceMessageId === undefined) config.serviceMessageId = null;
-    if (config.rapportChannelId === undefined) config.rapportChannelId = null;
-    if (config.rapportMessageId === undefined) config.rapportMessageId = null;
-    if (config.interventionChannelId === undefined) config.interventionChannelId = null;
-    if (config.interventionMessageId === undefined) config.interventionMessageId = null;
+    // Migration des données
+    if (!Array.isArray(config.candidatures.rolesValid)) {
+      config.candidatures.rolesValid = config.candidatures.roleValid ? [config.candidatures.roleValid] : [];
+      delete config.candidatures.roleValid;
+    }
+    if (!Array.isArray(config.candidatures.rolesRefus)) {
+      config.candidatures.rolesRefus = config.candidatures.roleRefus ? [config.candidatures.roleRefus] : [];
+      delete config.candidatures.roleRefus;
+    }
+    if (!Array.isArray(config.candidatures.rolesAttribution)) {
+      config.candidatures.rolesAttribution = config.candidatures.roleAValider ? [config.candidatures.roleAValider] : [];
+      delete config.candidatures.roleAValider;
+    }
+    if (!Array.isArray(config.autoRoleIds)) {
+      config.autoRoleIds = config.autoRoleId ? [config.autoRoleId] : [];
+      delete config.autoRoleId;
+    }
   }
   if (t) tickets = t;
   if (g) giveaways = g;
@@ -870,10 +759,21 @@ async function chargerDepuisRedis() {
 })();
 
 // ==============================
-// READY
+// GESTIONNAIRE D'ERREURS GLOBAL
 // ==============================
-client.once("ready", async () => {
-  console.log(`Connecté en tant que ${client.user.tag}`);
+process.on('unhandledRejection', (error) => {
+  console.error('❌ Unhandled Rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+});
+
+// ==============================
+// CLIENT READY
+// ==============================
+client.once("clientReady", async () => {
+  console.log(`✅ Connecté en tant que ${client.user.tag}`);
   
   // Giveaways
   for (const g of Object.values(giveaways)) {
@@ -889,30 +789,48 @@ client.once("ready", async () => {
   await envoyerMessageRapport();
   await envoyerMessageIntervention();
 
-  // XP temps de service (toutes les minutes)
+  // ✅ CORRIGÉ: XP service uniquement quand le membre est actif
   setInterval(async () => {
     try {
       const guild = client.guilds.cache.get(GUILD_ID);
       if (!guild) return;
       
-      const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
-      const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
-      
       const activeServices = getActiveServices();
       for (const service of activeServices) {
-        const start = new Date(service.startTime);
-        const minutes = Math.floor((Date.now() - start) / 60000);
-        const xpGain = Math.round((gradesConfig.settings.xpPerMinute || 1) * boost);
+        // Vérifier que le membre est toujours en ligne
+        const member = await guild.members.fetch(service.userId).catch(() => null);
+        if (!member || member.presence?.status === 'offline') {
+          console.log(`🛑 Service arrêté automatiquement pour ${member?.user?.username || service.userId} (offline)`);
+          await stopService(service.userId);
+          await mettreAJourMessageService();
+          continue;
+        }
+        
+        // Vérifier que le membre est toujours dans un salon vocal (optionnel)
+        // On ne donne XP que toutes les 10 minutes pour éviter le spam
+        const now = Date.now();
+        const lastPing = new Date(service.lastPing || service.startTime).getTime();
+        if (now - lastPing < 600000) continue; // 10 minutes
+        
+        // Mettre à jour le ping
+        await updateServicePing(service.userId);
+        
+        // Donner l'XP toutes les 10 minutes
+        const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
+        const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
+        const xpPerMinute = gradesConfig.settings.xpPerMinute || 1;
+        const xpGain = Math.round(xpPerMinute * 10 * boost);
+        
         if (xpGain > 0) {
-          await addXp(service.userId, xpGain, "service", "Temps en service");
+          await addXp(service.userId, xpGain, "service", "Temps en service (10min)");
         }
       }
     } catch (e) {
       console.error("Erreur gain XP service:", e);
     }
-  }, 60000);
+  }, 600000); // Toutes les 10 minutes
 
-  // Vérifier les services orphelins (membres offline)
+  // Vérifier les services orphelins (membres offline) toutes les 5 minutes
   setInterval(async () => {
     try {
       const guild = client.guilds.cache.get(GUILD_ID);
@@ -936,6 +854,36 @@ client.once("ready", async () => {
 // ==============================
 // MESSAGE DE SERVICE
 // ==============================
+async function construireEmbedService() {
+  const activeServices = getActiveServices();
+  
+  const embed = new EmbedBuilder()
+    .setColor(COULEUR_EMBED)
+    .setTitle("🟢 Système de service")
+    .setDescription("Utilise les boutons ci-dessous pour gérer ton service.\n\n" +
+      "• **🟢 Prendre mon service** : Débute ta garde\n" +
+      "• **🔴 Arrêter mon service** : Termine ta garde\n" +
+      "• **⏱️ Voir mon temps** : Affiche ta durée en service")
+    .setFooter({ text: NOM_SERVEUR })
+    .setTimestamp();
+
+  if (activeServices.length === 0) {
+    embed.addFields({ name: "📊 En service actuellement", value: "Aucun membre", inline: false });
+  } else {
+    const liste = await Promise.all(activeServices.map(async (s) => {
+      const user = await client.users.fetch(s.userId).catch(() => null);
+      const start = new Date(s.startTime);
+      const duration = Math.floor((Date.now() - start) / 60000);
+      const hours = Math.floor(duration / 60);
+      const minutes = duration % 60;
+      return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
+    }));
+    embed.addFields({ name: "📊 En service actuellement", value: liste.join('\n'), inline: false });
+  }
+
+  return embed;
+}
+
 async function envoyerMessageService() {
   if (!config.serviceChannelId) return;
   
@@ -982,36 +930,6 @@ async function envoyerMessageService() {
   }
 }
 
-async function construireEmbedService() {
-  const activeServices = getActiveServices();
-  
-  const embed = new EmbedBuilder()
-    .setColor(COULEUR_EMBED)
-    .setTitle("🟢 Système de service")
-    .setDescription("Utilise les boutons ci-dessous pour gérer ton service.\n\n" +
-      "• **🟢 Prendre mon service** : Débute ta garde\n" +
-      "• **🔴 Arrêter mon service** : Termine ta garde\n" +
-      "• **⏱️ Voir mon temps** : Affiche ta durée en service")
-    .setFooter({ text: NOM_SERVEUR })
-    .setTimestamp();
-
-  if (activeServices.length === 0) {
-    embed.addFields({ name: "📊 En service actuellement", value: "Aucun membre", inline: false });
-  } else {
-    const liste = await Promise.all(activeServices.map(async (s) => {
-      const user = await client.users.fetch(s.userId).catch(() => null);
-      const start = new Date(s.startTime);
-      const duration = Math.floor((Date.now() - start) / 60000);
-      const hours = Math.floor(duration / 60);
-      const minutes = duration % 60;
-      return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
-    }));
-    embed.addFields({ name: "📊 En service actuellement", value: liste.join('\n'), inline: false });
-  }
-
-  return embed;
-}
-
 async function mettreAJourMessageService() {
   if (!config.serviceMessageId || !config.serviceChannelId) return;
   
@@ -1029,12 +947,179 @@ async function mettreAJourMessageService() {
 }
 
 // ==============================
-// MESSAGE RAPPORT (fonctions déjà définies plus haut)
+// MESSAGE RAPPORT
 // ==============================
+async function construireEmbedRapport() {
+  const embed = new EmbedBuilder()
+    .setColor(COULEUR_EMBED)
+    .setTitle("📋 Système de rapports médicaux")
+    .setDescription("Utilise les boutons ci-dessous pour gérer tes rapports médicaux.\n\n" +
+      "• **📝 Nouveau rapport** : Créer un rapport médical détaillé\n" +
+      "• **📊 Mes rapports** : Voir le nombre de rapports que tu as faits\n" +
+      "• **🏆 Classement** : Voir le classement des rapporteurs")
+    .setFooter({ text: NOM_SERVEUR })
+    .setTimestamp();
+
+  const totalRapports = Object.values(xpData).reduce((sum, d) => sum + (d.rapports || 0), 0);
+  const rapporteurs = Object.keys(xpData).filter(id => (xpData[id]?.rapports || 0) > 0).length;
+  
+  embed.addFields(
+    { name: "📊 Total rapports", value: String(totalRapports), inline: true },
+    { name: "👨‍⚕️ Rapporteurs actifs", value: String(rapporteurs), inline: true }
+  );
+
+  const topRapporteurs = Object.entries(xpData)
+    .filter(([_, data]) => (data.rapports || 0) > 0)
+    .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
+    .slice(0, 3);
+
+  if (topRapporteurs.length > 0) {
+    const topListe = await Promise.all(topRapporteurs.map(async ([userId, data], i) => {
+      const user = await client.users.fetch(userId).catch(() => null);
+      return `**${i+1}.** ${user?.username || userId} — ${data.rapports} rapport(s)`;
+    }));
+    embed.addFields({ name: "🏆 Top rapporteurs", value: topListe.join('\n'), inline: false });
+  }
+
+  return embed;
+}
+
+async function envoyerMessageRapport() {
+  if (!config.rapportChannelId) return;
+  
+  try {
+    const channel = await client.channels.fetch(config.rapportChannelId);
+    if (!channel || !channel.isTextBased()) return;
+    
+    if (config.rapportMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.rapportMessageId);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
+    }
+    
+    const embed = await construireEmbedRapport();
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("rapport_new")
+        .setLabel("📝 Nouveau rapport")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("rapport_mes_stats")
+        .setLabel("📊 Mes rapports")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("rapport_top")
+        .setLabel("🏆 Classement")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    config.rapportMessageId = message.id;
+    sauverConfig();
+    
+    setInterval(async () => {
+      const newEmbed = await construireEmbedRapport();
+      await message.edit({ embeds: [newEmbed] }).catch(() => {});
+    }, 120000);
+    
+  } catch (e) {
+    console.error("Erreur envoi message rapport:", e);
+  }
+}
 
 // ==============================
-// MESSAGE INTERVENTION (fonctions déjà définies plus haut)
+// MESSAGE INTERVENTION
 // ==============================
+async function construireEmbedIntervention() {
+  const stats = statsInterventions();
+  
+  const embed = new EmbedBuilder()
+    .setColor(COULEUR_EMBED)
+    .setTitle("🚑 Système d'interventions")
+    .setDescription("Utilise les boutons ci-dessous pour gérer tes interventions.\n\n" +
+      "• **📝 Nouvelle intervention** : Logger une intervention rapide\n" +
+      "• **📊 Mes interventions** : Voir le nombre d'interventions que tu as faites\n" +
+      "• **🏆 Classement** : Voir le classement des intervenants")
+    .setFooter({ text: NOM_SERVEUR })
+    .setTimestamp();
+
+  embed.addFields(
+    { name: "📊 Total interventions", value: String(stats.total), inline: true },
+    { name: "🚑 Intervenants actifs", value: String(Object.keys(xpData).filter(id => (xpData[id]?.interventions || 0) > 0).length), inline: true }
+  );
+
+  const topIntervenants = Object.entries(xpData)
+    .filter(([_, data]) => (data.interventions || 0) > 0)
+    .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
+    .slice(0, 3);
+
+  if (topIntervenants.length > 0) {
+    const topListe = await Promise.all(topIntervenants.map(async ([userId, data], i) => {
+      const user = await client.users.fetch(userId).catch(() => null);
+      return `**${i+1}.** ${user?.username || userId} — ${data.interventions} intervention(s)`;
+    }));
+    embed.addFields({ name: "🏆 Top intervenants", value: topListe.join('\n'), inline: false });
+  }
+
+  const recent = interventions.slice(-3).reverse();
+  if (recent.length > 0) {
+    const recentListe = recent.map(iv => {
+      const type = LABELS_TYPE_INTERVENTION[iv.type] || iv.type;
+      const gravite = LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite;
+      return `• ${type} (${gravite}) — ${iv.patient || 'Patient inconnu'}`;
+    });
+    embed.addFields({ name: "📋 Dernières interventions", value: recentListe.join('\n'), inline: false });
+  }
+
+  return embed;
+}
+
+async function envoyerMessageIntervention() {
+  if (!config.interventionChannelId) return;
+  
+  try {
+    const channel = await client.channels.fetch(config.interventionChannelId);
+    if (!channel || !channel.isTextBased()) return;
+    
+    if (config.interventionMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.interventionMessageId);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
+    }
+    
+    const embed = await construireEmbedIntervention();
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("intervention_new")
+        .setLabel("📝 Nouvelle intervention")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("intervention_mes_stats")
+        .setLabel("📊 Mes interventions")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("intervention_top")
+        .setLabel("🏆 Classement")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    config.interventionMessageId = message.id;
+    sauverConfig();
+    
+    setInterval(async () => {
+      const newEmbed = await construireEmbedIntervention();
+      await message.edit({ embeds: [newEmbed] }).catch(() => {});
+    }, 120000);
+    
+  } catch (e) {
+    console.error("Erreur envoi message intervention:", e);
+  }
+}
 
 // ==============================
 // AUTO-FERMETURE TICKETS
@@ -1062,10 +1147,12 @@ async function verifierTicketsInactifs() {
 // ==============================
 client.on("guildMemberAdd", async (member) => {
   try {
-    if (config.autoRoleId) {
-      await member.roles.add(config.autoRoleId).catch((e) =>
-        console.error("Erreur attribution rôle auto:", e.message)
-      );
+    if (config.autoRoleIds && config.autoRoleIds.length > 0) {
+      for (const roleId of config.autoRoleIds) {
+        await member.roles.add(roleId).catch((e) =>
+          console.error(`Erreur attribution rôle auto ${roleId}:`, e.message)
+        );
+      }
     }
 
     if (!config.welcomeChannelId) return;
@@ -1092,7 +1179,7 @@ client.on("guildMemberAdd", async (member) => {
 });
 
 // ==============================
-// SYSTEME DE TICKETS (fonctions existantes)
+// SYSTEME DE TICKETS
 // ==============================
 function boutonsTicket() {
   const ligne1 = new ActionRowBuilder().addComponents(
@@ -1431,9 +1518,14 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // Gain d'XP pour les messages
+  // ✅ Gain d'XP pour les messages (uniquement si en service)
   if (message.guild && !message.author.bot) {
     const userId = message.author.id;
+    
+    // Vérifier si le membre est en service
+    const serviceStatus = getServiceStatus(userId);
+    if (!serviceStatus) return; // Pas d'XP si pas en service
+    
     const lastMsg = xpData[userId]?.lastMessage || 0;
     const cooldown = gradesConfig.settings.cooldowns?.message || 60;
     
@@ -1505,1164 +1597,1246 @@ function planifierFinGiveaway(g) {
 // INTERACTIONS
 // ==============================
 client.on("interactionCreate", async (interaction) => {
-  // ---- BOUTONS SERVICE ----
-  if (interaction.isButton() && ["service_start", "service_stop", "service_status"].includes(interaction.customId)) {
-    await interaction.deferReply({ ephemeral: true });
-    const userId = interaction.user.id;
+  // ✅ Vérification CRITIQUE pour éviter InteractionAlreadyReplied
+  if (interaction.replied || interaction.deferred) {
+    console.log('⚠️ Interaction déjà traitée, ignorée.');
+    return;
+  }
 
-    if (interaction.customId === "service_start") {
-      const status = getServiceStatus(userId);
-      if (status) {
-        return interaction.editReply({ content: "❌ Tu es déjà en service !" });
+  try {
+    // ---- BOUTONS SERVICE ----
+    if (interaction.isButton() && ["service_start", "service_stop", "service_status"].includes(interaction.customId)) {
+      await interaction.deferReply({ flags: 64 });
+      const userId = interaction.user.id;
+
+      if (interaction.customId === "service_start") {
+        const status = getServiceStatus(userId);
+        if (status) {
+          return interaction.editReply({ content: "❌ Tu es déjà en service !" });
+        }
+        await startService(userId);
+        await interaction.editReply({ content: "✅ Tu as pris ton service ! 🟢" });
+        await mettreAJourMessageService();
       }
-      await startService(userId);
-      await interaction.editReply({ content: "✅ Tu as pris ton service ! 🟢" });
-      await mettreAJourMessageService();
-    }
 
-    else if (interaction.customId === "service_stop") {
-      const status = getServiceStatus(userId);
-      if (!status) {
-        return interaction.editReply({ content: "❌ Tu n'es pas en service !" });
-      }
-      const result = await stopService(userId);
-      const duration = Math.floor(result.duration / 60);
-      await interaction.editReply({ 
-        content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`
-      });
-      await mettreAJourMessageService();
-    }
-
-    else if (interaction.customId === "service_status") {
-      const status = getServiceStatus(userId);
-      if (!status) {
-        return interaction.editReply({ 
-          embeds: [new EmbedBuilder()
-            .setColor(COULEUR_EMBED)
-            .setDescription("❌ Tu n'es pas en service.")
-          ]
+      else if (interaction.customId === "service_stop") {
+        const status = getServiceStatus(userId);
+        if (!status) {
+          return interaction.editReply({ content: "❌ Tu n'es pas en service !" });
+        }
+        const result = await stopService(userId);
+        const duration = Math.floor(result.duration / 60);
+        await interaction.editReply({ 
+          content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`
         });
-      }
-      const start = new Date(status.startTime);
-      const duration = Math.floor((Date.now() - start) / 60000);
-      const hours = Math.floor(duration / 60);
-      const minutes = duration % 60;
-      
-      const embed = new EmbedBuilder()
-        .setColor("#34d399")
-        .setTitle("🟢 En service")
-        .setDescription(`Tu es en service depuis **${hours}h${minutes}**`)
-        .addFields(
-          { name: "Heure de début", value: start.toLocaleTimeString("fr-FR"), inline: true },
-          { name: "Temps total", value: `${hours}h${minutes}`, inline: true }
-        )
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [embed] });
-    }
-    return;
-  }
-
-  // ---- BOUTONS RAPPORT ----
-  if (interaction.isButton() && ["rapport_new", "rapport_mes_stats", "rapport_top"].includes(interaction.customId)) {
-    await interaction.deferReply({ ephemeral: true });
-    const userId = interaction.user.id;
-
-    if (interaction.customId === "rapport_new") {
-      // Ouvrir le modal de rapport
-      const modal = new ModalBuilder()
-        .setCustomId("rapportModal")
-        .setTitle("Rapport d'intervention médicale");
-
-      const patientInput = new TextInputBuilder()
-        .setCustomId("patient")
-        .setLabel("Nom et prénom du patient")
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder("Ex: Angel Santiago")
-        .setRequired(true);
-
-      const situationInput = new TextInputBuilder()
-        .setCustomId("situation")
-        .setLabel("Ce qui s'est passé")
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder("Ex: Accident de moto, jambe cassée...")
-        .setRequired(true);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(patientInput),
-        new ActionRowBuilder().addComponents(situationInput)
-      );
-
-      return interaction.showModal(modal);
-    }
-
-    else if (interaction.customId === "rapport_mes_stats") {
-      const data = xpData[userId];
-      const rapports = data?.rapports || 0;
-      const grade = getGradeForXp(data?.xp || 0);
-      
-      const embed = new EmbedBuilder()
-        .setColor(COULEUR_EMBED)
-        .setTitle("📊 Mes rapports")
-        .setDescription(`Tu as rédigé **${rapports}** rapport(s) médical(aux).`)
-        .addFields(
-          { name: "Grade", value: `${grade.icon} ${grade.name}`, inline: true },
-          { name: "XP total", value: String(data?.xp || 0), inline: true }
-        )
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [embed] });
-    }
-
-    else if (interaction.customId === "rapport_top") {
-      const topRapporteurs = Object.entries(xpData)
-        .filter(([_, data]) => (data.rapports || 0) > 0)
-        .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
-        .slice(0, 10);
-
-      if (topRapporteurs.length === 0) {
-        return interaction.editReply({ content: "Aucun rapport n'a encore été rédigé." });
+        await mettreAJourMessageService();
       }
 
-      const liste = await Promise.all(topRapporteurs.map(async ([userId, data], i) => {
-        const user = await client.users.fetch(userId).catch(() => null);
-        const grade = getGradeForXp(data.xp || 0);
-        return `**${i+1}.** ${user?.username || userId} — ${data.rapports} rapport(s) (${grade.icon} ${grade.name})`;
-      }));
-
-      const embed = new EmbedBuilder()
-        .setColor(COULEUR_EMBED)
-        .setTitle("🏆 Classement des rapporteurs")
-        .setDescription(liste.join('\n'))
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [embed] });
-    }
-    return;
-  }
-
-  // ---- BOUTONS INTERVENTION ----
-  if (interaction.isButton() && ["intervention_new", "intervention_mes_stats", "intervention_top"].includes(interaction.customId)) {
-    await interaction.deferReply({ ephemeral: true });
-    const userId = interaction.user.id;
-
-    if (interaction.customId === "intervention_new") {
-      // Créer un select menu pour le type et la gravité
-      const row1 = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId("intervention_type_select")
-          .setPlaceholder("Choisis le type d'intervention")
-          .addOptions(
-            { label: "🚗 Accident de circulation", value: "accident_circulation" },
-            { label: "🔫 Arme à feu / arme blanche", value: "arme" },
-            { label: "🥊 Bagarre / agression", value: "agression" },
-            { label: "💊 Overdose / intoxication", value: "overdose" },
-            { label: "🌊 Noyade", value: "noyade" },
-            { label: "🤕 Chute", value: "chute" },
-            { label: "😵 Malaise", value: "malaise" },
-            { label: "❓ Autre", value: "autre" }
-          )
-      );
-
-      const row2 = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId("intervention_gravite_select")
-          .setPlaceholder("Choisis la gravité")
-          .addOptions(
-            { label: "🟢 Légère", value: "legere" },
-            { label: "🟡 Moyenne", value: "moyenne" },
-            { label: "🟠 Critique", value: "critique" },
-            { label: "⚫ Décès", value: "deces" }
-          )
-      );
-
-      return interaction.reply({
-        content: "Sélectionne le type et la gravité de l'intervention :",
-        components: [row1, row2],
-        ephemeral: true
-      });
-    }
-
-    else if (interaction.customId === "intervention_mes_stats") {
-      const data = xpData[userId];
-      const interventionsCount = data?.interventions || 0;
-      const grade = getGradeForXp(data?.xp || 0);
-      
-      const embed = new EmbedBuilder()
-        .setColor(COULEUR_EMBED)
-        .setTitle("📊 Mes interventions")
-        .setDescription(`Tu as participé à **${interventionsCount}** intervention(s).`)
-        .addFields(
-          { name: "Grade", value: `${grade.icon} ${grade.name}`, inline: true },
-          { name: "XP total", value: String(data?.xp || 0), inline: true }
-        )
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [embed] });
-    }
-
-    else if (interaction.customId === "intervention_top") {
-      const topIntervenants = Object.entries(xpData)
-        .filter(([_, data]) => (data.interventions || 0) > 0)
-        .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
-        .slice(0, 10);
-
-      if (topIntervenants.length === 0) {
-        return interaction.editReply({ content: "Aucune intervention n'a encore été loggée." });
-      }
-
-      const liste = await Promise.all(topIntervenants.map(async ([userId, data], i) => {
-        const user = await client.users.fetch(userId).catch(() => null);
-        const grade = getGradeForXp(data.xp || 0);
-        return `**${i+1}.** ${user?.username || userId} — ${data.interventions} intervention(s) (${grade.icon} ${grade.name})`;
-      }));
-
-      const embed = new EmbedBuilder()
-        .setColor(COULEUR_EMBED)
-        .setTitle("🏆 Classement des intervenants")
-        .setDescription(liste.join('\n'))
-        .setTimestamp();
-      
-      await interaction.editReply({ embeds: [embed] });
-    }
-    return;
-  }
-
-  // ---- INTERVENTION SELECT MENUS ----
-  if (interaction.isStringSelectMenu() && interaction.customId === "intervention_type_select") {
-    const type = interaction.values[0];
-    // Stocker temporairement
-    if (!interaction.client.interventionData) interaction.client.interventionData = {};
-    interaction.client.interventionData[interaction.user.id] = { type };
-    await interaction.update({ content: `✅ Type sélectionné : ${LABELS_TYPE_INTERVENTION[type] || type}`, components: [] });
-    return;
-  }
-
-  if (interaction.isStringSelectMenu() && interaction.customId === "intervention_gravite_select") {
-    const gravite = interaction.values[0];
-    const data = interaction.client.interventionData?.[interaction.user.id];
-    const type = data?.type;
-    
-    if (!type) {
-      return interaction.update({ content: "❌ Sélectionne d'abord le type d'intervention.", components: [] });
-    }
-
-    // Créer l'intervention
-    const entree = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      type: type,
-      gravite: gravite,
-      patient: null,
-      staffId: interaction.user.id,
-      staffTag: interaction.user.tag,
-      date: new Date().toISOString(),
-    };
-    interventions.push(entree);
-    sauverInterventions();
-
-    const xpGain = gradesConfig.settings.xpPerIntervention || 50;
-    await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
-
-    // Log dans le salon d'interventions si configuré
-    if (config.interventionsChannelId) {
-      const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
-      if (salon) {
-        await salon.send({
-          embeds: [
-            new EmbedBuilder()
+      else if (interaction.customId === "service_status") {
+        const status = getServiceStatus(userId);
+        if (!status) {
+          return interaction.editReply({ 
+            embeds: [new EmbedBuilder()
               .setColor(COULEUR_EMBED)
-              .setTitle("🚑 Intervention loggée")
-              .addFields(
-                { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
-                { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
-                { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true }
-              )
-              .setTimestamp(),
-          ],
-        }).catch(() => {});
-      }
-    }
-
-    await interaction.update({ 
-      content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]}) — +${xpGain} XP`,
-      components: [] 
-    });
-
-    // Mettre à jour l'embed d'intervention
-    if (config.interventionChannelId && config.interventionMessageId) {
-      const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
-      if (channel) {
-        const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
-        if (msg) {
-          const newEmbed = await construireEmbedIntervention();
-          await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+              .setDescription("❌ Tu n'es pas en service.")
+            ]
+          });
         }
-      }
-    }
-
-    delete interaction.client.interventionData?.[interaction.user.id];
-    return;
-  }
-
-  // ---- Suite du code (tickets, giveaways, etc.) ----
-  // ... (le reste du code est identique à votre version existante)
-  // Je continue avec les boutons ticket, giveaways, etc.
-  
-  // ---- Boutons ticket ----
-  if (interaction.isButton() && interaction.customId === "ticket_claim") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    const userId = trouverUserIdParThread(interaction.channel.id);
-    if (userId) { tickets[userId].claimedBy = interaction.user.id; sauverTickets(); }
-    await interaction.channel.send({
-      embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙋 Ticket pris en charge par <@${interaction.user.id}>`)],
-    });
-    return interaction.reply({ content: "Tu as pris ce ticket en charge.", ephemeral: true });
-  }
-
-  if (interaction.isButton() && interaction.customId === "ticket_unclaim") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    const userId = trouverUserIdParThread(interaction.channel.id);
-    if (userId) { tickets[userId].claimedBy = null; sauverTickets(); }
-    await interaction.channel.send({
-      embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙅 Ticket libéré par <@${interaction.user.id}>`)],
-    });
-    return interaction.reply({ content: "Tu as libéré ce ticket.", ephemeral: true });
-  }
-
-  if (interaction.isButton() && interaction.customId === "ticket_rename") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    const modal = new ModalBuilder().setCustomId("ticket_rename_modal").setTitle("Renommer le ticket");
-    const nomInput = new TextInputBuilder()
-      .setCustomId("nouveau_nom")
-      .setLabel("Nouveau nom du ticket")
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder("Ex: ticket-0001-urgent")
-      .setMaxLength(90)
-      .setRequired(true);
-    modal.addComponents(new ActionRowBuilder().addComponents(nomInput));
-    return interaction.showModal(modal);
-  }
-
-  if (interaction.isModalSubmit() && interaction.customId === "ticket_rename_modal") {
-    const nouveauNom = interaction.fields.getTextInputValue("nouveau_nom");
-    if (interaction.channel && interaction.channel.isThread && interaction.channel.isThread()) {
-      await interaction.channel.setName(nouveauNom.slice(0, 100)).catch(() => {});
-    }
-    return interaction.reply({ content: `✅ Ticket renommé en **${nouveauNom}**.`, ephemeral: true });
-  }
-
-  if (interaction.isButton() && (interaction.customId === "ticket_add" || interaction.customId === "ticket_remove")) {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    const action = interaction.customId === "ticket_add" ? "add" : "remove";
-    const select = new UserSelectMenuBuilder()
-      .setCustomId(`ticket_${action}_select`)
-      .setPlaceholder(action === "add" ? "Choisis un membre à ajouter" : "Choisis un membre à retirer")
-      .setMinValues(1)
-      .setMaxValues(1);
-    return interaction.reply({
-      content: action === "add" ? "Qui veux-tu ajouter au ticket ?" : "Qui veux-tu retirer du ticket ?",
-      components: [new ActionRowBuilder().addComponents(select)],
-      ephemeral: true,
-    });
-  }
-
-  if (interaction.isUserSelectMenu() && (interaction.customId === "ticket_add_select" || interaction.customId === "ticket_remove_select")) {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    const cible = interaction.values[0];
-    const thread = interaction.channel;
-    try {
-      if (interaction.customId === "ticket_add_select") {
-        await thread.members.add(cible);
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➕ <@${cible}> a été ajouté au ticket par <@${interaction.user.id}>`)] });
-        await interaction.update({ content: `✅ <@${cible}> ajouté.`, components: [] });
-      } else {
-        await thread.members.remove(cible);
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➖ <@${cible}> a été retiré du ticket par <@${interaction.user.id}>`)] });
-        await interaction.update({ content: `✅ <@${cible}> retiré.`, components: [] });
-      }
-    } catch (e) {
-      console.error("Erreur add/remove membre ticket:", e);
-      await interaction.update({ content: "⚠️ Échec de l'opération.", components: [] });
-    }
-    return;
-  }
-
-  if (interaction.isButton() && interaction.customId === "ticket_transcript") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    await interaction.deferReply({ ephemeral: true });
-    const { buffer, nomFichier } = await envoyerTranscript(
-      interaction.channel,
-      "📄 Transcript demandé",
-      `Transcript généré manuellement par <@${interaction.user.id}>.`
-    );
-    return interaction.editReply({ content: "✅ Transcript généré et envoyé dans le salon de logs.", files: [{ attachment: buffer, name: nomFichier }] });
-  }
-
-  if (interaction.isButton() && interaction.customId === "ticket_close") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    await interaction.reply({ content: "🔒 Fermeture du ticket en cours...", ephemeral: true });
-    await fermerTicketParThread(interaction.channel.id, interaction.user.tag);
-    return;
-  }
-
-  if (interaction.isButton() && interaction.customId === "ticket_delete") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    await interaction.reply({ content: "🗑️ Suppression du ticket (transcript sauvegardé dans les logs)...", ephemeral: true });
-    const thread = interaction.channel;
-    const userId = trouverUserIdParThread(thread.id);
-    await envoyerTranscript(thread, "🗑️ Transcript — Ticket supprimé", `Ticket supprimé par **${interaction.user.tag}**.`).catch(() => {});
-    if (userId) { delete tickets[userId]; sauverTickets(); }
-    delete closedTickets[thread.id]; sauverClosedTickets();
-    await thread.delete().catch(() => {});
-    return;
-  }
-
-  if (interaction.isButton() && interaction.customId === "ticket_reopen") {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    try {
-      await interaction.reply({ content: "♻️ Réouverture du ticket...", ephemeral: true });
-      await reouvrirTicketParThread(interaction.channel.id, interaction.user.tag);
-    } catch (e) {
-      await interaction.followUp({ content: `⚠️ ${e.message}`, ephemeral: true }).catch(() => {});
-    }
-    return;
-  }
-
-  // ---- Bouton giveaway ----
-  if (interaction.isButton() && interaction.customId.startsWith("giveaway_")) {
-    const id = interaction.customId.replace("giveaway_", "");
-    const g = giveaways[id];
-    if (!g || g.ended) {
-      return interaction.reply({ content: "Ce giveaway est terminé.", ephemeral: true });
-    }
-    if (g.participants.includes(interaction.user.id)) {
-      g.participants = g.participants.filter((u) => u !== interaction.user.id);
-      sauverGiveaways();
-      return interaction.reply({ content: "❌ Tu ne participes plus.", ephemeral: true });
-    }
-    g.participants.push(interaction.user.id);
-    sauverGiveaways();
-    return interaction.reply({ content: "✅ Tu participes au giveaway !", ephemeral: true });
-  }
-
-  // ---- COMMANDES SLASH ----
-  // (le reste des commandes slash est identique à votre version)
-  // Je continue avec les commandes principales...
-  
-  // ---- Commandes slash "générales" ----
-  const commandesGenerales = ["rename", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"];
-  if (interaction.isChatInputCommand() && commandesGenerales.includes(interaction.commandName)) {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-
-    const salon = interaction.channel;
-
-    switch (interaction.commandName) {
-      case "rename": {
-        const nom = interaction.options.getString("nom");
-        await salon.setName(nom.slice(0, 100)).catch(() => {});
-        return interaction.reply({ content: `✅ Salon renommé en **${nom}**.`, ephemeral: true });
-      }
-      case "transcript": {
-        await interaction.deferReply({ ephemeral: true });
-        const { buffer, nomFichier } = await envoyerTranscript(salon, "📄 Transcript demandé", `Transcript généré manuellement par <@${interaction.user.id}> dans <#${salon.id}>.`);
-        return interaction.editReply({ content: "✅ Transcript généré et envoyé dans le salon de logs.", files: [{ attachment: buffer, name: nomFichier }] });
-      }
-      case "clear": {
-        const nombre = interaction.options.getInteger("nombre");
-        await interaction.deferReply({ ephemeral: true });
-        const supprimes = await salon.bulkDelete(nombre, true).catch(() => null);
-        return interaction.editReply({ content: supprimes ? `✅ ${supprimes.size} message(s) supprimé(s).` : "⚠️ Échec (messages de plus de 14 jours ?)." });
-      }
-      case "lock": {
-        if (salon.isThread && salon.isThread()) {
-          await salon.setLocked(true).catch(() => {});
-        } else {
-          await salon.permissionOverwrites.edit(salon.guild.roles.everyone, { SendMessages: false }).catch(() => {});
-        }
-        await salon.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔒 Salon verrouillé par <@${interaction.user.id}>`)] }).catch(() => {});
-        return interaction.reply({ content: "✅ Salon verrouillé.", ephemeral: true });
-      }
-      case "unlock": {
-        if (salon.isThread && salon.isThread()) {
-          await salon.setLocked(false).catch(() => {});
-        } else {
-          await salon.permissionOverwrites.edit(salon.guild.roles.everyone, { SendMessages: null }).catch(() => {});
-        }
-        await salon.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔓 Salon déverrouillé par <@${interaction.user.id}>`)] }).catch(() => {});
-        return interaction.reply({ content: "✅ Salon déverrouillé.", ephemeral: true });
-      }
-      case "slowmode": {
-        const secondes = interaction.options.getInteger("secondes");
-        await salon.setRateLimitPerUser(secondes).catch(() => {});
-        return interaction.reply({ content: `✅ Mode lent défini sur ${secondes}s.`, ephemeral: true });
-      }
-      case "nuke": {
-        await interaction.deferReply({ ephemeral: true });
-        await envoyerTranscript(salon, "💣 Transcript — Avant nuke", `Purge complète effectuée par <@${interaction.user.id}> dans <#${salon.id}>.`).catch(() => {});
-        let total = 0;
-        while (true) {
-          const lot = await salon.messages.fetch({ limit: 100 }).catch(() => null);
-          if (!lot || !lot.size) break;
-          const supprimables = lot.filter((m) => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
-          if (!supprimables.size) break;
-          const res = await salon.bulkDelete(supprimables, true).catch(() => null);
-          if (!res || !res.size) break;
-          total += res.size;
-        }
-        return interaction.editReply({ content: `💣 ${total} message(s) purgé(s). Transcript sauvegardé dans les logs.` });
-      }
-    }
-    return;
-  }
-
-  // ---- Commandes slash propres aux TICKETS ----
-  const commandesTicket = ["claim", "unclaim", "add", "remove", "priority", "reopen"];
-  if (interaction.isChatInputCommand() && commandesTicket.includes(interaction.commandName)) {
-    if (!estStaffTicket(interaction)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-
-    const thread = interaction.channel;
-    const estThread = thread && thread.isThread && thread.isThread();
-
-    if (interaction.commandName === "reopen") {
-      if (!estThread || !closedTickets[thread.id]) {
-        return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket fermé.", ephemeral: true });
-      }
-      try {
-        await interaction.reply({ content: "♻️ Réouverture du ticket...", ephemeral: true });
-        await reouvrirTicketParThread(thread.id, interaction.user.tag);
-      } catch (e) {
-        await interaction.followUp({ content: `⚠️ ${e.message}`, ephemeral: true }).catch(() => {});
+        const start = new Date(status.startTime);
+        const duration = Math.floor((Date.now() - start) / 60000);
+        const hours = Math.floor(duration / 60);
+        const minutes = duration % 60;
+        
+        const embed = new EmbedBuilder()
+          .setColor("#34d399")
+          .setTitle("🟢 En service")
+          .setDescription(`Tu es en service depuis **${hours}h${minutes}**`)
+          .addFields(
+            { name: "Heure de début", value: start.toLocaleTimeString("fr-FR"), inline: true },
+            { name: "Temps total", value: `${hours}h${minutes}`, inline: true }
+          )
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
       }
       return;
     }
 
-    const userId = estThread ? trouverUserIdParThread(thread.id) : null;
-    if (!estThread || !userId) {
-      return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket ouvert.", ephemeral: true });
-    }
+    // ---- BOUTONS RAPPORT ----
+    if (interaction.isButton() && ["rapport_new", "rapport_mes_stats", "rapport_top"].includes(interaction.customId)) {
+      await interaction.deferReply({ flags: 64 });
+      const userId = interaction.user.id;
 
-    switch (interaction.commandName) {
-      case "claim": {
-        tickets[userId].claimedBy = interaction.user.id;
-        sauverTickets();
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙋 Ticket pris en charge par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: "Tu as pris ce ticket en charge.", ephemeral: true });
+      if (interaction.customId === "rapport_new") {
+        const modal = new ModalBuilder()
+          .setCustomId("rapportModal")
+          .setTitle("Rapport d'intervention médicale");
+
+        const patientInput = new TextInputBuilder()
+          .setCustomId("patient")
+          .setLabel("Nom et prénom du patient")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Angel Santiago")
+          .setRequired(true);
+
+        const situationInput = new TextInputBuilder()
+          .setCustomId("situation")
+          .setLabel("Ce qui s'est passé")
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder("Ex: Accident de moto, jambe cassée...")
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(patientInput),
+          new ActionRowBuilder().addComponents(situationInput)
+        );
+
+        try {
+          await interaction.showModal(modal);
+        } catch (error) {
+          if (error.code === 'InteractionAlreadyReplied') {
+            console.log('⚠️ Erreur ignorée : interaction déjà répondue');
+          } else {
+            console.error('❌ Erreur affichage modal:', error);
+          }
+        }
+        return;
       }
-      case "unclaim": {
-        tickets[userId].claimedBy = null;
-        sauverTickets();
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙅 Ticket libéré par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: "Tu as libéré ce ticket.", ephemeral: true });
+
+      else if (interaction.customId === "rapport_mes_stats") {
+        const data = xpData[userId];
+        const rapports = data?.rapports || 0;
+        const grade = getGradeForXp(data?.xp || 0);
+        
+        const embed = new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setTitle("📊 Mes rapports")
+          .setDescription(`Tu as rédigé **${rapports}** rapport(s) médical(aux).`)
+          .addFields(
+            { name: "Grade", value: `${grade.icon} ${grade.name}`, inline: true },
+            { name: "XP total", value: String(data?.xp || 0), inline: true }
+          )
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
       }
-      case "add": {
-        const membre = interaction.options.getUser("membre");
-        await thread.members.add(membre.id).catch(() => {});
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➕ <@${membre.id}> a été ajouté au ticket par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: `✅ ${membre.tag} ajouté au ticket.`, ephemeral: true });
+
+      else if (interaction.customId === "rapport_top") {
+        const topRapporteurs = Object.entries(xpData)
+          .filter(([_, data]) => (data.rapports || 0) > 0)
+          .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
+          .slice(0, 10);
+
+        if (topRapporteurs.length === 0) {
+          return interaction.editReply({ content: "Aucun rapport n'a encore été rédigé." });
+        }
+
+        const liste = await Promise.all(topRapporteurs.map(async ([userId, data], i) => {
+          const user = await client.users.fetch(userId).catch(() => null);
+          const grade = getGradeForXp(data.xp || 0);
+          return `**${i+1}.** ${user?.username || userId} — ${data.rapports} rapport(s) (${grade.icon} ${grade.name})`;
+        }));
+
+        const embed = new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setTitle("🏆 Classement des rapporteurs")
+          .setDescription(liste.join('\n'))
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
       }
-      case "remove": {
-        const membre = interaction.options.getUser("membre");
-        await thread.members.remove(membre.id).catch(() => {});
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➖ <@${membre.id}> a été retiré du ticket par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: `✅ ${membre.tag} retiré du ticket.`, ephemeral: true });
-      }
-      case "priority": {
-        const niveau = interaction.options.getString("niveau");
-        tickets[userId].priority = niveau;
-        sauverTickets();
-        const emoji = EMOJIS_PRIORITE[niveau] || "🟡";
-        const nomSansEmoji = thread.name.replace(/^[🟢🟡🟠🔴]\s*/, "");
-        await thread.setName(`${emoji} ${nomSansEmoji}`.slice(0, 100)).catch(() => {});
-        await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`${emoji} Priorité définie sur **${niveau}** par <@${interaction.user.id}>`)] });
-        return interaction.reply({ content: `✅ Priorité définie sur **${niveau}**.`, ephemeral: true });
-      }
-    }
-    return;
-  }
-
-  // ---- Commandes /valid et /refuser ----
-  if (interaction.isChatInputCommand() && (interaction.commandName === "valid" || interaction.commandName === "refuser")) {
-    const cfg = config.candidatures;
-    const estValidation = interaction.commandName === "valid";
-
-    if (!cfg.actif) {
-      return interaction.reply({ content: "⛔ Le système de validation des candidatures est désactivé (panel web).", ephemeral: true });
+      return;
     }
 
-    const roleAutorise = estValidation ? cfg.roleValid : cfg.roleRefus;
-    if (!estAutoriseCandidature(interaction, roleAutorise)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
+    // ---- BOUTONS INTERVENTION ----
+    if (interaction.isButton() && ["intervention_new", "intervention_mes_stats", "intervention_top"].includes(interaction.customId)) {
+      await interaction.deferReply({ flags: 64 });
+      const userId = interaction.user.id;
 
-    const thread = interaction.channel;
-    const estThread = thread && thread.isThread && thread.isThread();
-    const userId = estThread ? trouverUserIdParThread(thread.id) : null;
+      if (interaction.customId === "intervention_new") {
+        const row1 = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("intervention_type_select")
+            .setPlaceholder("Choisis le type d'intervention")
+            .addOptions(
+              { label: "🚗 Accident de circulation", value: "accident_circulation" },
+              { label: "🔫 Arme à feu / arme blanche", value: "arme" },
+              { label: "🥊 Bagarre / agression", value: "agression" },
+              { label: "💊 Overdose / intoxication", value: "overdose" },
+              { label: "🌊 Noyade", value: "noyade" },
+              { label: "🤕 Chute", value: "chute" },
+              { label: "😵 Malaise", value: "malaise" },
+              { label: "❓ Autre", value: "autre" }
+            )
+        );
 
-    if (!estThread || !userId) {
-      return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket ouvert.", ephemeral: true });
-    }
+        const row2 = new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("intervention_gravite_select")
+            .setPlaceholder("Choisis la gravité")
+            .addOptions(
+              { label: "🟢 Légère", value: "legere" },
+              { label: "🟡 Moyenne", value: "moyenne" },
+              { label: "🟠 Critique", value: "critique" },
+              { label: "⚫ Décès", value: "deces" }
+            )
+        );
 
-    const user = await client.users.fetch(userId).catch(() => null);
-    if (!user) {
-      return interaction.reply({ content: "⚠️ Impossible de retrouver le créateur de ce ticket.", ephemeral: true });
-    }
-
-    await interaction.deferReply({ ephemeral: true });
-
-    let roleAttribue = false;
-    if (estValidation && cfg.roleAValider) {
-      const membreCible = await interaction.guild.members.fetch(userId).catch(() => null);
-      if (membreCible) {
-        roleAttribue = await membreCible.roles
-          .add(cfg.roleAValider)
-          .then(() => true)
-          .catch((e) => {
-            console.error("Erreur attribution rôle validation:", e.message);
-            return false;
+        // Vérifier si l'interaction est toujours valide
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.editReply({
+            content: "Sélectionne le type et la gravité de l'intervention :",
+            components: [row1, row2]
           });
+        }
+        return;
       }
+
+      else if (interaction.customId === "intervention_mes_stats") {
+        const data = xpData[userId];
+        const interventionsCount = data?.interventions || 0;
+        const grade = getGradeForXp(data?.xp || 0);
+        
+        const embed = new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setTitle("📊 Mes interventions")
+          .setDescription(`Tu as participé à **${interventionsCount}** intervention(s).`)
+          .addFields(
+            { name: "Grade", value: `${grade.icon} ${grade.name}`, inline: true },
+            { name: "XP total", value: String(data?.xp || 0), inline: true }
+          )
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
+      }
+
+      else if (interaction.customId === "intervention_top") {
+        const topIntervenants = Object.entries(xpData)
+          .filter(([_, data]) => (data.interventions || 0) > 0)
+          .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
+          .slice(0, 10);
+
+        if (topIntervenants.length === 0) {
+          return interaction.editReply({ content: "Aucune intervention n'a encore été loggée." });
+        }
+
+        const liste = await Promise.all(topIntervenants.map(async ([userId, data], i) => {
+          const user = await client.users.fetch(userId).catch(() => null);
+          const grade = getGradeForXp(data.xp || 0);
+          return `**${i+1}.** ${user?.username || userId} — ${data.interventions} intervention(s) (${grade.icon} ${grade.name})`;
+        }));
+
+        const embed = new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setTitle("🏆 Classement des intervenants")
+          .setDescription(liste.join('\n'))
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
+      }
+      return;
     }
 
-    const raison = interaction.options.getString("raison") || "";
-    const maintenant = new Date();
-    const dateStr = `${maintenant.toLocaleDateString("fr-FR")} ${maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+    // ---- INTERVENTION SELECT MENUS ----
+    if (interaction.isStringSelectMenu() && interaction.customId === "intervention_type_select") {
+      const type = interaction.values[0];
+      if (!interaction.client.interventionData) interaction.client.interventionData = {};
+      interaction.client.interventionData[interaction.user.id] = { type };
+      await interaction.update({ content: `✅ Type sélectionné : ${LABELS_TYPE_INTERVENTION[type] || type}`, components: [] });
+      return;
+    }
 
-    const vars = {
-      user: user.tag,
-      mention: `<@${user.id}>`,
-      username: user.username,
-      server: interaction.guild.name,
-      staff: interaction.user.tag,
-      ticket: thread.name,
-      date: dateStr,
-      raison,
-    };
+    if (interaction.isStringSelectMenu() && interaction.customId === "intervention_gravite_select") {
+      const gravite = interaction.values[0];
+      const data = interaction.client.interventionData?.[interaction.user.id];
+      const type = data?.type;
+      
+      if (!type) {
+        return interaction.update({ content: "❌ Sélectionne d'abord le type d'intervention.", components: [] });
+      }
 
-    const salonId = (estValidation ? cfg.salonValidation : cfg.salonRefus) || cfg.salonValidation;
-    const messageTemplate = estValidation ? cfg.messageValidation : cfg.messageRefus;
-    const mpTemplate = estValidation ? cfg.mpValidation : cfg.mpRefus;
-    const couleur = estValidation ? "#2ecc71" : "#e74c3c";
+      // ✅ Vérifier si le membre est en service
+      const serviceStatus = getServiceStatus(interaction.user.id);
+      if (!serviceStatus) {
+        return interaction.update({ 
+          content: "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          components: [] 
+        });
+      }
 
-    let texteResultat = remplacerVariables(messageTemplate, vars);
-    if (raison) texteResultat += `\n**Raison :** ${raison}`;
+      const entree = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        type: type,
+        gravite: gravite,
+        patient: null,
+        staffId: interaction.user.id,
+        staffTag: interaction.user.tag,
+        date: new Date().toISOString(),
+      };
+      interventions.push(entree);
+      sauverInterventions();
 
-    if (salonId) {
-      const salonResultat = await client.channels.fetch(salonId).catch(() => null);
-      if (salonResultat) {
-        await salonResultat
-          .send({
-            content: cfg.mentionUser ? vars.mention : undefined,
+      const xpGain = gradesConfig.settings.xpPerIntervention || 50;
+      await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
+
+      if (config.interventionsChannelId) {
+        const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
+        if (salon) {
+          await salon.send({
             embeds: [
               new EmbedBuilder()
-                .setColor(couleur)
-                .setDescription(texteResultat)
-                .setFooter({ text: `Par ${interaction.user.tag}` })
+                .setColor(COULEUR_EMBED)
+                .setTitle("🚑 Intervention loggée")
+                .addFields(
+                  { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
+                  { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
+                  { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true }
+                )
+                .setTimestamp(),
+            ],
+          }).catch(() => {});
+        }
+      }
+
+      await interaction.update({ 
+        content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]}) — +${xpGain} XP`,
+        components: [] 
+      });
+
+      if (config.interventionChannelId && config.interventionMessageId) {
+        const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
+        if (channel) {
+          const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
+          if (msg) {
+            const newEmbed = await construireEmbedIntervention();
+            await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+          }
+        }
+      }
+
+      delete interaction.client.interventionData?.[interaction.user.id];
+      return;
+    }
+
+    // ---- BOUTONS TICKET ----
+    if (interaction.isButton() && interaction.customId.startsWith("ticket_")) {
+      if (!estStaffTicket(interaction)) {
+        return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+      }
+
+      const userId = trouverUserIdParThread(interaction.channel.id);
+
+      switch (interaction.customId) {
+        case "ticket_claim": {
+          if (userId) { tickets[userId].claimedBy = interaction.user.id; sauverTickets(); }
+          await interaction.channel.send({
+            embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙋 Ticket pris en charge par <@${interaction.user.id}>`)],
+          });
+          return interaction.reply({ content: "Tu as pris ce ticket en charge.", flags: 64 });
+        }
+        case "ticket_unclaim": {
+          if (userId) { tickets[userId].claimedBy = null; sauverTickets(); }
+          await interaction.channel.send({
+            embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙅 Ticket libéré par <@${interaction.user.id}>`)],
+          });
+          return interaction.reply({ content: "Tu as libéré ce ticket.", flags: 64 });
+        }
+        case "ticket_rename": {
+          const modal = new ModalBuilder().setCustomId("ticket_rename_modal").setTitle("Renommer le ticket");
+          const nomInput = new TextInputBuilder()
+            .setCustomId("nouveau_nom")
+            .setLabel("Nouveau nom du ticket")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("Ex: ticket-0001-urgent")
+            .setMaxLength(90)
+            .setRequired(true);
+          modal.addComponents(new ActionRowBuilder().addComponents(nomInput));
+          return interaction.showModal(modal);
+        }
+        case "ticket_add":
+        case "ticket_remove": {
+          const action = interaction.customId === "ticket_add" ? "add" : "remove";
+          const select = new UserSelectMenuBuilder()
+            .setCustomId(`ticket_${action}_select`)
+            .setPlaceholder(action === "add" ? "Choisis un membre à ajouter" : "Choisis un membre à retirer")
+            .setMinValues(1)
+            .setMaxValues(1);
+          return interaction.reply({
+            content: action === "add" ? "Qui veux-tu ajouter au ticket ?" : "Qui veux-tu retirer du ticket ?",
+            components: [new ActionRowBuilder().addComponents(select)],
+            flags: 64,
+          });
+        }
+        case "ticket_transcript": {
+          await interaction.deferReply({ flags: 64 });
+          const { buffer, nomFichier } = await envoyerTranscript(
+            interaction.channel,
+            "📄 Transcript demandé",
+            `Transcript généré manuellement par <@${interaction.user.id}>.`
+          );
+          return interaction.editReply({ content: "✅ Transcript généré et envoyé dans le salon de logs.", files: [{ attachment: buffer, name: nomFichier }] });
+        }
+        case "ticket_close": {
+          await interaction.reply({ content: "🔒 Fermeture du ticket en cours...", flags: 64 });
+          await fermerTicketParThread(interaction.channel.id, interaction.user.tag);
+          return;
+        }
+        case "ticket_delete": {
+          await interaction.reply({ content: "🗑️ Suppression du ticket (transcript sauvegardé dans les logs)...", flags: 64 });
+          const thread = interaction.channel;
+          const userId2 = trouverUserIdParThread(thread.id);
+          await envoyerTranscript(thread, "🗑️ Transcript — Ticket supprimé", `Ticket supprimé par **${interaction.user.tag}**.`).catch(() => {});
+          if (userId2) { delete tickets[userId2]; sauverTickets(); }
+          delete closedTickets[thread.id]; sauverClosedTickets();
+          await thread.delete().catch(() => {});
+          return;
+        }
+        case "ticket_reopen": {
+          try {
+            await interaction.reply({ content: "♻️ Réouverture du ticket...", flags: 64 });
+            await reouvrirTicketParThread(interaction.channel.id, interaction.user.tag);
+          } catch (e) {
+            await interaction.followUp({ content: `⚠️ ${e.message}`, flags: 64 }).catch(() => {});
+          }
+          return;
+        }
+      }
+    }
+
+    // ---- USER SELECT MENUS TICKET ----
+    if (interaction.isUserSelectMenu() && (interaction.customId === "ticket_add_select" || interaction.customId === "ticket_remove_select")) {
+      if (!estStaffTicket(interaction)) {
+        return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+      }
+      const cible = interaction.values[0];
+      const thread = interaction.channel;
+      try {
+        if (interaction.customId === "ticket_add_select") {
+          await thread.members.add(cible);
+          await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➕ <@${cible}> a été ajouté au ticket par <@${interaction.user.id}>`)] });
+          await interaction.update({ content: `✅ <@${cible}> ajouté.`, components: [] });
+        } else {
+          await thread.members.remove(cible);
+          await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➖ <@${cible}> a été retiré du ticket par <@${interaction.user.id}>`)] });
+          await interaction.update({ content: `✅ <@${cible}> retiré.`, components: [] });
+        }
+      } catch (e) {
+        console.error("Erreur add/remove membre ticket:", e);
+        await interaction.update({ content: "⚠️ Échec de l'opération.", components: [] });
+      }
+      return;
+    }
+
+    // ---- BOUTON GIVEAWAY ----
+    if (interaction.isButton() && interaction.customId.startsWith("giveaway_")) {
+      const id = interaction.customId.replace("giveaway_", "");
+      const g = giveaways[id];
+      if (!g || g.ended) {
+        return interaction.reply({ content: "Ce giveaway est terminé.", flags: 64 });
+      }
+      if (g.participants.includes(interaction.user.id)) {
+        g.participants = g.participants.filter((u) => u !== interaction.user.id);
+        sauverGiveaways();
+        return interaction.reply({ content: "❌ Tu ne participes plus.", flags: 64 });
+      }
+      g.participants.push(interaction.user.id);
+      sauverGiveaways();
+      return interaction.reply({ content: "✅ Tu participes au giveaway !", flags: 64 });
+    }
+
+    // ---- MODAL RAPPORT ----
+    if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
+      const patient = interaction.fields.getTextInputValue("patient");
+      const situation = interaction.fields.getTextInputValue("situation");
+
+      // ✅ Vérifier si le membre est en service
+      const serviceStatus = getServiceStatus(interaction.user.id);
+      if (!serviceStatus) {
+        return interaction.reply({ 
+          content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          flags: 64 
+        });
+      }
+
+      const rapport = trouverSituation(situation);
+
+      const maintenant = new Date();
+      const dateStr = maintenant.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const heureStr = maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+      const diagnosticTexte = rapport.diagnostic.map((d) => `• ${d}`).join("\n");
+      const soinsTexte = rapport.prise_en_charge.map((s) => `• ${s}`).join("\n");
+
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle(`📋 Rapport Médical - ${NOM_SERVEUR}`)
+        .addFields(
+          { name: "👤 Patient", value: patient, inline: true },
+          { name: "🩺 Intervenant", value: `<@${interaction.user.id}>`, inline: true },
+          { name: "🕒 Date et heure", value: `${dateStr} - ${heureStr}`, inline: false },
+          { name: "📌 Motif de prise en charge", value: situation, inline: false },
+          { name: "🔍 Examen réalisé", value: rapport.examen, inline: false },
+          { name: "🩹 Diagnostic", value: diagnosticTexte, inline: false },
+          { name: "💉 Prise en charge", value: soinsTexte, inline: false },
+          { name: "📝 Observations", value: rapport.observations, inline: false }
+        )
+        .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
+        .setTimestamp();
+
+      const xpGain = gradesConfig.settings.xpPerRapport || 50;
+      await addXp(interaction.user.id, xpGain, "rapport", `Rapport médical pour ${patient}`);
+
+      if (config.rapportChannelId && config.rapportMessageId) {
+        const channel = await client.channels.fetch(config.rapportChannelId).catch(() => null);
+        if (channel) {
+          const msg = await channel.messages.fetch(config.rapportMessageId).catch(() => null);
+          if (msg) {
+            const newEmbed = await construireEmbedRapport();
+            await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+          }
+        }
+      }
+
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+
+    // ---- MODAL TICKET RENAME ----
+    if (interaction.isModalSubmit() && interaction.customId === "ticket_rename_modal") {
+      const nouveauNom = interaction.fields.getTextInputValue("nouveau_nom");
+      if (interaction.channel && interaction.channel.isThread && interaction.channel.isThread()) {
+        await interaction.channel.setName(nouveauNom.slice(0, 100)).catch(() => {});
+      }
+      return interaction.reply({ content: `✅ Ticket renommé en **${nouveauNom}**.`, flags: 64 });
+    }
+
+    // ---- COMMANDES SLASH ----
+    if (interaction.isChatInputCommand()) {
+      const commandName = interaction.commandName;
+      
+      // Commandes générales des tickets
+      if (["rename", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"].includes(commandName)) {
+        if (!estStaffTicket(interaction)) {
+          return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+        }
+
+        const salon = interaction.channel;
+
+        switch (commandName) {
+          case "rename": {
+            const nom = interaction.options.getString("nom");
+            await salon.setName(nom.slice(0, 100)).catch(() => {});
+            return interaction.reply({ content: `✅ Salon renommé en **${nom}**.`, flags: 64 });
+          }
+          case "transcript": {
+            await interaction.deferReply({ flags: 64 });
+            const { buffer, nomFichier } = await envoyerTranscript(salon, "📄 Transcript demandé", `Transcript généré manuellement par <@${interaction.user.id}> dans <#${salon.id}>.`);
+            return interaction.editReply({ content: "✅ Transcript généré et envoyé dans le salon de logs.", files: [{ attachment: buffer, name: nomFichier }] });
+          }
+          case "clear": {
+            const nombre = interaction.options.getInteger("nombre");
+            await interaction.deferReply({ flags: 64 });
+            const supprimes = await salon.bulkDelete(nombre, true).catch(() => null);
+            return interaction.editReply({ content: supprimes ? `✅ ${supprimes.size} message(s) supprimé(s).` : "⚠️ Échec (messages de plus de 14 jours ?)." });
+          }
+          case "lock": {
+            if (salon.isThread && salon.isThread()) {
+              await salon.setLocked(true).catch(() => {});
+            } else {
+              await salon.permissionOverwrites.edit(salon.guild.roles.everyone, { SendMessages: false }).catch(() => {});
+            }
+            await salon.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔒 Salon verrouillé par <@${interaction.user.id}>`)] }).catch(() => {});
+            return interaction.reply({ content: "✅ Salon verrouillé.", flags: 64 });
+          }
+          case "unlock": {
+            if (salon.isThread && salon.isThread()) {
+              await salon.setLocked(false).catch(() => {});
+            } else {
+              await salon.permissionOverwrites.edit(salon.guild.roles.everyone, { SendMessages: null }).catch(() => {});
+            }
+            await salon.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🔓 Salon déverrouillé par <@${interaction.user.id}>`)] }).catch(() => {});
+            return interaction.reply({ content: "✅ Salon déverrouillé.", flags: 64 });
+          }
+          case "slowmode": {
+            const secondes = interaction.options.getInteger("secondes");
+            await salon.setRateLimitPerUser(secondes).catch(() => {});
+            return interaction.reply({ content: `✅ Mode lent défini sur ${secondes}s.`, flags: 64 });
+          }
+          case "nuke": {
+            await interaction.deferReply({ flags: 64 });
+            await envoyerTranscript(salon, "💣 Transcript — Avant nuke", `Purge complète effectuée par <@${interaction.user.id}> dans <#${salon.id}>.`).catch(() => {});
+            let total = 0;
+            while (true) {
+              const lot = await salon.messages.fetch({ limit: 100 }).catch(() => null);
+              if (!lot || !lot.size) break;
+              const supprimables = lot.filter((m) => Date.now() - m.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
+              if (!supprimables.size) break;
+              const res = await salon.bulkDelete(supprimables, true).catch(() => null);
+              if (!res || !res.size) break;
+              total += res.size;
+            }
+            return interaction.editReply({ content: `💣 ${total} message(s) purgé(s). Transcript sauvegardé dans les logs.` });
+          }
+        }
+        return;
+      }
+
+      // Commandes de tickets (claim, unclaim, add, remove, priority, reopen)
+      if (["claim", "unclaim", "add", "remove", "priority", "reopen"].includes(commandName)) {
+        if (!estStaffTicket(interaction)) {
+          return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+        }
+
+        const thread = interaction.channel;
+        const estThread = thread && thread.isThread && thread.isThread();
+
+        if (commandName === "reopen") {
+          if (!estThread || !closedTickets[thread.id]) {
+            return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket fermé.", flags: 64 });
+          }
+          try {
+            await interaction.reply({ content: "♻️ Réouverture du ticket...", flags: 64 });
+            await reouvrirTicketParThread(thread.id, interaction.user.tag);
+          } catch (e) {
+            await interaction.followUp({ content: `⚠️ ${e.message}`, flags: 64 }).catch(() => {});
+          }
+          return;
+        }
+
+        const userId = estThread ? trouverUserIdParThread(thread.id) : null;
+        if (!estThread || !userId) {
+          return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket ouvert.", flags: 64 });
+        }
+
+        switch (commandName) {
+          case "claim": {
+            tickets[userId].claimedBy = interaction.user.id;
+            sauverTickets();
+            await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙋 Ticket pris en charge par <@${interaction.user.id}>`)] });
+            return interaction.reply({ content: "Tu as pris ce ticket en charge.", flags: 64 });
+          }
+          case "unclaim": {
+            tickets[userId].claimedBy = null;
+            sauverTickets();
+            await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`🙅 Ticket libéré par <@${interaction.user.id}>`)] });
+            return interaction.reply({ content: "Tu as libéré ce ticket.", flags: 64 });
+          }
+          case "add": {
+            const membre = interaction.options.getUser("membre");
+            await thread.members.add(membre.id).catch(() => {});
+            await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➕ <@${membre.id}> a été ajouté au ticket par <@${interaction.user.id}>`)] });
+            return interaction.reply({ content: `✅ ${membre.tag} ajouté au ticket.`, flags: 64 });
+          }
+          case "remove": {
+            const membre = interaction.options.getUser("membre");
+            await thread.members.remove(membre.id).catch(() => {});
+            await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`➖ <@${membre.id}> a été retiré du ticket par <@${interaction.user.id}>`)] });
+            return interaction.reply({ content: `✅ ${membre.tag} retiré du ticket.`, flags: 64 });
+          }
+          case "priority": {
+            const niveau = interaction.options.getString("niveau");
+            tickets[userId].priority = niveau;
+            sauverTickets();
+            const emoji = EMOJIS_PRIORITE[niveau] || "🟡";
+            const nomSansEmoji = thread.name.replace(/^[🟢🟡🟠🔴]\s*/, "");
+            await thread.setName(`${emoji} ${nomSansEmoji}`.slice(0, 100)).catch(() => {});
+            await thread.send({ embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription(`${emoji} Priorité définie sur **${niveau}** par <@${interaction.user.id}>`)] });
+            return interaction.reply({ content: `✅ Priorité définie sur **${niveau}**.`, flags: 64 });
+          }
+        }
+        return;
+      }
+
+      // ---- /valid et /refuser ----
+      if (commandName === "valid" || commandName === "refuser") {
+        const cfg = config.candidatures;
+        const estValidation = commandName === "valid";
+
+        if (!cfg.actif) {
+          return interaction.reply({ content: "⛔ Le système de validation des candidatures est désactivé (panel web).", flags: 64 });
+        }
+
+        const roleAutorise = estValidation ? cfg.rolesValid : cfg.rolesRefus;
+        if (!estAutoriseCandidature(interaction, roleAutorise)) {
+          return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+        }
+
+        const thread = interaction.channel;
+        const estThread = thread && thread.isThread && thread.isThread();
+        const userId = estThread ? trouverUserIdParThread(thread.id) : null;
+
+        if (!estThread || !userId) {
+          return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket ouvert.", flags: 64 });
+        }
+
+        const user = await client.users.fetch(userId).catch(() => null);
+        if (!user) {
+          return interaction.reply({ content: "⚠️ Impossible de retrouver le créateur de ce ticket.", flags: 64 });
+        }
+
+        await interaction.deferReply({ flags: 64 });
+
+        let roleAttribue = false;
+        if (estValidation && cfg.rolesAttribution && cfg.rolesAttribution.length > 0) {
+          const membreCible = await interaction.guild.members.fetch(userId).catch(() => null);
+          if (membreCible) {
+            for (const roleId of cfg.rolesAttribution) {
+              await membreCible.roles.add(roleId).catch(() => {});
+            }
+            roleAttribue = true;
+          }
+        }
+
+        const raison = interaction.options.getString("raison") || "";
+        const maintenant = new Date();
+        const dateStr = `${maintenant.toLocaleDateString("fr-FR")} ${maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+
+        const vars = {
+          user: user.tag,
+          mention: `<@${user.id}>`,
+          username: user.username,
+          server: interaction.guild.name,
+          staff: interaction.user.tag,
+          ticket: thread.name,
+          date: dateStr,
+          raison,
+        };
+
+        const salonId = (estValidation ? cfg.salonValidation : cfg.salonRefus) || cfg.salonValidation;
+        const messageTemplate = estValidation ? cfg.messageValidation : cfg.messageRefus;
+        const mpTemplate = estValidation ? cfg.mpValidation : cfg.mpRefus;
+        const couleur = estValidation ? "#2ecc71" : "#e74c3c";
+
+        let texteResultat = remplacerVariables(messageTemplate, vars);
+        if (raison) texteResultat += `\n**Raison :** ${raison}`;
+
+        if (salonId) {
+          const salonResultat = await client.channels.fetch(salonId).catch(() => null);
+          if (salonResultat) {
+            await salonResultat
+              .send({
+                content: cfg.mentionUser ? vars.mention : undefined,
+                embeds: [
+                  new EmbedBuilder()
+                    .setColor(couleur)
+                    .setDescription(texteResultat)
+                    .setFooter({ text: `Par ${interaction.user.tag}` })
+                    .setTimestamp(),
+                ],
+              })
+              .catch((e) => console.error("Erreur envoi salon résultat candidature:", e));
+          }
+        }
+
+        let mpEnvoye = false;
+        if (cfg.mpActif) {
+          let texteMp = remplacerVariables(mpTemplate, vars);
+          if (raison) texteMp += `\n**Raison :** ${raison}`;
+          mpEnvoye = await user
+            .send({ embeds: [new EmbedBuilder().setColor(couleur).setDescription(texteMp).setTimestamp()] })
+            .then(() => true)
+            .catch(() => false);
+        }
+
+        candHistory.unshift({
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          userId,
+          username: user.tag,
+          ticketNumber: tickets[userId]?.number || null,
+          threadName: thread.name,
+          result: estValidation ? "validee" : "refusee",
+          staffId: interaction.user.id,
+          staffTag: interaction.user.tag,
+          raison,
+          date: new Date().toISOString(),
+        });
+        if (candHistory.length > 500) candHistory = candHistory.slice(0, 500);
+        sauverCandHistory();
+
+        const suffixeMp = cfg.mpActif ? (mpEnvoye ? " (MP envoyé ✅)" : " (⚠️ MP non envoyé, DMs fermés ?)") : "";
+        const suffixeRole = estValidation && cfg.rolesAttribution && cfg.rolesAttribution.length > 0 ? (roleAttribue ? " (rôle(s) attribué(s) ✅)" : " (⚠️ rôle(s) non attribué(s))") : "";
+        await interaction.editReply({
+          content: `${estValidation ? "✅" : "❌"} Candidature de <@${userId}> ${estValidation ? "validée" : "refusée"}.${suffixeMp}${suffixeRole}`,
+        });
+
+        if (cfg.fermetureAuto) {
+          const delaiMs = Math.max(0, parseInt(cfg.fermetureDelai, 10) || 0) * 1000;
+          setTimeout(() => {
+            fermerTicketParThread(thread.id, `${interaction.user.tag} (${estValidation ? "validation" : "refus"} auto)`).catch((e) =>
+              console.error("Erreur fermeture auto ticket:", e)
+            );
+          }, delaiMs);
+        }
+
+        return;
+      }
+
+      // ---- /warn ----
+      if (commandName === "warn") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+          return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+        }
+        const membre = interaction.options.getUser("membre");
+        const raison = interaction.options.getString("raison");
+
+        if (!warns[membre.id]) warns[membre.id] = [];
+        warns[membre.id].push({
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          reason: raison,
+          staffId: interaction.user.id,
+          staffTag: interaction.user.tag,
+          date: new Date().toISOString(),
+        });
+        sauverWarns();
+
+        const penalty = gradesConfig.settings.xpPerWarn || -25;
+        await addXp(membre.id, penalty, "penalty", "Avertissement reçu");
+
+        await envoyerLogModeration(
+          embedLogModeration({
+            action: "Avertissement",
+            couleur: "#f59e0b",
+            emoji: "⚠️",
+            cibleTag: membre.tag,
+            cibleId: membre.id,
+            parTag: interaction.user.tag,
+            raison,
+          })
+        );
+
+        await membre
+          .send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor("#f59e0b")
+                .setTitle(`⚠️ Tu as reçu un avertissement sur ${NOM_SERVEUR}`)
+                .setDescription(`**Raison :** ${raison}`)
                 .setTimestamp(),
             ],
           })
-          .catch((e) => console.error("Erreur envoi salon résultat candidature:", e));
-      }
-    }
+          .catch(() => {});
 
-    let mpEnvoye = false;
-    if (cfg.mpActif) {
-      let texteMp = remplacerVariables(mpTemplate, vars);
-      if (raison) texteMp += `\n**Raison :** ${raison}`;
-      mpEnvoye = await user
-        .send({ embeds: [new EmbedBuilder().setColor(couleur).setDescription(texteMp).setTimestamp()] })
-        .then(() => true)
-        .catch(() => false);
-    }
-
-    candHistory.unshift({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      userId,
-      username: user.tag,
-      ticketNumber: tickets[userId]?.number || null,
-      threadName: thread.name,
-      result: estValidation ? "validee" : "refusee",
-      staffId: interaction.user.id,
-      staffTag: interaction.user.tag,
-      raison,
-      date: new Date().toISOString(),
-    });
-    if (candHistory.length > 500) candHistory = candHistory.slice(0, 500);
-    sauverCandHistory();
-
-    const suffixeMp = cfg.mpActif ? (mpEnvoye ? " (MP envoyé ✅)" : " (⚠️ MP non envoyé, DMs fermés ?)") : "";
-    const suffixeRole = estValidation && cfg.roleAValider ? (roleAttribue ? " (rôle attribué ✅)" : " (⚠️ rôle non attribué)") : "";
-    await interaction.editReply({
-      content: `${estValidation ? "✅" : "❌"} Candidature de <@${userId}> ${estValidation ? "validée" : "refusée"}.${suffixeMp}${suffixeRole}`,
-    });
-
-    if (cfg.fermetureAuto) {
-      const delaiMs = Math.max(0, parseInt(cfg.fermetureDelai, 10) || 0) * 1000;
-      setTimeout(() => {
-        fermerTicketParThread(thread.id, `${interaction.user.tag} (${estValidation ? "validation" : "refus"} auto)`).catch((e) =>
-          console.error("Erreur fermeture auto ticket:", e)
-        );
-      }, delaiMs);
-    }
-
-    return;
-  }
-
-  // ---- Commande /warn ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "warn") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
-    const membre = interaction.options.getUser("membre");
-    const raison = interaction.options.getString("raison");
-
-    if (!warns[membre.id]) warns[membre.id] = [];
-    warns[membre.id].push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      reason: raison,
-      staffId: interaction.user.id,
-      staffTag: interaction.user.tag,
-      date: new Date().toISOString(),
-    });
-    sauverWarns();
-
-    const penalty = gradesConfig.settings.xpPerWarn || -25;
-    await addXp(membre.id, penalty, "penalty", "Avertissement reçu");
-
-    await envoyerLogModeration(
-      embedLogModeration({
-        action: "Avertissement",
-        couleur: "#f59e0b",
-        emoji: "⚠️",
-        cibleTag: membre.tag,
-        cibleId: membre.id,
-        parTag: interaction.user.tag,
-        raison,
-      })
-    );
-
-    await membre
-      .send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor("#f59e0b")
-            .setTitle(`⚠️ Tu as reçu un avertissement sur ${NOM_SERVEUR}`)
-            .setDescription(`**Raison :** ${raison}`)
-            .setTimestamp(),
-        ],
-      })
-      .catch(() => {});
-
-    return interaction.reply({
-      content: `⚠️ ${membre.tag} a été averti (${warns[membre.id].length} avertissement(s) au total). Raison : ${raison}`,
-      ephemeral: true,
-    });
-  }
-
-  // ---- Commande /warns ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "warns") {
-    const membre = interaction.options.getUser("membre");
-    const liste = warns[membre.id] || [];
-    if (!liste.length) {
-      return interaction.reply({ content: `${membre.tag} n'a aucun avertissement.`, ephemeral: true });
-    }
-    const texte = liste
-      .map((w, i) => `**${i + 1}.** ${w.reason} — *par ${w.staffTag}, le ${new Date(w.date).toLocaleDateString("fr-FR")}*`)
-      .join("\n");
-    return interaction.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setColor("#f59e0b")
-          .setTitle(`⚠️ Avertissements de ${membre.tag}`)
-          .setDescription(texte)
-          .setFooter({ text: `${liste.length} avertissement(s) au total` }),
-      ],
-      ephemeral: true,
-    });
-  }
-
-  // ---- Commande /intervention (slash) ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "intervention") {
-    const type = interaction.options.getString("type");
-    const gravite = interaction.options.getString("gravite");
-    const patient = interaction.options.getString("patient") || null;
-
-    const entree = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      type,
-      gravite,
-      patient,
-      staffId: interaction.user.id,
-      staffTag: interaction.user.tag,
-      date: new Date().toISOString(),
-    };
-    interventions.push(entree);
-    sauverInterventions();
-
-    const xpGain = gradesConfig.settings.xpPerIntervention || 50;
-    await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
-
-    if (config.interventionsChannelId) {
-      const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
-      if (salon) {
-        await salon.send({
-          embeds: [
-            new EmbedBuilder()
-              .setColor(COULEUR_EMBED)
-              .setTitle("🚑 Intervention loggée")
-              .addFields(
-                { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
-                { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
-                { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true },
-                { name: "Patient", value: patient || "Non précisé", inline: false }
-              )
-              .setTimestamp(),
-          ],
-        }).catch(() => {});
-      }
-    }
-
-    // Mettre à jour l'embed d'intervention
-    if (config.interventionChannelId && config.interventionMessageId) {
-      const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
-      if (channel) {
-        const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
-        if (msg) {
-          const newEmbed = await construireEmbedIntervention();
-          await msg.edit({ embeds: [newEmbed] }).catch(() => {});
-        }
-      }
-    }
-
-    return interaction.reply({
-      content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]})${patient ? ` — patient : ${patient}` : ""}`,
-      ephemeral: true,
-    });
-  }
-
-  // ---- Commande /rapport (slash) ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "rapport") {
-    const modal = new ModalBuilder()
-      .setCustomId("rapportModal")
-      .setTitle("Rapport d'intervention médicale");
-
-    const patientInput = new TextInputBuilder()
-      .setCustomId("patient")
-      .setLabel("Nom et prénom du patient")
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder("Ex: Angel Santiago")
-      .setRequired(true);
-
-    const situationInput = new TextInputBuilder()
-      .setCustomId("situation")
-      .setLabel("Ce qui s'est passé")
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder("Ex: Accident de moto, jambe cassée...")
-      .setRequired(true);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(patientInput),
-      new ActionRowBuilder().addComponents(situationInput)
-    );
-
-    await interaction.showModal(modal);
-  }
-
-  // ---- MODAL RAPPORT ----
-  if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
-    const patient = interaction.fields.getTextInputValue("patient");
-    const situation = interaction.fields.getTextInputValue("situation");
-
-    const rapport = trouverSituation(situation);
-
-    const maintenant = new Date();
-    const dateStr = maintenant.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-    const heureStr = maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-
-    const diagnosticTexte = rapport.diagnostic.map((d) => `• ${d}`).join("\n");
-    const soinsTexte = rapport.prise_en_charge.map((s) => `• ${s}`).join("\n");
-
-    const embed = new EmbedBuilder()
-      .setColor(COULEUR_EMBED)
-      .setTitle(`📋 Rapport Médical - ${NOM_SERVEUR}`)
-      .addFields(
-        { name: "👤 Patient", value: patient, inline: true },
-        { name: "🩺 Intervenant", value: `<@${interaction.user.id}>`, inline: true },
-        { name: "🕒 Date et heure", value: `${dateStr} - ${heureStr}`, inline: false },
-        { name: "📌 Motif de prise en charge", value: situation, inline: false },
-        { name: "🔍 Examen réalisé", value: rapport.examen, inline: false },
-        { name: "🩹 Diagnostic", value: diagnosticTexte, inline: false },
-        { name: "💉 Prise en charge", value: soinsTexte, inline: false },
-        { name: "📝 Observations", value: rapport.observations, inline: false }
-      )
-      .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
-      .setTimestamp();
-
-    // Ajouter l'XP pour le rapport
-    const xpGain = gradesConfig.settings.xpPerIntervention || 50; // On utilise le même que intervention
-    await addXp(interaction.user.id, xpGain, "rapport", `Rapport médical pour ${patient}`);
-
-    // Mettre à jour l'embed de rapport
-    if (config.rapportChannelId && config.rapportMessageId) {
-      const channel = await client.channels.fetch(config.rapportChannelId).catch(() => null);
-      if (channel) {
-        const msg = await channel.messages.fetch(config.rapportMessageId).catch(() => null);
-        if (msg) {
-          const newEmbed = await construireEmbedRapport();
-          await msg.edit({ embeds: [newEmbed] }).catch(() => {});
-        }
-      }
-    }
-
-    await interaction.reply({ embeds: [embed] });
-  }
-
-  // ---- Commande /service (slash) ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "service") {
-    const sub = interaction.options.getSubcommand();
-    const userId = interaction.user.id;
-
-    if (sub === "start") {
-      const status = getServiceStatus(userId);
-      if (status) {
-        return interaction.reply({ content: "❌ Tu es déjà en service !", ephemeral: true });
-      }
-      await startService(userId);
-      await interaction.reply({ content: "✅ Tu as pris ton service ! 🟢", ephemeral: true });
-      await mettreAJourMessageService();
-    }
-
-    else if (sub === "stop") {
-      const status = getServiceStatus(userId);
-      if (!status) {
-        return interaction.reply({ content: "❌ Tu n'es pas en service !", ephemeral: true });
-      }
-      const result = await stopService(userId);
-      const duration = Math.floor(result.duration / 60);
-      await interaction.reply({ 
-        content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`,
-        ephemeral: true 
-      });
-      await mettreAJourMessageService();
-    }
-
-    else if (sub === "status") {
-      const status = getServiceStatus(userId);
-      if (!status) {
-        return interaction.reply({ 
-          embeds: [new EmbedBuilder()
-            .setColor(COULEUR_EMBED)
-            .setDescription("❌ Tu n'es pas en service.")
-          ],
-          ephemeral: true 
+        return interaction.reply({
+          content: `⚠️ ${membre.tag} a été averti (${warns[membre.id].length} avertissement(s) au total). Raison : ${raison}`,
+          flags: 64,
         });
       }
-      const start = new Date(status.startTime);
-      const duration = Math.floor((Date.now() - start) / 60000);
-      const hours = Math.floor(duration / 60);
-      const minutes = duration % 60;
-      
-      const embed = new EmbedBuilder()
-        .setColor("#34d399")
-        .setTitle("🟢 En service")
-        .setDescription(`Tu es en service depuis **${hours}h${minutes}**`)
-        .addFields(
-          { name: "Heure de début", value: start.toLocaleTimeString("fr-FR"), inline: true },
-          { name: "Temps total", value: `${hours}h${minutes}`, inline: true }
-        )
-        .setTimestamp();
-      
-      await interaction.reply({ embeds: [embed], ephemeral: true });
-    }
-  }
 
-  // ---- Commande /services ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "services") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
-    }
+      // ---- /warns ----
+      if (commandName === "warns") {
+        const membre = interaction.options.getUser("membre");
+        const liste = warns[membre.id] || [];
+        if (!liste.length) {
+          return interaction.reply({ content: `${membre.tag} n'a aucun avertissement.`, flags: 64 });
+        }
+        const texte = liste
+          .map((w, i) => `**${i + 1}.** ${w.reason} — *par ${w.staffTag}, le ${new Date(w.date).toLocaleDateString("fr-FR")}*`)
+          .join("\n");
+        return interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setColor("#f59e0b")
+              .setTitle(`⚠️ Avertissements de ${membre.tag}`)
+              .setDescription(texte)
+              .setFooter({ text: `${liste.length} avertissement(s) au total` }),
+          ],
+          flags: 64,
+        });
+      }
 
-    const active = getActiveServices();
-    if (active.length === 0) {
-      return interaction.reply({ 
-        embeds: [new EmbedBuilder()
+      // ---- /intervention (slash) ----
+      if (commandName === "intervention") {
+        // ✅ Vérifier si le membre est en service
+        const serviceStatus = getServiceStatus(interaction.user.id);
+        if (!serviceStatus) {
+          return interaction.reply({ 
+            content: "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+            flags: 64 
+          });
+        }
+
+        const type = interaction.options.getString("type");
+        const gravite = interaction.options.getString("gravite");
+        const patient = interaction.options.getString("patient") || null;
+
+        const entree = {
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          type,
+          gravite,
+          patient,
+          staffId: interaction.user.id,
+          staffTag: interaction.user.tag,
+          date: new Date().toISOString(),
+        };
+        interventions.push(entree);
+        sauverInterventions();
+
+        const xpGain = gradesConfig.settings.xpPerIntervention || 50;
+        await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
+
+        if (config.interventionsChannelId) {
+          const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
+          if (salon) {
+            await salon.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(COULEUR_EMBED)
+                  .setTitle("🚑 Intervention loggée")
+                  .addFields(
+                    { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
+                    { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
+                    { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true },
+                    { name: "Patient", value: patient || "Non précisé", inline: false }
+                  )
+                  .setTimestamp(),
+              ],
+            }).catch(() => {});
+          }
+        }
+
+        if (config.interventionChannelId && config.interventionMessageId) {
+          const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
+          if (channel) {
+            const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
+            if (msg) {
+              const newEmbed = await construireEmbedIntervention();
+              await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+            }
+          }
+        }
+
+        return interaction.reply({
+          content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]})${patient ? ` — patient : ${patient}` : ""}`,
+          flags: 64,
+        });
+      }
+
+      // ---- /rapport (slash) ----
+      if (commandName === "rapport") {
+        // ✅ Vérifier si le membre est en service
+        const serviceStatus = getServiceStatus(interaction.user.id);
+        if (!serviceStatus) {
+          return interaction.reply({ 
+            content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+            flags: 64 
+          });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId("rapportModal")
+          .setTitle("Rapport d'intervention médicale");
+
+        const patientInput = new TextInputBuilder()
+          .setCustomId("patient")
+          .setLabel("Nom et prénom du patient")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Angel Santiago")
+          .setRequired(true);
+
+        const situationInput = new TextInputBuilder()
+          .setCustomId("situation")
+          .setLabel("Ce qui s'est passé")
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder("Ex: Accident de moto, jambe cassée...")
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(patientInput),
+          new ActionRowBuilder().addComponents(situationInput)
+        );
+
+        await interaction.showModal(modal);
+        return;
+      }
+
+      // ---- /service ----
+      if (commandName === "service") {
+        const sub = interaction.options.getSubcommand();
+        const userId = interaction.user.id;
+
+        if (sub === "start") {
+          const status = getServiceStatus(userId);
+          if (status) {
+            return interaction.reply({ content: "❌ Tu es déjà en service !", flags: 64 });
+          }
+          await startService(userId);
+          await interaction.reply({ content: "✅ Tu as pris ton service ! 🟢", flags: 64 });
+          await mettreAJourMessageService();
+        }
+
+        else if (sub === "stop") {
+          const status = getServiceStatus(userId);
+          if (!status) {
+            return interaction.reply({ content: "❌ Tu n'es pas en service !", flags: 64 });
+          }
+          const result = await stopService(userId);
+          const duration = Math.floor(result.duration / 60);
+          await interaction.reply({ 
+            content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`,
+            flags: 64 
+          });
+          await mettreAJourMessageService();
+        }
+
+        else if (sub === "status") {
+          const status = getServiceStatus(userId);
+          if (!status) {
+            return interaction.reply({ 
+              embeds: [new EmbedBuilder()
+                .setColor(COULEUR_EMBED)
+                .setDescription("❌ Tu n'es pas en service.")
+              ],
+              flags: 64 
+            });
+          }
+          const start = new Date(status.startTime);
+          const duration = Math.floor((Date.now() - start) / 60000);
+          const hours = Math.floor(duration / 60);
+          const minutes = duration % 60;
+          
+          const embed = new EmbedBuilder()
+            .setColor("#34d399")
+            .setTitle("🟢 En service")
+            .setDescription(`Tu es en service depuis **${hours}h${minutes}**`)
+            .addFields(
+              { name: "Heure de début", value: start.toLocaleTimeString("fr-FR"), inline: true },
+              { name: "Temps total", value: `${hours}h${minutes}`, inline: true }
+            )
+            .setTimestamp();
+          
+          await interaction.reply({ embeds: [embed], flags: 64 });
+        }
+        return;
+      }
+
+      // ---- /services ----
+      if (commandName === "services") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+          return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
+        }
+
+        const active = getActiveServices();
+        if (active.length === 0) {
+          return interaction.reply({ 
+            embeds: [new EmbedBuilder()
+              .setColor(COULEUR_EMBED)
+              .setDescription("Aucun membre en service.")
+            ],
+            flags: 64 
+          });
+        }
+
+        const liste = await Promise.all(active.map(async (s) => {
+          const user = await client.users.fetch(s.userId).catch(() => null);
+          const start = new Date(s.startTime);
+          const duration = Math.floor((Date.now() - start) / 60000);
+          const hours = Math.floor(duration / 60);
+          const minutes = duration % 60;
+          return `• ${user?.username || s.userId} — ⏱️ ${hours}h${minutes}`;
+        }));
+
+        const embed = new EmbedBuilder()
           .setColor(COULEUR_EMBED)
-          .setDescription("Aucun membre en service.")
-        ],
-        ephemeral: true 
-      });
-    }
+          .setTitle("🟢 Membres en service")
+          .setDescription(liste.join('\n'))
+          .setTimestamp();
 
-    const liste = await Promise.all(active.map(async (s) => {
-      const user = await client.users.fetch(s.userId).catch(() => null);
-      const start = new Date(s.startTime);
-      const duration = Math.floor((Date.now() - start) / 60000);
-      const hours = Math.floor(duration / 60);
-      const minutes = duration % 60;
-      return `• ${user?.username || s.userId} — ⏱️ ${hours}h${minutes}`;
-    }));
+        await interaction.reply({ embeds: [embed], flags: 64 });
+        return;
+      }
 
-    const embed = new EmbedBuilder()
-      .setColor(COULEUR_EMBED)
-      .setTitle("🟢 Membres en service")
-      .setDescription(liste.join('\n'))
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [embed], ephemeral: true });
-  }
-
-  // ---- Commande /profile ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "profile") {
-    const target = interaction.options.getUser("membre") || interaction.user;
-    const data = xpData[target.id];
-    
-    if (!data) {
-      return interaction.reply({
-        embeds: [new EmbedBuilder()
-          .setColor(COULEUR_EMBED)
-          .setDescription(`❌ ${target.username} n'a pas encore d'XP.`)
-        ],
-        ephemeral: true
-      });
-    }
-    
-    const grade = getGradeForXp(data.xp || 0);
-    const { level, currentXp, nextXp } = getLevelFromXp(data.xp || 0);
-    const progress = nextXp ? Math.round((currentXp / nextXp) * 100) : 100;
-    const serviceStatus = getServiceStatus(target.id);
-    
-    const embed = new EmbedBuilder()
-      .setColor(grade.color || COULEUR_EMBED)
-      .setTitle(`${grade.icon} ${grade.name}`)
-      .setDescription(`Profil de **${target.username}**`)
-      .addFields(
-        { name: "📊 Niveau", value: String(level), inline: true },
-        { name: "🏆 XP total", value: String(data.xp), inline: true },
-        { name: "🎯 Progression", value: nextXp ? `${progress}% (${currentXp}/${nextXp})` : "🏆 Max", inline: true },
-        { name: "🚑 Interventions", value: String(data.interventions || 0), inline: true },
-        { name: "📋 Rapports", value: String(data.rapports || 0), inline: true },
-        { name: "⏱️ Temps de service", value: `${Math.floor((data.serviceTime || 0) / 3600)}h`, inline: true },
-        { name: "🟢 Statut", value: serviceStatus ? "En service" : "Hors service", inline: true }
-      )
-      .setTimestamp();
-    
-    if (grade.perks && grade.perks.length) {
-      embed.addFields({ name: "🔓 Privilèges", value: grade.perks.map(p => `• ${p}`).join('\n'), inline: false });
-    }
-    
-    await interaction.reply({ embeds: [embed] });
-  }
-
-  // ---- Commande /leaderboard ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "leaderboard") {
-    await interaction.deferReply();
-    
-    const sorted = Object.entries(xpData)
-      .sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0))
-      .slice(0, 10)
-      .map(([userId, data], i) => {
+      // ---- /profile ----
+      if (commandName === "profile") {
+        const target = interaction.options.getUser("membre") || interaction.user;
+        const data = xpData[target.id];
+        
+        if (!data) {
+          return interaction.reply({
+            embeds: [new EmbedBuilder()
+              .setColor(COULEUR_EMBED)
+              .setDescription(`❌ ${target.username} n'a pas encore d'XP.`)
+            ],
+            flags: 64
+          });
+        }
+        
         const grade = getGradeForXp(data.xp || 0);
-        const user = client.users.cache.get(userId);
-        return `**${i+1}.** ${user?.username || userId} — ${grade.icon} ${grade.name} (Niv. ${getLevelFromXp(data.xp || 0).level}) — ${data.xp || 0} XP`;
-      });
-    
-    const embed = new EmbedBuilder()
-      .setColor(COULEUR_EMBED)
-      .setTitle("🏆 Classement des membres")
-      .setDescription(sorted.join('\n') || "Aucun membre")
-      .setTimestamp();
-    
-    await interaction.editReply({ embeds: [embed] });
-  }
+        const { level, currentXp, nextXp } = getLevelFromXp(data.xp || 0);
+        const progress = nextXp ? Math.round((currentXp / nextXp) * 100) : 100;
+        const serviceStatus = getServiceStatus(target.id);
+        
+        const embed = new EmbedBuilder()
+          .setColor(grade.color || COULEUR_EMBED)
+          .setTitle(`${grade.icon} ${grade.name}`)
+          .setDescription(`Profil de **${target.username}**`)
+          .addFields(
+            { name: "📊 Niveau", value: String(level), inline: true },
+            { name: "🏆 XP total", value: String(data.xp), inline: true },
+            { name: "🎯 Progression", value: nextXp ? `${progress}% (${currentXp}/${nextXp})` : "🏆 Max", inline: true },
+            { name: "🚑 Interventions", value: String(data.interventions || 0), inline: true },
+            { name: "📋 Rapports", value: String(data.rapports || 0), inline: true },
+            { name: "⏱️ Temps de service", value: `${Math.floor((data.serviceTime || 0) / 3600)}h`, inline: true },
+            { name: "🟢 Statut", value: serviceStatus ? "En service" : "Hors service", inline: true }
+          )
+          .setTimestamp();
+        
+        if (grade.perks && grade.perks.length) {
+          embed.addFields({ name: "🔓 Privilèges", value: grade.perks.map(p => `• ${p}`).join('\n'), inline: false });
+        }
+        
+        await interaction.reply({ embeds: [embed], flags: 64 });
+        return;
+      }
 
-  // ---- Commande /givexp ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "givexp") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.reply({ content: "⛔ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral: true });
-    }
-    
-    const membre = interaction.options.getUser("membre");
-    const quantite = interaction.options.getInteger("quantite");
-    const raison = interaction.options.getString("raison") || "Don manuel";
-    
-    await addXp(membre.id, quantite, "manual", raison);
-    
-    await interaction.reply({
-      content: `✅ ${quantite} XP ont été donnés à ${membre.tag}. Raison : ${raison}`,
-      ephemeral: true
-    });
-  }
+      // ---- /leaderboard ----
+      if (commandName === "leaderboard") {
+        await interaction.deferReply({ flags: 64 });
+        
+        const sorted = Object.entries(xpData)
+          .sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0))
+          .slice(0, 10)
+          .map(([userId, data], i) => {
+            const grade = getGradeForXp(data.xp || 0);
+            const user = client.users.cache.get(userId);
+            return `**${i+1}.** ${user?.username || userId} — ${grade.icon} ${grade.name} (Niv. ${getLevelFromXp(data.xp || 0).level}) — ${data.xp || 0} XP`;
+          });
+        
+        const embed = new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setTitle("🏆 Classement des membres")
+          .setDescription(sorted.join('\n') || "Aucun membre")
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
 
-  // ---- Commande /grade ----
-  if (interaction.isChatInputCommand() && interaction.commandName === "grade") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.reply({ content: "⛔ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral: true });
+      // ---- /givexp ----
+      if (commandName === "givexp") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return interaction.reply({ content: "⛔ Seuls les administrateurs peuvent utiliser cette commande.", flags: 64 });
+        }
+        
+        const membre = interaction.options.getUser("membre");
+        const quantite = interaction.options.getInteger("quantite");
+        const raison = interaction.options.getString("raison") || "Don manuel";
+        
+        await addXp(membre.id, quantite, "manual", raison);
+        
+        await interaction.reply({
+          content: `✅ ${quantite} XP ont été donnés à ${membre.tag}. Raison : ${raison}`,
+          flags: 64
+        });
+        return;
+      }
+
+      // ---- /grade ----
+      if (commandName === "grade") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return interaction.reply({ content: "⛔ Seuls les administrateurs peuvent utiliser cette commande.", flags: 64 });
+        }
+        
+        const subcommand = interaction.options.getSubcommand();
+        const membre = interaction.options.getUser("membre");
+        
+        if (subcommand === "set") {
+          const gradeId = interaction.options.getString("grade");
+          const grade = gradesConfig.grades.find(g => g.id === gradeId);
+          
+          if (!grade) {
+            return interaction.reply({ content: "❌ Grade invalide.", flags: 64 });
+          }
+          
+          if (!xpData[membre.id]) {
+            xpData[membre.id] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+          }
+          
+          xpData[membre.id].xp = grade.xpRequired;
+          sauverXp();
+          
+          await interaction.reply({
+            content: `✅ ${membre.tag} a été promu au grade **${grade.name}** (${grade.xpRequired} XP).`,
+            flags: 64
+          });
+        }
+        
+        if (subcommand === "reset") {
+          if (!xpData[membre.id]) {
+            return interaction.reply({ content: `❌ ${membre.tag} n'a pas d'XP.`, flags: 64 });
+          }
+          
+          delete xpData[membre.id];
+          sauverXp();
+          
+          await interaction.reply({
+            content: `✅ L'XP de ${membre.tag} a été réinitialisée.`,
+            flags: 64
+          });
+        }
+        return;
+      }
     }
-    
-    const subcommand = interaction.options.getSubcommand();
-    const membre = interaction.options.getUser("membre");
-    
-    if (subcommand === "set") {
-      const gradeId = interaction.options.getString("grade");
-      const grade = gradesConfig.grades.find(g => g.id === gradeId);
-      
-      if (!grade) {
-        return interaction.reply({ content: "❌ Grade invalide.", ephemeral: true });
-      }
-      
-      if (!xpData[membre.id]) {
-        xpData[membre.id] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
-      }
-      
-      xpData[membre.id].xp = grade.xpRequired;
-      sauverXp();
-      
-      await interaction.reply({
-        content: `✅ ${membre.tag} a été promu au grade **${grade.name}** (${grade.xpRequired} XP).`,
-        ephemeral: true
-      });
-    }
-    
-    if (subcommand === "reset") {
-      if (!xpData[membre.id]) {
-        return interaction.reply({ content: `❌ ${membre.tag} n'a pas d'XP.`, ephemeral: true });
-      }
-      
-      delete xpData[membre.id];
-      sauverXp();
-      
-      await interaction.reply({
-        content: `✅ L'XP de ${membre.tag} a été réinitialisée.`,
-        ephemeral: true
-      });
+
+  } catch (error) {
+    console.error('❌ Erreur dans interactionCreate:', error);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ 
+        content: "❌ Une erreur est survenue. Veuillez réessayer.", 
+        flags: 64 
+      }).catch(() => {});
     }
   }
 });
 
-// ==================================================================
+// ==============================
+// VOICE STATE UPDATE (XP vocal)
+// ==============================
+client.on("voiceStateUpdate", async (oldState, newState) => {
+  // ✅ XP vocal uniquement si en service
+  const userId = newState.member?.id || oldState.member?.id;
+  if (!userId) return;
+  
+  const serviceStatus = getServiceStatus(userId);
+  if (!serviceStatus) return; // Pas d'XP si pas en service
+  
+  const oldChannel = oldState.channel;
+  const newChannel = newState.channel;
+  
+  // Si le membre rejoint un salon vocal
+  if (!oldChannel && newChannel) {
+    if (!xpData[userId]) {
+      xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+    }
+    xpData[userId].voiceJoinTime = Date.now();
+    sauverXp();
+  }
+  
+  // Si le membre quitte un salon vocal
+  if (oldChannel && !newChannel) {
+    const joinTime = xpData[userId]?.voiceJoinTime;
+    if (joinTime) {
+      const duration = Math.floor((Date.now() - joinTime) / 60); // en minutes
+      const cooldown = gradesConfig.settings.cooldowns?.voice || 300;
+      
+      if (duration > 0 && duration < 60) { // Max 1 heure pour éviter les abus
+        const boost = (new Date().getDay() === 0 || new Date().getDay() === 6) 
+          ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
+        const xpGain = Math.round((gradesConfig.settings.xpPerVoiceMinute || 2) * duration * boost);
+        
+        if (xpGain > 0 && Date.now() - (xpData[userId]?.lastVoice || 0) > cooldown * 1000) {
+          xpData[userId].lastVoice = Date.now();
+          await addXp(userId, xpGain, "voice", `${duration} min en vocal`);
+        }
+      }
+      delete xpData[userId].voiceJoinTime;
+      sauverXp();
+    }
+  }
+});
+
+// ==============================
 // PANEL WEB (Express)
-// ==================================================================
+// ==============================
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "10mb" }));
@@ -2836,7 +3010,7 @@ app.delete("/api/channels/:id", authRequis, async (req, res) => {
   }
 });
 
-// ---- Rôles (synchronisés avec Discord) ----
+// ---- Rôles ----
 app.get("/api/roles", authRequis, (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -3087,7 +3261,7 @@ app.get("/api/settings", authRequis, (req, res) => res.json(config));
 
 app.post("/api/settings", authRequis, (req, res) => {
   const {
-    autoRoleId,
+    autoRoleIds,
     welcomeChannelId,
     welcomeMessage,
     ticketStaffChannelId,
@@ -3099,7 +3273,8 @@ app.post("/api/settings", authRequis, (req, res) => {
     rapportChannelId,
     interventionChannelId,
   } = req.body;
-  config.autoRoleId = autoRoleId || null;
+  
+  config.autoRoleIds = autoRoleIds ? (Array.isArray(autoRoleIds) ? autoRoleIds : [autoRoleIds]) : [];
   config.welcomeChannelId = welcomeChannelId || null;
   config.welcomeMessage = welcomeMessage || config.welcomeMessage;
   config.ticketStaffChannelId = ticketStaffChannelId || null;
@@ -3112,7 +3287,6 @@ app.post("/api/settings", authRequis, (req, res) => {
   config.interventionChannelId = interventionChannelId || null;
   sauverConfig();
   
-  // Réenvoyer les messages si les salons ont changé
   if (config.serviceChannelId) envoyerMessageService();
   if (config.rapportChannelId) envoyerMessageRapport();
   if (config.interventionChannelId) envoyerMessageIntervention();
@@ -3130,9 +3304,9 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
     actif,
     salonValidation,
     salonRefus,
-    roleValid,
-    roleRefus,
-    roleAValider,
+    rolesValid,
+    rolesRefus,
+    rolesAttribution,
     mpActif,
     mentionUser,
     fermetureAuto,
@@ -3147,9 +3321,9 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
     actif: !!actif,
     salonValidation: salonValidation || null,
     salonRefus: salonRefus || null,
-    roleValid: roleValid || null,
-    roleRefus: roleRefus || null,
-    roleAValider: roleAValider || null,
+    rolesValid: rolesValid ? (Array.isArray(rolesValid) ? rolesValid : [rolesValid]) : [],
+    rolesRefus: rolesRefus ? (Array.isArray(rolesRefus) ? rolesRefus : [rolesRefus]) : [],
+    rolesAttribution: rolesAttribution ? (Array.isArray(rolesAttribution) ? rolesAttribution : [rolesAttribution]) : [],
     mpActif: mpActif !== undefined ? !!mpActif : config.candidatures.mpActif,
     mentionUser: mentionUser !== undefined ? !!mentionUser : config.candidatures.mentionUser,
     fermetureAuto: !!fermetureAuto,
@@ -3623,4 +3797,4 @@ app.post("/api/backup/import", authRequis, (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`Serveur web + panel actif sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Serveur web + panel actif sur le port ${PORT}`));
