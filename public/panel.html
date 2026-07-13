@@ -498,7 +498,6 @@
   .service-item .info .details { font-size: 12px; color: var(--text-dim); }
   .service-item .temps { font-size: 14px; font-weight: 600; color: var(--ok); }
 
-  /* Scrollbar */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
@@ -903,6 +902,7 @@
   <section id="vue-xp" class="hidden">
     <h2>🏆 Système de Grades & XP</h2>
     
+    <!-- ✅ UNIQUEMENT UN MENU XP (pas de doublon) -->
     <div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
       <button class="tab-xp actif" data-xp-tab="dashboard">📊 Dashboard</button>
       <button class="tab-xp" data-xp-tab="grades">🎖️ Grades</button>
@@ -915,7 +915,7 @@
     <div id="xp-dashboard" class="xp-content">
       <div class="stats-grille" id="xp-stats"></div>
       <div class="carte">
-        <h3 style="margin-top:0;">Top 5 des membres</h3>
+        <!-- ✅ Pas de titre en dur, généré par JavaScript -->
         <div id="xp-top5"></div>
       </div>
     </div>
@@ -1431,7 +1431,6 @@
       const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
       const optionsRoles = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
 
-      // Auto-rôle (multiple)
       const autoRoleSelect = document.getElementById('param-autorole');
       autoRoleSelect.innerHTML = optionsRoles;
       if (params.autoRoleIds && Array.isArray(params.autoRoleIds)) {
@@ -1511,7 +1510,6 @@
       document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
       document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
       
-      // Rôles multiples
       const rolesValidSelect = document.getElementById('cand-roles-valid');
       rolesValidSelect.innerHTML = optionsRoles;
       if (cfg.rolesValid && Array.isArray(cfg.rolesValid)) {
@@ -2169,20 +2167,23 @@
 
       const topRes = await fetch('/api/xp/top5');
       const top = await topRes.json();
-      document.getElementById('xp-top5').innerHTML = top.map((m, i) => `
-        <div class="carte" style="margin-bottom:8px;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div>
-              <strong>#${i+1}</strong> ${m.username}
-              <span style="color:var(--text-dim);font-size:12px;">${m.grade}</span>
-            </div>
-            <div>
-              <span style="font-weight:600;">${m.xp}</span> XP - Niveau ${m.level}
-              <span style="color:var(--text-dim);font-size:11px;margin-left:6px;">🚑${m.interventions} 📋${m.rapports}</span>
+      document.getElementById('xp-top5').innerHTML = `
+        <h3 style="margin-top:0;font-size:16px;">🏆 Top 5 des membres</h3>
+        ${top.map((m, i) => `
+          <div class="carte" style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <strong>#${i+1}</strong> ${m.username}
+                <span style="color:var(--text-dim);font-size:12px;">${m.grade}</span>
+              </div>
+              <div>
+                <span style="font-weight:600;">${m.xp}</span> XP - Niveau ${m.level}
+                <span style="color:var(--text-dim);font-size:11px;margin-left:6px;">🚑${m.interventions} 📋${m.rapports}</span>
+              </div>
             </div>
           </div>
-        </div>
-      `).join('') || '<p style="color:var(--text-dim);">Aucun membre</p>';
+        `).join('')}
+      `;
     } catch (e) {
       console.error('Erreur chargement dashboard XP:', e);
     }
