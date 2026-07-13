@@ -44,7 +44,6 @@
   }
   h1, h2, h3 { font-family: 'Sora', sans-serif; }
 
-  /* ambient EMS-light mesh: subtle red / blue drift, echoes ambulance lights without being loud */
   body::before {
     content: '';
     position: fixed; inset: 0; z-index: 0; pointer-events: none;
@@ -187,6 +186,7 @@
   button.danger { background: linear-gradient(135deg,#fb7185,#ef4444); box-shadow: 0 8px 22px -8px rgba(239,68,68,0.5); }
   button.avertir { background: linear-gradient(135deg,#fbbf24,#f59e0b); box-shadow: 0 8px 22px -8px rgba(245,158,11,0.5); }
   button.petit { padding: 7px 13px; font-size: 12px; margin-top: 0; }
+  button.ok { background: linear-gradient(135deg,#34d399,#10b981); box-shadow: 0 8px 22px -8px rgba(52,211,153,0.5); }
 
   #compte {
     display: flex;
@@ -429,6 +429,47 @@
   .xp-content { display: block; }
   .xp-content.hidden { display: none; }
 
+  /* Service badge */
+  .service-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(52,211,153,0.15);
+    color: var(--ok);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid rgba(52,211,153,0.3);
+    animation: pulse-service 2s ease-in-out infinite;
+  }
+  @keyframes pulse-service {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .service-off {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(148,163,184,0.1);
+    color: var(--text-dim);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+  }
+
+  .service-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg-card-solid);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    border-left: 3px solid var(--ok);
+  }
+
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
@@ -454,6 +495,7 @@
   <div class="tab" data-tab="bienvenue">👋 Bienvenue & Auto-rôle</div>
   <div class="tab" data-tab="candidatures">✅ Candidatures</div>
   <div class="tab" data-tab="historique">🕘 Historique candidatures</div>
+  <div class="tab" data-tab="service">🟢 Service</div>
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
@@ -538,6 +580,10 @@
     <div class="sous-titre">Modération</div>
     <label>Salon des logs de modération (kick / ban / timeout / warn)</label>
     <select id="param-salon-modlogs"><option value="">Aucun</option></select>
+
+    <div class="sous-titre">Service</div>
+    <label>Salon du message de prise de service</label>
+    <select id="param-salon-service"><option value="">Aucun</option></select>
 
     <button onclick="sauverParametres()">Enregistrer</button>
     <div id="param-statut"></div>
@@ -627,6 +673,38 @@
     <div id="liste-historique" style="margin-top:16px;"></div>
   </section>
 
+  <!-- SERVICE -->
+  <section id="vue-service" class="hidden">
+    <h2>🟢 Gestion du service</h2>
+    
+    <div class="encart-info">
+      Les membres peuvent prendre/déposer leur service via le bouton dans le salon configuré ou avec les commandes <code>/service start</code> et <code>/service stop</code>.
+      L'XP est automatiquement gagnée pendant le service.
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">Membres en service</h3>
+      <div id="service-liste">
+        <p style="color:var(--text-dim);">Chargement...</p>
+      </div>
+      <button class="secondaire petit" onclick="chargerService()" style="margin-top:10px;">🔄 Rafraîchir</button>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">Statistiques de service</h3>
+      <div class="stats-grille" id="service-stats">
+        <div class="stat-carte">
+          <div class="valeur" id="service-total">0</div>
+          <div class="label">Total sessions</div>
+        </div>
+        <div class="stat-carte">
+          <div class="valeur" id="service-moyenne">0h</div>
+          <div class="label">Moyenne par session</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ANNONCES -->
   <section id="vue-embed" class="hidden">
     <h2>Envoyer une annonce / embed</h2>
@@ -677,7 +755,6 @@
   <section id="vue-xp" class="hidden">
     <h2>🏆 Système de Grades & XP</h2>
     
-    <!-- Sous-onglets -->
     <div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
       <button class="tab-xp actif" data-xp-tab="dashboard">📊 Dashboard</button>
       <button class="tab-xp" data-xp-tab="grades">🎖️ Grades</button>
@@ -687,7 +764,6 @@
       <button class="tab-xp" data-xp-tab="logs">📋 Logs</button>
     </div>
 
-    <!-- Dashboard XP -->
     <div id="xp-dashboard" class="xp-content">
       <div class="stats-grille" id="xp-stats"></div>
       <div class="carte">
@@ -696,7 +772,6 @@
       </div>
     </div>
 
-    <!-- Gestion des Grades -->
     <div id="xp-grades" class="xp-content hidden">
       <div class="carte">
         <h3 style="margin-top:0;">Nouveau grade</h3>
@@ -743,7 +818,6 @@
       <div id="liste-grades"></div>
     </div>
 
-    <!-- Paramètres XP -->
     <div id="xp-settings" class="xp-content hidden">
       <div class="carte">
         <h3 style="margin-top:0;">Gains d'XP</h3>
@@ -824,7 +898,6 @@
       </div>
     </div>
 
-    <!-- Classement -->
     <div id="xp-leaderboard" class="xp-content hidden">
       <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
         <select id="lb-sort" onchange="chargerLeaderboard()">
@@ -843,7 +916,6 @@
       <div id="leaderboard-liste"></div>
     </div>
 
-    <!-- Profil -->
     <div id="xp-profile" class="xp-content hidden">
       <div style="display:flex; gap:12px; margin-bottom:16px;">
         <input id="profile-search" placeholder="ID ou pseudo du membre..." style="flex:1;" />
@@ -856,7 +928,6 @@
       </div>
     </div>
 
-    <!-- Logs XP -->
     <div id="xp-logs" class="xp-content hidden">
       <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
         <input id="logs-search" placeholder="Rechercher..." oninput="chargerXPLogs()" style="flex:1;" />
@@ -879,12 +950,12 @@
     <h2>Sauvegarde</h2>
     <div class="carte">
       <h3 style="margin-top:0;font-size:15px;">📤 Exporter</h3>
-      <p style="color:var(--text-dim);font-size:13px;">Télécharge un fichier JSON contenant toute la config, les tickets, giveaways, avertissements et l'historique des candidatures.</p>
+      <p style="color:var(--text-dim);font-size:13px;">Télécharge un fichier JSON contenant toute la config, les tickets, giveaways, avertissements, l'historique des candidatures, les données XP et les données de service.</p>
       <button onclick="exporterBackup()">Télécharger la sauvegarde</button>
     </div>
     <div class="carte">
       <h3 style="margin-top:0;font-size:15px;">📥 Importer</h3>
-      <p style="color:var(--text-dim);font-size:13px;">⚠️ Ceci écrase les données actuelles (config, tickets, giveaways, avertissements, historique) avec celles du fichier.</p>
+      <p style="color:var(--text-dim);font-size:13px;">⚠️ Ceci écrase les données actuelles avec celles du fichier.</p>
       <label>Fichier de sauvegarde (.json)</label>
       <input id="backup-fichier" type="file" accept="application/json" />
       <button class="danger" onclick="importerBackup()">Importer et écraser</button>
@@ -904,6 +975,7 @@
     bienvenue: chargerParametres,
     candidatures: chargerCandidatures,
     historique: chargerHistorique,
+    service: chargerService,
     embed: chargerSalons,
     tickets: chargerTickets,
     giveaways: chargerGiveaways,
@@ -935,6 +1007,7 @@
       ['Membres', s.memberCount], ['Salons', s.channelCount], ['Rôles', s.roleCount],
       ['Ping', s.ping + ' ms'], ['Uptime', Math.floor(s.uptime/60) + ' min'],
       ['Tickets ouverts', s.ticketsOuverts], ['Giveaways actifs', s.giveawaysActifs],
+      ['🟢 En service', s.servicesActifs || 0],
     ];
     document.getElementById('stats-grille').innerHTML = items.map(([label, val]) =>
       `<div class="stat-carte"><div class="valeur">${val}</div><div class="label">${label}</div></div>`
@@ -956,7 +1029,10 @@
         <div class="carte">
           <div class="ligne">
             <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${m.tag}</div>
-            <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
+            <div>
+              ${m.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
+              <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
+            </div>
           </div>
           <div style="margin-top:8px;">
             ${m.roles.map(r => `<span class="role-badge">${r.name}<button onclick="modifierRole('${m.id}','${r.id}','remove')">×</button></span>`).join('')}
@@ -1105,6 +1181,7 @@
     document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
     document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun (utilise le salon staff)</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
     document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
+    document.getElementById('param-salon-service').innerHTML = optionsSalons;
 
     document.getElementById('param-autorole').value = params.autoRoleId || '';
     document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
@@ -1113,6 +1190,7 @@
     document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
     document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
     document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
+    document.getElementById('param-salon-service').value = params.serviceChannelId || '';
   }
   async function sauverParametres() {
     const statut = document.getElementById('param-statut');
@@ -1126,6 +1204,7 @@
         ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
         modLogsChannelId: document.getElementById('param-salon-modlogs').value,
         ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
+        serviceChannelId: document.getElementById('param-salon-service').value,
       })
     });
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
@@ -1213,6 +1292,59 @@
         </div>
       `).join('') : `<p style="color:var(--text-dim);">Aucune entrée dans l'historique.</p>`;
     }, 250);
+  }
+
+  // ---- SERVICE ----
+  async function chargerService() {
+    const res = await fetch('/api/service/active');
+    const active = await res.json();
+    
+    const liste = document.getElementById('service-liste');
+    if (active.length === 0) {
+      liste.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
+    } else {
+      let html = '';
+      let totalSessions = 0;
+      let totalDuration = 0;
+      
+      for (const s of active) {
+        const userRes = await fetch(`/api/xp/profile?search=${s.userId}`);
+        const user = await userRes.json();
+        const start = new Date(s.startTime);
+        const duration = Math.floor((Date.now() - start) / 60000);
+        const hours = Math.floor(duration / 60);
+        const minutes = duration % 60;
+        
+        // Récupérer les stats de service du membre
+        const statsRes = await fetch(`/api/service/member/${s.userId}`);
+        const stats = await statsRes.json();
+        if (stats.sessions) {
+          totalSessions += stats.sessions.length;
+          stats.sessions.forEach(session => {
+            totalDuration += session.duration || 0;
+          });
+        }
+        
+        html += `
+          <div class="service-item">
+            <div>
+              <strong>${user.username || s.userId}</strong>
+              <span style="color:var(--text-dim);font-size:12px;margin-left:8px;">🟢 En service</span>
+            </div>
+            <div style="font-size:13px;color:var(--text-dim);">
+              ⏱️ ${hours}h${minutes} • Début: ${start.toLocaleTimeString('fr-FR')}
+            </div>
+          </div>
+        `;
+      }
+      
+      liste.innerHTML = html;
+      
+      // Stats
+      document.getElementById('service-total').textContent = totalSessions || 0;
+      const avg = totalSessions > 0 ? Math.floor(totalDuration / totalSessions / 60) : 0;
+      document.getElementById('service-moyenne').textContent = avg + 'h';
+    }
   }
 
   // ---- ANNONCES ----
@@ -1349,7 +1481,6 @@
   }
 
   // ---- XP & GRADES ----
-  // Gestion des onglets XP
   document.querySelectorAll('.tab-xp').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab-xp').forEach(t => t.classList.remove('actif'));
@@ -1548,7 +1679,6 @@
       </div>
     `).join('') || '<p style="color:var(--text-dim);">Aucun membre trouvé.</p>';
     
-    // Mettre à jour le filtre des grades
     const grades = await (await fetch('/api/grades')).json();
     const select = document.getElementById('lb-grade-filter');
     const currentVal = select.value;
@@ -1585,6 +1715,10 @@
           </div>
           <div style="font-size:20px; font-weight:600;">${data.username}</div>
           <div style="color:var(--text-dim); font-size:14px;">ID: ${data.userId}</div>
+          <div style="margin-top:8px;">
+            ${data.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
+            ${data.serviceStart ? `<span style="color:var(--text-dim);font-size:12px;margin-left:8px;">Depuis ${new Date(data.serviceStart).toLocaleTimeString('fr-FR')}</span>` : ''}
+          </div>
         </div>
         
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:12px; margin:16px 0;">
