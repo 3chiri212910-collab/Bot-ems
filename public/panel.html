@@ -1046,7 +1046,7 @@ async function chargerServiceMembre() {
       return;
     }
 
-    const isActive = getServiceStatus(userId);
+    const isActive = stats.active || false;
     const daily = stats.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
     const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
     const maxDaily = Math.max(...Object.values(daily));
@@ -1115,9 +1115,7 @@ async function chargerInterventionsStats() {
     const res = await fetch('/api/interventions/stats');
     const stats = await res.json();
     document.getElementById('intervention-total').textContent = stats.total || 0;
-    
-    const users = new Set(interventions.map(iv => iv.userId));
-    document.getElementById('intervention-intervenants').textContent = users.size || 0;
+    document.getElementById('intervention-intervenants').textContent = stats.intervenants || 0;
   } catch (e) {
     console.error('Erreur chargement stats interventions:', e);
   }
