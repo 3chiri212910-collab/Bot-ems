@@ -23,11 +23,11 @@ const fs = require("fs");
 const path = require("path");
 const { trouverSituation } = require("./situations.js");
 
-// Upload en mémoire (le fichier n'est jamais écrit sur le disque, il part direct dans le message Discord)
+// Upload en mémoire
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 // ==============================
-// CONFIGURATION - variables d'environnement (Render > Environment)
+// CONFIGURATION
 // ==============================
 const TOKEN = process.env.TOKEN || "TON_TOKEN_DISCORD_ICI";
 const CLIENT_ID = process.env.CLIENT_ID || "TON_CLIENT_ID_ICI";
@@ -37,20 +37,17 @@ const SESSION_SECRET = process.env.SESSION_SECRET || "change-moi-en-prod";
 const PORT = process.env.PORT || 3000;
 const GUILD_ID = process.env.GUILD_ID || "TON_GUILD_ID_ICI";
 
-// Upstash Redis (stockage persistant gratuit - survit aux redémarrages/redéploiements Render,
-// contrairement au disque local qui est effacé à chaque fois sur le plan gratuit)
 const UPSTASH_URL = (process.env.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const REDIS_ACTIF = !!(UPSTASH_URL && UPSTASH_TOKEN);
 
-// Rôles autorisés à accéder au panel (en plus des administrateurs)
 const ROLES_AUTORISES = ["1524935532914933837", "1524975599460814888"];
 
 const NOM_SERVEUR = "EMS";
-const COULEUR_EMBED = "#ff2d78"; // rose
+const COULEUR_EMBED = "#ff2d78";
 
 // ==============================
-// STOCKAGE (fichiers JSON locaux + copie persistante sur Upstash Redis)
+// STOCKAGE
 // ==============================
 const DATA_DIR = __dirname;
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
@@ -60,15 +57,14 @@ const CLOSED_TICKETS_FILE = path.join(DATA_DIR, "closed-tickets.json");
 const WARNS_FILE = path.join(DATA_DIR, "warns.json");
 const CAND_HISTORY_FILE = path.join(DATA_DIR, "candidatures-history.json");
 const INTERVENTIONS_FILE = path.join(DATA_DIR, "interventions.json");
+const XP_FILE = path.join(DATA_DIR, "xp_data.json");
+const GRADES_FILE = path.join(DATA_DIR, "grades.json");
+const XP_LOGS_FILE = path.join(DATA_DIR, "xp_logs.json");
+const SERVICE_FILE = path.join(DATA_DIR, "service.json");
 
 // ==============================
 // SYSTÈME DE GRADES & XP
 // ==============================
-const XP_FILE = path.join(DATA_DIR, "xp_data.json");
-const GRADES_FILE = path.join(DATA_DIR, "grades.json");
-const XP_LOGS_FILE = path.join(DATA_DIR, "xp_logs.json");
-
-// Configuration par défaut des grades
 const GRADES_DEFAUT = {
   grades: [
     { id: "stagiaire", name: "Stagiaire EMS", level: 1, xpRequired: 0, icon: "🟢", color: "#34d399", perks: [], notifications: true },
@@ -106,11 +102,9 @@ function ecrire(fichier, data) {
   } catch (e) {
     console.error(`Erreur écriture ${fichier}:`, e);
   }
-  // Sauvegarde persistante sur Upstash Redis (le disque Render gratuit est effacé à chaque redémarrage)
   redisSet(path.basename(fichier, ".json"), data);
 }
 
-// ---- Upstash Redis : stockage persistant (gratuit) qui survit aux redémarrages Render ----
 async function redisGet(cle) {
   if (!REDIS_ACTIF) return null;
   try {
@@ -138,18 +132,17 @@ async function redisSet(cle, valeur) {
   }
 }
 
-// ---- Valeurs par défaut du système de validation des candidatures (tickets) ----
 const CANDIDATURES_DEFAUT = {
   actif: false,
   salonValidation: null,
-  salonRefus: null, // si vide, on retombe sur salonValidation
+  salonRefus: null,
   roleValid: null,
   roleRefus: null,
-  roleAValider: null, // rôle attribué automatiquement au candidat quand /valid est utilisé
+  roleAValider: null,
   mpActif: true,
   mentionUser: true,
   fermetureAuto: false,
-  fermetureDelai: 10, // secondes
+  fermetureDelai: 10,
   messageValidation: "✅ {mention} Ta candidature (**{ticket}**) a été **validée** par {staff}.",
   messageRefus: "❌ {mention} Ta candidature (**{ticket}**) a été **refusée** par {staff}.",
   mpValidation: "Bonjour **{username}**,\nTa candidature sur **{server}** a été **validée** par {staff}.\n📅 {date}",
@@ -161,31 +154,33 @@ let config = lire(CONFIG_FILE, {
   welcomeChannelId: null,
   welcomeMessage: "Bienvenue {user} sur **{server}** ! Tu es le membre **#{count}**.",
   ticketStaffChannelId: null,
-  ticketLogsChannelId: null, // salon où partent les transcripts / logs de tickets (fallback: ticketStaffChannelId)
-  modLogsChannelId: null, // salon des logs de modération (kick/ban/timeout/warn)
-  interventionsChannelId: null, // 🆕 salon où sont loggées les interventions /intervention
-  ticketAutoCloseHours: 0, // auto-fermeture des tickets inactifs (0 = désactivé)
+  ticketLogsChannelId: null,
+  modLogsChannelId: null,
+  interventionsChannelId: null,
+  ticketAutoCloseHours: 0,
   ticketCounter: 0,
+  serviceChannelId: null,
+  serviceMessageId: null,
   candidatures: { ...CANDIDATURES_DEFAUT },
 });
-// Fusion défensive : si le config.json existant ne contient pas (encore) certains champs
-// (ancienne installation), on les ajoute avec les valeurs par défaut sans écraser le reste.
+
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
 if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
 if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
 if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
+if (config.serviceChannelId === undefined) config.serviceChannelId = null;
+if (config.serviceMessageId === undefined) config.serviceMessageId = null;
 
-let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority, note, lastActivity } }
-let giveaways = lire(GIVEAWAYS_FILE, {}); // { [id]: {...} }
-let closedTickets = lire(CLOSED_TICKETS_FILE, {}); // { [threadId]: { userId, username, number, closedAt } } - pour /reopen
-let warns = lire(WARNS_FILE, {}); // { [userId]: [{ id, reason, staffId, staffTag, date }] }
-let candHistory = lire(CAND_HISTORY_FILE, []); // [{ id, userId, username, ticketNumber, result, staffId, staffTag, raison, date }]
-let interventions = lire(INTERVENTIONS_FILE, []); // [{ id, type, gravite, patient, staffId, staffTag, date }]
-
-// ---- Données XP ----
+let tickets = lire(TICKETS_FILE, {});
+let giveaways = lire(GIVEAWAYS_FILE, {});
+let closedTickets = lire(CLOSED_TICKETS_FILE, {});
+let warns = lire(WARNS_FILE, {});
+let candHistory = lire(CAND_HISTORY_FILE, []);
+let interventions = lire(INTERVENTIONS_FILE, []);
 let xpData = lire(XP_FILE, {});
 let gradesConfig = lire(GRADES_FILE, GRADES_DEFAUT);
 let xpLogs = lire(XP_LOGS_FILE, []);
+let serviceData = lire(SERVICE_FILE, {});
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
 function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
@@ -197,8 +192,11 @@ function sauverInterventions() { ecrire(INTERVENTIONS_FILE, interventions); }
 function sauverXp() { ecrire(XP_FILE, xpData); }
 function sauverGrades() { ecrire(GRADES_FILE, gradesConfig); }
 function sauverXpLogs() { ecrire(XP_LOGS_FILE, xpLogs); }
+function sauverService() { ecrire(SERVICE_FILE, serviceData); }
 
-// ---- Fonctions XP ----
+// ==============================
+// FONCTIONS XP
+// ==============================
 function getGradeForXp(xp) {
   const sorted = [...gradesConfig.grades].sort((a, b) => b.xpRequired - a.xpRequired);
   for (const grade of sorted) {
@@ -248,21 +246,18 @@ async function addXp(userId, amount, source, reason) {
   xpData[userId].xp = Math.max(0, (xpData[userId].xp || 0) + amount);
   xpData[userId].lastActivity = new Date().toISOString();
   
-  // Ajouter aux stats selon la source
   if (source === 'intervention') xpData[userId].interventions = (xpData[userId].interventions || 0) + 1;
   if (source === 'message') xpData[userId].messages = (xpData[userId].messages || 0) + 1;
   if (source === 'voice') xpData[userId].voiceTime = (xpData[userId].voiceTime || 0) + Math.abs(amount) / 2;
-  if (source === 'service') xpData[userId].serviceTime = (xpData[userId].serviceTime || 0) + 60;
+  if (source === 'service') xpData[userId].serviceTime = (xpData[userId].serviceTime || 0) + Math.abs(amount);
   
   sauverXp();
   
-  // Log
   const user = await client.users.fetch(userId).catch(() => null);
   logXp(userId, user?.username || userId, amount, source, reason);
   
   const newGrade = getGradeForXp(xpData[userId].xp);
   if (newGrade.id !== oldGrade.id && gradesConfig.settings.notifications) {
-    // Notification de montée de grade
     if (user) {
       const { level } = getLevelFromXp(xpData[userId].xp);
       const msg = gradesConfig.settings.levelUpMessage
@@ -276,7 +271,93 @@ async function addXp(userId, amount, source, reason) {
   return { oldGrade, newGrade, xp: xpData[userId].xp };
 }
 
-// ---- Remplacement des variables dans les messages personnalisables ----
+// ==============================
+// FONCTIONS SERVICE
+// ==============================
+function getServiceStatus(userId) {
+  const data = serviceData[userId];
+  if (!data || !data.active) return null;
+  return data;
+}
+
+async function startService(userId) {
+  const now = new Date();
+  if (!serviceData[userId]) {
+    serviceData[userId] = {
+      totalTime: 0,
+      sessions: [],
+      active: false
+    };
+  }
+  
+  serviceData[userId].active = true;
+  serviceData[userId].startTime = now.toISOString();
+  serviceData[userId].sessionStart = now.toISOString();
+  serviceData[userId].lastPing = now.toISOString();
+  
+  sauverService();
+  return serviceData[userId];
+}
+
+async function stopService(userId) {
+  const data = serviceData[userId];
+  if (!data || !data.active) return null;
+  
+  const now = new Date();
+  const start = new Date(data.startTime);
+  const duration = Math.floor((now - start) / 1000); // en secondes
+  
+  data.active = false;
+  data.endTime = now.toISOString();
+  data.totalTime = (data.totalTime || 0) + duration;
+  
+  if (!data.sessions) data.sessions = [];
+  data.sessions.push({
+    start: data.startTime,
+    end: now.toISOString(),
+    duration: duration
+  });
+  
+  sauverService();
+  
+  // Donner l'XP pour le temps de service
+  const xpPerMinute = gradesConfig.settings.xpPerMinute || 1;
+  const minutes = Math.floor(duration / 60);
+  const xpGain = minutes * xpPerMinute;
+  
+  if (xpGain > 0) {
+    await addXp(userId, xpGain, "service", `${minutes} minutes de service`);
+  }
+  
+  return { duration, xpGain };
+}
+
+async function updateServicePing(userId) {
+  const data = serviceData[userId];
+  if (!data || !data.active) return null;
+  data.lastPing = new Date().toISOString();
+  sauverService();
+  return data;
+}
+
+function getActiveServices() {
+  const active = [];
+  for (const [userId, data] of Object.entries(serviceData)) {
+    if (data.active) {
+      active.push({
+        userId,
+        startTime: data.startTime,
+        lastPing: data.lastPing,
+        totalTime: data.totalTime || 0
+      });
+    }
+  }
+  return active;
+}
+
+// ==============================
+// FONCTIONS UTILES
+// ==============================
 function remplacerVariables(texte, vars) {
   return String(texte || "")
     .replaceAll("{user}", vars.user ?? "")
@@ -310,7 +391,6 @@ function prochainNumeroTicket() {
 
 const EMOJIS_PRIORITE = { basse: "🟢", normale: "🟡", haute: "🟠", urgente: "🔴" };
 
-// ---- Interventions : labels + calcul des stats ----
 const LABELS_TYPE_INTERVENTION = {
   accident_circulation: "🚗 Accident de circulation",
   arme: "🔫 Arme à feu / arme blanche",
@@ -335,13 +415,12 @@ function statsInterventions() {
   for (const iv of interventions) {
     parType[iv.type] = (parType[iv.type] || 0) + 1;
     parGravite[iv.gravite] = (parGravite[iv.gravite] || 0) + 1;
-    const mois = iv.date.slice(0, 7); // "2026-07"
+    const mois = iv.date.slice(0, 7);
     parMois[mois] = (parMois[mois] || 0) + 1;
   }
   return { total: interventions.length, parType, parGravite, parMois };
 }
 
-// ---- Logs de modération (kick / ban / timeout / warn) ----
 async function envoyerLogModeration(embed) {
   if (!config.modLogsChannelId) return;
   const salon = await client.channels.fetch(config.modLogsChannelId).catch(() => null);
@@ -380,12 +459,12 @@ const client = new Client({
 // COMMANDES SLASH
 // ==============================
 const commands = [
-  // ---- Rapport médical ----
+  // Rapport médical
   new SlashCommandBuilder()
     .setName("rapport")
     .setDescription("Générer un rapport médical d'intervention"),
 
-  // ---- Logging d'intervention pour les statistiques ----
+  // Intervention
   new SlashCommandBuilder()
     .setName("intervention")
     .setDescription("Logger une intervention pour les statistiques")
@@ -411,7 +490,7 @@ const commands = [
     )
     .addStringOption((o) => o.setName("patient").setDescription("Nom du patient (optionnel)").setRequired(false)),
 
-  // ---- Commandes de gestion des tickets ----
+  // Tickets
   new SlashCommandBuilder()
     .setName("rename")
     .setDescription("Renommer le ticket en cours")
@@ -455,7 +534,7 @@ const commands = [
     .addIntegerOption((o) => o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)),
   new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du ticket en cours"),
 
-  // ---- Validation des candidatures ----
+  // Candidatures
   new SlashCommandBuilder()
     .setName("valid")
     .setDescription("Valider la candidature du ticket en cours")
@@ -465,7 +544,7 @@ const commands = [
     .setDescription("Refuser la candidature du ticket en cours")
     .addStringOption((o) => o.setName("raison").setDescription("Raison du refus (optionnel)").setRequired(false)),
 
-  // ---- Modération : warn ----
+  // Modération
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("Avertir un membre")
@@ -476,23 +555,20 @@ const commands = [
     .setDescription("Voir les avertissements d'un membre")
     .addUserOption((o) => o.setName("membre").setDescription("Membre à consulter").setRequired(true)),
 
-  // ---- Commandes XP & Grades ----
+  // XP & Grades
   new SlashCommandBuilder()
     .setName("profile")
     .setDescription("Voir ton profil XP")
     .addUserOption((o) => o.setName("membre").setDescription("Membre à consulter").setRequired(false)),
-
   new SlashCommandBuilder()
     .setName("leaderboard")
     .setDescription("Voir le classement des membres"),
-
   new SlashCommandBuilder()
     .setName("givexp")
     .setDescription("Donner de l'XP à un membre (staff)")
     .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
     .addIntegerOption((o) => o.setName("quantite").setDescription("XP à donner").setRequired(true).setMinValue(1))
     .addStringOption((o) => o.setName("raison").setDescription("Raison").setRequired(false)),
-
   new SlashCommandBuilder()
     .setName("grade")
     .setDescription("Gérer les grades d'un membre (admin)")
@@ -514,17 +590,39 @@ const commands = [
         .setDescription("Réinitialiser l'XP d'un membre")
         .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
     ),
+
+  // Service
+  new SlashCommandBuilder()
+    .setName("service")
+    .setDescription("Gérer ton service")
+    .addSubcommand((sub) =>
+      sub.setName("start")
+        .setDescription("Prendre ton service")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("stop")
+        .setDescription("Déposer ton service")
+    )
+    .addSubcommand((sub) =>
+      sub.setName("status")
+        .setDescription("Voir ton statut de service")
+    ),
+  new SlashCommandBuilder()
+    .setName("services")
+    .setDescription("Voir les membres en service (staff)"),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-// ---- Recharge les données depuis Upstash Redis au démarrage ----
+// ==============================
+// CHARGEMENT REDIS
+// ==============================
 async function chargerDepuisRedis() {
   if (!REDIS_ACTIF) {
-    console.log("⚠️  UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés : la config et les tickets ne survivront PAS aux redémarrages Render.");
+    console.log("⚠️ UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés.");
     return;
   }
-  const [c, t, g, ct, w, ch, iv, xp, gr, xl] = await Promise.all([
+  const [c, t, g, ct, w, ch, iv, xp, gr, xl, sv] = await Promise.all([
     redisGet("config"),
     redisGet("tickets"),
     redisGet("giveaways"),
@@ -535,12 +633,15 @@ async function chargerDepuisRedis() {
     redisGet("xp_data"),
     redisGet("grades"),
     redisGet("xp_logs"),
+    redisGet("service"),
   ]);
   if (c) {
     config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
     if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
     if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
     if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
+    if (config.serviceChannelId === undefined) config.serviceChannelId = null;
+    if (config.serviceMessageId === undefined) config.serviceMessageId = null;
   }
   if (t) tickets = t;
   if (g) giveaways = g;
@@ -551,7 +652,8 @@ async function chargerDepuisRedis() {
   if (xp) xpData = xp;
   if (gr) gradesConfig = { ...GRADES_DEFAUT, ...gr, grades: gr.grades || GRADES_DEFAUT.grades };
   if (xl) xpLogs = xl;
-  console.log("✅ Config, tickets, giveaways, warns, historique, interventions et XP rechargés depuis Upstash Redis.");
+  if (sv) serviceData = sv;
+  console.log("✅ Toutes les données rechargées depuis Upstash Redis.");
 }
 
 (async () => {
@@ -565,17 +667,25 @@ async function chargerDepuisRedis() {
   client.login(TOKEN);
 })();
 
-client.once("ready", () => {
+// ==============================
+// READY
+// ==============================
+client.once("ready", async () => {
   console.log(`Connecté en tant que ${client.user.tag}`);
-  // relance les giveaways en cours
+  
+  // Giveaways
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
   }
-  // démarre la vérification périodique des tickets inactifs
-  setInterval(verifierTicketsInactifs, 15 * 60 * 1000); // toutes les 15 minutes
+  
+  // Tickets inactifs
+  setInterval(verifierTicketsInactifs, 15 * 60 * 1000);
   verifierTicketsInactifs();
 
-  // ---- XP : gain de temps en service toutes les minutes ----
+  // Envoyer le message de service si configuré
+  await envoyerMessageService();
+
+  // XP temps de service (toutes les minutes)
   setInterval(async () => {
     try {
       const guild = client.guilds.cache.get(GUILD_ID);
@@ -586,20 +696,122 @@ client.once("ready", () => {
       const isWeekend = now.getDay() === 0 || now.getDay() === 6;
       const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
       
-      for (const [id, member] of members) {
-        if (member.user.bot) continue;
-        if (member.presence?.status === 'offline') continue;
-        
+      // XP pour les membres en service
+      const activeServices = getActiveServices();
+      for (const service of activeServices) {
+        const start = new Date(service.startTime);
+        const minutes = Math.floor((Date.now() - start) / 60000);
         const xpGain = Math.round((gradesConfig.settings.xpPerMinute || 1) * boost);
-        await addXp(id, xpGain, "service", "Temps en service");
+        if (xpGain > 0) {
+          await addXp(service.userId, xpGain, "service", "Temps en service");
+        }
       }
     } catch (e) {
-      console.error("Erreur gain XP temps de service:", e);
+      console.error("Erreur gain XP service:", e);
     }
-  }, 60000); // toutes les minutes
+  }, 60000);
+
+  // Vérifier les services orphelins (membres offline)
+  setInterval(async () => {
+    try {
+      const guild = client.guilds.cache.get(GUILD_ID);
+      if (!guild) return;
+      
+      const activeServices = getActiveServices();
+      for (const service of activeServices) {
+        const member = await guild.members.fetch(service.userId).catch(() => null);
+        if (!member || member.presence?.status === 'offline') {
+          console.log(`🛑 Service arrêté automatiquement pour ${member?.user?.username || service.userId} (offline)`);
+          await stopService(service.userId);
+        }
+      }
+    } catch (e) {
+      console.error("Erreur vérification services orphelins:", e);
+    }
+  }, 300000); // toutes les 5 minutes
 });
 
-// ---- Auto-fermeture des tickets inactifs ----
+// ==============================
+// MESSAGE DE SERVICE
+// ==============================
+async function envoyerMessageService() {
+  if (!config.serviceChannelId) return;
+  
+  try {
+    const channel = await client.channels.fetch(config.serviceChannelId);
+    if (!channel || !channel.isTextBased()) return;
+    
+    // Supprimer l'ancien message si existant
+    if (config.serviceMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.serviceMessageId);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
+    }
+    
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle("🟢 Prise de service")
+      .setDescription("Clique sur le bouton ci-dessous pour prendre ou déposer ton service.")
+      .addFields(
+        { name: "📊 En service actuellement", value: "Aucun membre", inline: false }
+      )
+      .setFooter({ text: NOM_SERVEUR })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("service_toggle")
+        .setLabel("🟢 Prendre mon service")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    config.serviceMessageId = message.id;
+    sauverConfig();
+    
+    // Mettre à jour le message périodiquement
+    setInterval(() => mettreAJourMessageService(message), 60000);
+    await mettreAJourMessageService(message);
+    
+  } catch (e) {
+    console.error("Erreur envoi message service:", e);
+  }
+}
+
+async function mettreAJourMessageService(message) {
+  try {
+    const activeServices = getActiveServices();
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle("🟢 Prise de service")
+      .setDescription("Clique sur le bouton ci-dessous pour prendre ou déposer ton service.")
+      .setFooter({ text: NOM_SERVEUR })
+      .setTimestamp();
+
+    if (activeServices.length === 0) {
+      embed.addFields({ name: "📊 En service actuellement", value: "Aucun membre", inline: false });
+    } else {
+      const liste = await Promise.all(activeServices.map(async (s) => {
+        const user = await client.users.fetch(s.userId).catch(() => null);
+        const start = new Date(s.startTime);
+        const duration = Math.floor((Date.now() - start) / 60000);
+        const hours = Math.floor(duration / 60);
+        const minutes = duration % 60;
+        return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
+      }));
+      embed.addFields({ name: "📊 En service actuellement", value: liste.join('\n') || "Aucun", inline: false });
+    }
+
+    await message.edit({ embeds: [embed] });
+  } catch (e) {
+    console.error("Erreur mise à jour message service:", e);
+  }
+}
+
+// ==============================
+// AUTO-FERMETURE TICKETS
+// ==============================
 async function verifierTicketsInactifs() {
   const heures = parseFloat(config.ticketAutoCloseHours) || 0;
   if (heures <= 0) return;
@@ -619,7 +831,7 @@ async function verifierTicketsInactifs() {
 }
 
 // ==============================
-// AUTO-ROLE + BIENVENUE (configurable via panel)
+// AUTO-ROLE + BIENVENUE
 // ==============================
 client.on("guildMemberAdd", async (member) => {
   try {
@@ -653,7 +865,7 @@ client.on("guildMemberAdd", async (member) => {
 });
 
 // ==============================
-// SYSTEME DE TICKETS DM <-> THREAD
+// SYSTEME DE TICKETS
 // ==============================
 function boutonsTicket() {
   const ligne1 = new ActionRowBuilder().addComponents(
@@ -681,11 +893,10 @@ function estStaffTicket(interaction) {
   return interaction.member && interaction.member.permissions.has(PermissionsBitField.Flags.ManageThreads);
 }
 
-// ---- Génération d'un transcript HTML à partir d'un fil de ticket ----
 async function genererTranscriptHTML(thread) {
   let toutMessages = [];
   let avant = undefined;
-  for (let i = 0; i < 10; i++) { // jusqu'à 1000 messages (10 x 100)
+  for (let i = 0; i < 10; i++) {
     const lot = await thread.messages.fetch({ limit: 100, before: avant });
     if (!lot.size) break;
     toutMessages.push(...lot.values());
@@ -768,7 +979,6 @@ async function fermerTicketParThread(threadId, fermePar) {
   const infosTicket = userId ? tickets[userId] : null;
 
   if (thread) {
-    // Transcript automatique envoyé dans le salon de logs avant fermeture
     await envoyerTranscript(
       thread,
       "📄 Transcript — Ticket fermé",
@@ -933,6 +1143,9 @@ async function obtenirOuCreerThread(user) {
   return { thread, nouveau: true };
 }
 
+// ==============================
+// MESSAGE CREATE
+// ==============================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
@@ -944,7 +1157,6 @@ client.on("messageCreate", async (message) => {
         files: [...message.attachments.values()],
       });
 
-      // met à jour la dernière activité (pour l'auto-fermeture)
       if (tickets[message.author.id]) {
         tickets[message.author.id].lastActivity = new Date().toISOString();
         sauverTickets();
@@ -992,7 +1204,7 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // ---- Gain d'XP pour les messages ----
+  // Gain d'XP pour les messages
   if (message.guild && !message.author.bot) {
     const userId = message.author.id;
     const lastMsg = xpData[userId]?.lastMessage || 0;
@@ -1062,7 +1274,38 @@ function planifierFinGiveaway(g) {
   setTimeout(() => terminerGiveaway(g.id), Math.max(delai, 0));
 }
 
+// ==============================
+// INTERACTIONS
+// ==============================
 client.on("interactionCreate", async (interaction) => {
+  // ---- Bouton SERVICE ----
+  if (interaction.isButton() && interaction.customId === "service_toggle") {
+    await interaction.deferReply({ ephemeral: true });
+    
+    const userId = interaction.user.id;
+    const status = getServiceStatus(userId);
+    
+    if (status) {
+      // Arrêter le service
+      const result = await stopService(userId);
+      if (result) {
+        const duration = Math.floor(result.duration / 60);
+        await interaction.editReply({
+          content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`
+        });
+        await mettreAJourMessageService(await interaction.channel.messages.fetch(config.serviceMessageId).catch(() => null));
+      }
+    } else {
+      // Démarrer le service
+      await startService(userId);
+      await interaction.editReply({
+        content: "✅ Tu as pris ton service ! 🟢"
+      });
+      await mettreAJourMessageService(await interaction.channel.messages.fetch(config.serviceMessageId).catch(() => null));
+    }
+    return;
+  }
+
   // ---- Boutons ticket ----
   if (interaction.isButton() && interaction.customId === "ticket_claim") {
     if (!estStaffTicket(interaction)) {
@@ -1353,7 +1596,7 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  // ---- Commandes /valid et /refuser (validation des candidatures) ----
+  // ---- Commandes /valid et /refuser ----
   if (interaction.isChatInputCommand() && (interaction.commandName === "valid" || interaction.commandName === "refuser")) {
     const cfg = config.candidatures;
     const estValidation = interaction.commandName === "valid";
@@ -1498,7 +1741,6 @@ client.on("interactionCreate", async (interaction) => {
     });
     sauverWarns();
 
-    // Pénalité XP
     const penalty = gradesConfig.settings.xpPerWarn || -25;
     await addXp(membre.id, penalty, "penalty", "Avertissement reçu");
 
@@ -1572,7 +1814,6 @@ client.on("interactionCreate", async (interaction) => {
     interventions.push(entree);
     sauverInterventions();
 
-    // Gain d'XP pour l'intervention
     const xpGain = gradesConfig.settings.xpPerIntervention || 50;
     await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
 
@@ -1662,6 +1903,115 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.reply({ embeds: [embed] });
   }
 
+  // ---- Commande /service ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "service") {
+    const sub = interaction.options.getSubcommand();
+    const userId = interaction.user.id;
+
+    if (sub === "start") {
+      const status = getServiceStatus(userId);
+      if (status) {
+        return interaction.reply({ content: "❌ Tu es déjà en service !", ephemeral: true });
+      }
+      await startService(userId);
+      await interaction.reply({ content: "✅ Tu as pris ton service ! 🟢", ephemeral: true });
+      
+      // Mettre à jour le message de service
+      if (config.serviceChannelId) {
+        const channel = await client.channels.fetch(config.serviceChannelId).catch(() => null);
+        if (channel && config.serviceMessageId) {
+          const msg = await channel.messages.fetch(config.serviceMessageId).catch(() => null);
+          if (msg) await mettreAJourMessageService(msg);
+        }
+      }
+    }
+
+    else if (sub === "stop") {
+      const status = getServiceStatus(userId);
+      if (!status) {
+        return interaction.reply({ content: "❌ Tu n'es pas en service !", ephemeral: true });
+      }
+      const result = await stopService(userId);
+      const duration = Math.floor(result.duration / 60);
+      await interaction.reply({ 
+        content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`,
+        ephemeral: true 
+      });
+      
+      if (config.serviceChannelId) {
+        const channel = await client.channels.fetch(config.serviceChannelId).catch(() => null);
+        if (channel && config.serviceMessageId) {
+          const msg = await channel.messages.fetch(config.serviceMessageId).catch(() => null);
+          if (msg) await mettreAJourMessageService(msg);
+        }
+      }
+    }
+
+    else if (sub === "status") {
+      const status = getServiceStatus(userId);
+      if (!status) {
+        return interaction.reply({ 
+          embeds: [new EmbedBuilder()
+            .setColor(COULEUR_EMBED)
+            .setDescription("❌ Tu n'es pas en service.")
+          ],
+          ephemeral: true 
+        });
+      }
+      const start = new Date(status.startTime);
+      const duration = Math.floor((Date.now() - start) / 60000);
+      const hours = Math.floor(duration / 60);
+      const minutes = duration % 60;
+      
+      const embed = new EmbedBuilder()
+        .setColor("#34d399")
+        .setTitle("🟢 En service")
+        .setDescription(`Tu es en service depuis **${hours}h${minutes}**`)
+        .addFields(
+          { name: "Heure de début", value: start.toLocaleTimeString("fr-FR"), inline: true },
+          { name: "Temps total", value: `${hours}h${minutes}`, inline: true }
+        )
+        .setTimestamp();
+      
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+  }
+
+  // ---- Commande /services ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "services") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+      return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", ephemeral: true });
+    }
+
+    const active = getActiveServices();
+    if (active.length === 0) {
+      return interaction.reply({ 
+        embeds: [new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setDescription("Aucun membre en service.")
+        ],
+        ephemeral: true 
+      });
+    }
+
+    const liste = await Promise.all(active.map(async (s) => {
+      const user = await client.users.fetch(s.userId).catch(() => null);
+      const start = new Date(s.startTime);
+      const duration = Math.floor((Date.now() - start) / 60000);
+      const hours = Math.floor(duration / 60);
+      const minutes = duration % 60;
+      return `• ${user?.username || s.userId} — ⏱️ ${hours}h${minutes}`;
+    }));
+
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle("🟢 Membres en service")
+      .setDescription(liste.join('\n'))
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+  }
+
   // ---- Commande /profile ----
   if (interaction.isChatInputCommand() && interaction.commandName === "profile") {
     const target = interaction.options.getUser("membre") || interaction.user;
@@ -1680,6 +2030,7 @@ client.on("interactionCreate", async (interaction) => {
     const grade = getGradeForXp(data.xp || 0);
     const { level, currentXp, nextXp } = getLevelFromXp(data.xp || 0);
     const progress = nextXp ? Math.round((currentXp / nextXp) * 100) : 100;
+    const serviceStatus = getServiceStatus(target.id);
     
     const embed = new EmbedBuilder()
       .setColor(grade.color || COULEUR_EMBED)
@@ -1691,7 +2042,8 @@ client.on("interactionCreate", async (interaction) => {
         { name: "🎯 Progression", value: nextXp ? `${progress}% (${currentXp}/${nextXp})` : "🏆 Max", inline: true },
         { name: "🚑 Interventions", value: String(data.interventions || 0), inline: true },
         { name: "⏱️ Temps de service", value: `${Math.floor((data.serviceTime || 0) / 3600)}h`, inline: true },
-        { name: "📝 Messages", value: String(data.messages || 0), inline: true }
+        { name: "📝 Messages", value: String(data.messages || 0), inline: true },
+        { name: "🟢 Statut", value: serviceStatus ? "En service" : "Hors service", inline: true }
       )
       .setTimestamp();
     
@@ -1789,7 +2141,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ==================================================================
-//                        PANEL WEB (Express)
+// PANEL WEB (Express)
 // ==================================================================
 const app = express();
 app.set("trust proxy", 1);
@@ -1907,6 +2259,7 @@ app.get("/api/stats", authRequis, (req, res) => {
     uptime: Math.floor(process.uptime()),
     ticketsOuverts: Object.keys(tickets).length,
     giveawaysActifs: Object.values(giveaways).filter((g) => !g.ended).length,
+    servicesActifs: getActiveServices().length,
   });
 });
 
@@ -2027,6 +2380,7 @@ app.get("/api/members/search", authRequis, async (req, res) => {
         roles: m.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name })),
         joinedAt: m.joinedAt,
         warnCount: (warns[m.id] || []).length,
+        isOnService: !!getServiceStatus(m.id),
       }))
     );
   } catch (e) {
@@ -2044,7 +2398,6 @@ app.post("/api/members/:id/kick", authRequis, async (req, res) => {
     const tag = membre.user.tag;
     await membre.kick(raison);
     
-    // Pénalité XP
     const penalty = gradesConfig.settings.xpPerKick || -50;
     await addXp(req.params.id, penalty, "penalty", "Kick reçu");
     
@@ -2076,7 +2429,6 @@ app.post("/api/members/:id/ban", authRequis, async (req, res) => {
     if (membre) tag = membre.user.tag;
     await guild.members.ban(req.params.id, { reason: raison });
     
-    // Pénalité XP
     const penalty = gradesConfig.settings.xpPerBan || -100;
     await addXp(req.params.id, penalty, "penalty", "Ban reçu");
     
@@ -2141,7 +2493,7 @@ app.post("/api/members/:id/roles/:roleId", authRequis, async (req, res) => {
   }
 });
 
-// ---- Warns (avertissements) ----
+// ---- Warns ----
 app.get("/api/members/:id/warns", authRequis, (req, res) => {
   res.json(warns[req.params.id] || []);
 });
@@ -2164,7 +2516,6 @@ app.post("/api/members/:id/warn", authRequis, async (req, res) => {
     });
     sauverWarns();
 
-    // Pénalité XP
     const penalty = gradesConfig.settings.xpPerWarn || -25;
     await addXp(req.params.id, penalty, "penalty", "Avertissement reçu");
 
@@ -2209,7 +2560,7 @@ app.delete("/api/members/:id/warns/:warnId", authRequis, (req, res) => {
   res.json({ succes: true, supprime: avant !== warns[req.params.id].length });
 });
 
-// ---- Paramètres (auto-rôle, bienvenue, tickets) ----
+// ---- Paramètres ----
 app.get("/api/settings", authRequis, (req, res) => res.json(config));
 
 app.post("/api/settings", authRequis, (req, res) => {
@@ -2222,6 +2573,7 @@ app.post("/api/settings", authRequis, (req, res) => {
     modLogsChannelId,
     interventionsChannelId,
     ticketAutoCloseHours,
+    serviceChannelId,
   } = req.body;
   config.autoRoleId = autoRoleId || null;
   config.welcomeChannelId = welcomeChannelId || null;
@@ -2231,11 +2583,18 @@ app.post("/api/settings", authRequis, (req, res) => {
   config.modLogsChannelId = modLogsChannelId || null;
   config.interventionsChannelId = interventionsChannelId || null;
   config.ticketAutoCloseHours = Math.max(0, parseFloat(ticketAutoCloseHours) || 0);
+  config.serviceChannelId = serviceChannelId || null;
   sauverConfig();
+  
+  // Réenvoyer le message de service si le salon a changé
+  if (config.serviceChannelId) {
+    envoyerMessageService();
+  }
+  
   res.json({ succes: true });
 });
 
-// ---- Gestion des candidatures ----
+// ---- Candidatures ----
 app.get("/api/settings/candidatures", authRequis, (req, res) => {
   res.json(config.candidatures);
 });
@@ -2278,7 +2637,7 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
   res.json({ succes: true, candidatures: config.candidatures });
 });
 
-// ---- Historique des candidatures ----
+// ---- Historique candidatures ----
 app.get("/api/candidatures/history", authRequis, (req, res) => {
   const q = (req.query.q || "").toLowerCase();
   let liste = candHistory;
@@ -2319,7 +2678,7 @@ app.delete("/api/interventions/:id", authRequis, (req, res) => {
   res.json({ succes: true, supprime: avant !== interventions.length });
 });
 
-// ---- Annonces / Embeds ----
+// ---- Annonces ----
 app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, res) => {
   const { channelId, title, description, color, imageUrl, footer } = req.body;
   if (!channelId || !title) return res.status(400).json({ erreur: "channelId et title sont requis" });
@@ -2600,6 +2959,7 @@ app.get('/api/xp/profile', authRequis, (req, res) => {
   const data = xpData[userId];
   const grade = getGradeForXp(data.xp || 0);
   const user = client.users.cache.get(userId);
+  const serviceStatus = getServiceStatus(userId);
   
   res.json({
     userId,
@@ -2614,7 +2974,9 @@ app.get('/api/xp/profile', authRequis, (req, res) => {
     serviceTime: data.serviceTime || 0,
     messages: data.messages || 0,
     voiceTime: data.voiceTime || 0,
-    lastActivity: data.lastActivity || new Date().toISOString()
+    lastActivity: data.lastActivity || new Date().toISOString(),
+    isOnService: !!serviceStatus,
+    serviceStart: serviceStatus?.startTime || null
   });
 });
 
@@ -2630,7 +2992,36 @@ app.get('/api/xp/logs', authRequis, (req, res) => {
   res.json(logs);
 });
 
-// ---- BACKUP / EXPORT / IMPORT ----
+// ---- SERVICE API ----
+app.get('/api/service/active', authRequis, (req, res) => {
+  const active = getActiveServices();
+  res.json(active);
+});
+
+app.get('/api/service/member/:id', authRequis, (req, res) => {
+  const data = serviceData[req.params.id];
+  if (!data) return res.json({ active: false });
+  res.json({
+    active: data.active || false,
+    startTime: data.startTime || null,
+    totalTime: data.totalTime || 0,
+    sessions: data.sessions || []
+  });
+});
+
+app.post('/api/service/config', authRequis, (req, res) => {
+  const { channelId } = req.body;
+  config.serviceChannelId = channelId || null;
+  sauverConfig();
+  
+  if (config.serviceChannelId) {
+    envoyerMessageService();
+  }
+  
+  res.json({ succes: true });
+});
+
+// ---- BACKUP ----
 app.get("/api/backup", authRequis, (req, res) => {
   const backup = {
     generatedAt: new Date().toISOString(),
@@ -2644,6 +3035,7 @@ app.get("/api/backup", authRequis, (req, res) => {
     xpData,
     gradesConfig,
     xpLogs,
+    serviceData,
   };
   const nomFichier = `backup-ems-${new Date().toISOString().slice(0, 10)}.json`;
   res.setHeader("Content-Disposition", `attachment; filename="${nomFichier}"`);
@@ -2667,6 +3059,7 @@ app.post("/api/backup/import", authRequis, (req, res) => {
     if (data.xpData) { xpData = data.xpData; sauverXp(); }
     if (data.gradesConfig) { gradesConfig = data.gradesConfig; sauverGrades(); }
     if (data.xpLogs) { xpLogs = data.xpLogs; sauverXpLogs(); }
+    if (data.serviceData) { serviceData = data.serviceData; sauverService(); }
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur import backup:", e);
