@@ -59,7 +59,39 @@ const GIVEAWAYS_FILE = path.join(DATA_DIR, "giveaways.json");
 const CLOSED_TICKETS_FILE = path.join(DATA_DIR, "closed-tickets.json");
 const WARNS_FILE = path.join(DATA_DIR, "warns.json");
 const CAND_HISTORY_FILE = path.join(DATA_DIR, "candidatures-history.json");
-const INTERVENTIONS_FILE = path.join(DATA_DIR, "interventions.json"); // 🆕
+const INTERVENTIONS_FILE = path.join(DATA_DIR, "interventions.json");
+
+// ==============================
+// SYSTÈME DE GRADES & XP
+// ==============================
+const XP_FILE = path.join(DATA_DIR, "xp_data.json");
+const GRADES_FILE = path.join(DATA_DIR, "grades.json");
+const XP_LOGS_FILE = path.join(DATA_DIR, "xp_logs.json");
+
+// Configuration par défaut des grades
+const GRADES_DEFAUT = {
+  grades: [
+    { id: "stagiaire", name: "Stagiaire EMS", level: 1, xpRequired: 0, icon: "🟢", color: "#34d399", perks: [], notifications: true },
+    { id: "ambulancier", name: "Ambulancier", level: 2, xpRequired: 100, icon: "🚑", color: "#3b82f6", perks: ["Accès interventions"], notifications: true },
+    { id: "infirmier", name: "Infirmier d'urgence", level: 3, xpRequired: 300, icon: "💉", color: "#8b5cf6", perks: ["Peut valider des rapports"], notifications: true },
+    { id: "medecin", name: "Médecin urgentiste", level: 4, xpRequired: 800, icon: "⚕️", color: "#f59e0b", perks: ["Peut former"], notifications: true },
+    { id: "chef_service", name: "Chef de service", level: 5, xpRequired: 2000, icon: "⭐", color: "#ef4444", perks: ["Gestion d'équipe"], notifications: true }
+  ],
+  settings: {
+    xpPerMinute: 1,
+    xpPerIntervention: 50,
+    xpPerMessage: 0.5,
+    xpPerVoiceMinute: 2,
+    xpPerWarn: -25,
+    xpPerKick: -50,
+    xpPerBan: -100,
+    xpBoosts: { weekend: 1.5, event: 2.0 },
+    cooldowns: { message: 60, voice: 300 },
+    notifications: true,
+    levelUpMessage: "🎉 Félicitations {user} ! Tu es passé **{grade}** (Niveau {level}) !",
+    xpMessage: "📊 {user} - Niveau {level} | {xp}/{nextXp} XP | Grade : {grade}"
+  }
+};
 
 function lire(fichier, defaut) {
   try {
@@ -141,45 +173,19 @@ let config = lire(CONFIG_FILE, {
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
 if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
 if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
-if (config.interventionsChannelId === undefined) config.interventionsChannelId = null; // 🆕
+if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
 
 let tickets = lire(TICKETS_FILE, {}); // { [userId]: { threadId, username, number, claimedBy, priority, note, lastActivity } }
 let giveaways = lire(GIVEAWAYS_FILE, {}); // { [id]: {...} }
 let closedTickets = lire(CLOSED_TICKETS_FILE, {}); // { [threadId]: { userId, username, number, closedAt } } - pour /reopen
 let warns = lire(WARNS_FILE, {}); // { [userId]: [{ id, reason, staffId, staffTag, date }] }
 let candHistory = lire(CAND_HISTORY_FILE, []); // [{ id, userId, username, ticketNumber, result, staffId, staffTag, raison, date }]
-let interventions = lire(INTERVENTIONS_FILE, []); // 🆕 [{ id, type, gravite, patient, staffId, staffTag, date }]
+let interventions = lire(INTERVENTIONS_FILE, []); // [{ id, type, gravite, patient, staffId, staffTag, date }]
 
-// ---- Recharge les données depuis Upstash Redis au démarrage ----
-// (le fichier local est vide/par défaut juste après un redémarrage ou redéploiement Render)
-async function chargerDepuisRedis() {
-  if (!REDIS_ACTIF) {
-    console.log("⚠️  UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés : la config et les tickets ne survivront PAS aux redémarrages Render.");
-    return;
-  }
-  const [c, t, g, ct, w, ch, iv] = await Promise.all([
-    redisGet("config"),
-    redisGet("tickets"),
-    redisGet("giveaways"),
-    redisGet("closed-tickets"),
-    redisGet("warns"),
-    redisGet("candidatures-history"),
-    redisGet("interventions"), // 🆕
-  ]);
-  if (c) {
-    config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
-    if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
-    if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
-    if (config.interventionsChannelId === undefined) config.interventionsChannelId = null; // 🆕
-  }
-  if (t) tickets = t;
-  if (g) giveaways = g;
-  if (ct) closedTickets = ct;
-  if (w) warns = w;
-  if (ch) candHistory = ch;
-  if (iv) interventions = iv; // 🆕
-  console.log("✅ Config, tickets, giveaways, warns, historique et interventions rechargés depuis Upstash Redis.");
-}
+// ---- Données XP ----
+let xpData = lire(XP_FILE, {});
+let gradesConfig = lire(GRADES_FILE, GRADES_DEFAUT);
+let xpLogs = lire(XP_LOGS_FILE, []);
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
 function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
@@ -187,7 +193,88 @@ function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
 function sauverClosedTickets() { ecrire(CLOSED_TICKETS_FILE, closedTickets); }
 function sauverWarns() { ecrire(WARNS_FILE, warns); }
 function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); }
-function sauverInterventions() { ecrire(INTERVENTIONS_FILE, interventions); } // 🆕
+function sauverInterventions() { ecrire(INTERVENTIONS_FILE, interventions); }
+function sauverXp() { ecrire(XP_FILE, xpData); }
+function sauverGrades() { ecrire(GRADES_FILE, gradesConfig); }
+function sauverXpLogs() { ecrire(XP_LOGS_FILE, xpLogs); }
+
+// ---- Fonctions XP ----
+function getGradeForXp(xp) {
+  const sorted = [...gradesConfig.grades].sort((a, b) => b.xpRequired - a.xpRequired);
+  for (const grade of sorted) {
+    if (xp >= grade.xpRequired) return grade;
+  }
+  return sorted[sorted.length - 1];
+}
+
+function getLevelFromXp(xp) {
+  let level = 1;
+  let xpNeeded = 100;
+  let totalXp = 0;
+  while (totalXp + xpNeeded <= xp) {
+    totalXp += xpNeeded;
+    level++;
+    xpNeeded = Math.floor(xpNeeded * 1.2);
+  }
+  return { level, currentXp: xp - totalXp, nextXp: xpNeeded };
+}
+
+function logXp(userId, username, amount, type, reason) {
+  xpLogs.unshift({
+    userId,
+    username,
+    amount,
+    type,
+    reason: reason || '',
+    date: new Date().toISOString()
+  });
+  if (xpLogs.length > 1000) xpLogs = xpLogs.slice(0, 1000);
+  sauverXpLogs();
+}
+
+async function addXp(userId, amount, source, reason) {
+  if (!xpData[userId]) {
+    xpData[userId] = {
+      xp: 0,
+      serviceTime: 0,
+      interventions: 0,
+      messages: 0,
+      voiceTime: 0,
+      lastActivity: new Date().toISOString()
+    };
+  }
+  
+  const oldGrade = getGradeForXp(xpData[userId].xp);
+  xpData[userId].xp = Math.max(0, (xpData[userId].xp || 0) + amount);
+  xpData[userId].lastActivity = new Date().toISOString();
+  
+  // Ajouter aux stats selon la source
+  if (source === 'intervention') xpData[userId].interventions = (xpData[userId].interventions || 0) + 1;
+  if (source === 'message') xpData[userId].messages = (xpData[userId].messages || 0) + 1;
+  if (source === 'voice') xpData[userId].voiceTime = (xpData[userId].voiceTime || 0) + Math.abs(amount) / 2;
+  if (source === 'service') xpData[userId].serviceTime = (xpData[userId].serviceTime || 0) + 60;
+  
+  sauverXp();
+  
+  // Log
+  const user = await client.users.fetch(userId).catch(() => null);
+  logXp(userId, user?.username || userId, amount, source, reason);
+  
+  const newGrade = getGradeForXp(xpData[userId].xp);
+  if (newGrade.id !== oldGrade.id && gradesConfig.settings.notifications) {
+    // Notification de montée de grade
+    if (user) {
+      const { level } = getLevelFromXp(xpData[userId].xp);
+      const msg = gradesConfig.settings.levelUpMessage
+        .replaceAll("{user}", `<@${userId}>`)
+        .replaceAll("{grade}", newGrade.name)
+        .replaceAll("{level}", level);
+      await user.send(msg).catch(() => {});
+    }
+  }
+  
+  return { oldGrade, newGrade, xp: xpData[userId].xp };
+}
 
 // ---- Remplacement des variables dans les messages personnalisables ----
 function remplacerVariables(texte, vars) {
@@ -223,7 +310,7 @@ function prochainNumeroTicket() {
 
 const EMOJIS_PRIORITE = { basse: "🟢", normale: "🟡", haute: "🟠", urgente: "🔴" };
 
-// ---- 🆕 Interventions : labels + calcul des stats ----
+// ---- Interventions : labels + calcul des stats ----
 const LABELS_TYPE_INTERVENTION = {
   accident_circulation: "🚗 Accident de circulation",
   arme: "🔫 Arme à feu / arme blanche",
@@ -284,19 +371,21 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildPresences,
   ],
   partials: [Partials.Channel, Partials.Message],
 });
 
 // ==============================
-// COMMANDE SLASH /rapport (rapport médical RP)
+// COMMANDES SLASH
 // ==============================
 const commands = [
+  // ---- Rapport médical ----
   new SlashCommandBuilder()
     .setName("rapport")
     .setDescription("Générer un rapport médical d'intervention"),
 
-  // 🆕 ---- Logging d'intervention pour les statistiques ----
+  // ---- Logging d'intervention pour les statistiques ----
   new SlashCommandBuilder()
     .setName("intervention")
     .setDescription("Logger une intervention pour les statistiques")
@@ -322,7 +411,7 @@ const commands = [
     )
     .addStringOption((o) => o.setName("patient").setDescription("Nom du patient (optionnel)").setRequired(false)),
 
-  // ---- Commandes de gestion des tickets (à utiliser DANS le fil du ticket) ----
+  // ---- Commandes de gestion des tickets ----
   new SlashCommandBuilder()
     .setName("rename")
     .setDescription("Renommer le ticket en cours")
@@ -366,7 +455,7 @@ const commands = [
     .addIntegerOption((o) => o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)),
   new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du ticket en cours"),
 
-  // ---- Validation des candidatures (à utiliser DANS le fil du ticket) ----
+  // ---- Validation des candidatures ----
   new SlashCommandBuilder()
     .setName("valid")
     .setDescription("Valider la candidature du ticket en cours")
@@ -386,9 +475,84 @@ const commands = [
     .setName("warns")
     .setDescription("Voir les avertissements d'un membre")
     .addUserOption((o) => o.setName("membre").setDescription("Membre à consulter").setRequired(true)),
+
+  // ---- Commandes XP & Grades ----
+  new SlashCommandBuilder()
+    .setName("profile")
+    .setDescription("Voir ton profil XP")
+    .addUserOption((o) => o.setName("membre").setDescription("Membre à consulter").setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName("leaderboard")
+    .setDescription("Voir le classement des membres"),
+
+  new SlashCommandBuilder()
+    .setName("givexp")
+    .setDescription("Donner de l'XP à un membre (staff)")
+    .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
+    .addIntegerOption((o) => o.setName("quantite").setDescription("XP à donner").setRequired(true).setMinValue(1))
+    .addStringOption((o) => o.setName("raison").setDescription("Raison").setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName("grade")
+    .setDescription("Gérer les grades d'un membre (admin)")
+    .addSubcommand((sub) => 
+      sub.setName("set")
+        .setDescription("Définir le grade d'un membre")
+        .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
+        .addStringOption((o) => 
+          o.setName("grade")
+            .setDescription("Grade à attribuer")
+            .setRequired(true)
+            .addChoices(
+              ...GRADES_DEFAUT.grades.map(g => ({ name: `${g.icon} ${g.name}`, value: g.id }))
+            )
+        )
+    )
+    .addSubcommand((sub) => 
+      sub.setName("reset")
+        .setDescription("Réinitialiser l'XP d'un membre")
+        .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
+    ),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+// ---- Recharge les données depuis Upstash Redis au démarrage ----
+async function chargerDepuisRedis() {
+  if (!REDIS_ACTIF) {
+    console.log("⚠️  UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés : la config et les tickets ne survivront PAS aux redémarrages Render.");
+    return;
+  }
+  const [c, t, g, ct, w, ch, iv, xp, gr, xl] = await Promise.all([
+    redisGet("config"),
+    redisGet("tickets"),
+    redisGet("giveaways"),
+    redisGet("closed-tickets"),
+    redisGet("warns"),
+    redisGet("candidatures-history"),
+    redisGet("interventions"),
+    redisGet("xp_data"),
+    redisGet("grades"),
+    redisGet("xp_logs"),
+  ]);
+  if (c) {
+    config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
+    if (config.modLogsChannelId === undefined) config.modLogsChannelId = null;
+    if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
+    if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
+  }
+  if (t) tickets = t;
+  if (g) giveaways = g;
+  if (ct) closedTickets = ct;
+  if (w) warns = w;
+  if (ch) candHistory = ch;
+  if (iv) interventions = iv;
+  if (xp) xpData = xp;
+  if (gr) gradesConfig = { ...GRADES_DEFAUT, ...gr, grades: gr.grades || GRADES_DEFAUT.grades };
+  if (xl) xpLogs = xl;
+  console.log("✅ Config, tickets, giveaways, warns, historique, interventions et XP rechargés depuis Upstash Redis.");
+}
 
 (async () => {
   await chargerDepuisRedis();
@@ -410,6 +574,29 @@ client.once("ready", () => {
   // démarre la vérification périodique des tickets inactifs
   setInterval(verifierTicketsInactifs, 15 * 60 * 1000); // toutes les 15 minutes
   verifierTicketsInactifs();
+
+  // ---- XP : gain de temps en service toutes les minutes ----
+  setInterval(async () => {
+    try {
+      const guild = client.guilds.cache.get(GUILD_ID);
+      if (!guild) return;
+      
+      const members = await guild.members.fetch();
+      const now = new Date();
+      const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+      const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
+      
+      for (const [id, member] of members) {
+        if (member.user.bot) continue;
+        if (member.presence?.status === 'offline') continue;
+        
+        const xpGain = Math.round((gradesConfig.settings.xpPerMinute || 1) * boost);
+        await addXp(id, xpGain, "service", "Temps en service");
+      }
+    } catch (e) {
+      console.error("Erreur gain XP temps de service:", e);
+    }
+  }, 60000); // toutes les minutes
 });
 
 // ---- Auto-fermeture des tickets inactifs ----
@@ -601,7 +788,7 @@ async function fermerTicketParThread(threadId, fermePar) {
       })
       .catch(() => {});
     await thread.setName(`Fermé - ${thread.name}`.slice(0, 100)).catch(() => {});
-    await thread.setArchived(false).catch(() => {}); // évite un bug d'ordre archive/lock
+    await thread.setArchived(false).catch(() => {});
     await thread.setLocked(true).catch(() => {});
     await thread.setArchived(true).catch(() => {});
   }
@@ -794,7 +981,6 @@ client.on("messageCreate", async (message) => {
         content: message.content || undefined,
         files: [...message.attachments.values()],
       });
-      // met à jour la dernière activité (pour l'auto-fermeture)
       if (tickets[userId]) {
         tickets[userId].lastActivity = new Date().toISOString();
         sauverTickets();
@@ -802,6 +988,28 @@ client.on("messageCreate", async (message) => {
     } catch (e) {
       console.error("Erreur relais thread->DM:", e);
       await message.reply("⚠️ Impossible d'envoyer le DM (DMs fermés par l'utilisateur ?).");
+    }
+    return;
+  }
+
+  // ---- Gain d'XP pour les messages ----
+  if (message.guild && !message.author.bot) {
+    const userId = message.author.id;
+    const lastMsg = xpData[userId]?.lastMessage || 0;
+    const cooldown = gradesConfig.settings.cooldowns?.message || 60;
+    
+    if (Date.now() - lastMsg > cooldown * 1000) {
+      const boost = (new Date().getDay() === 0 || new Date().getDay() === 6) 
+        ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
+      const xpGain = Math.round((gradesConfig.settings.xpPerMessage || 0.5) * boost);
+      
+      if (xpGain > 0) {
+        if (!xpData[userId]) {
+          xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+        }
+        xpData[userId].lastMessage = Date.now();
+        await addXp(userId, xpGain, "message", "Message envoyé");
+      }
     }
   }
 });
@@ -1010,7 +1218,7 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "✅ Tu participes au giveaway !", ephemeral: true });
   }
 
-  // ---- Commandes slash "générales" : utilisables dans N'IMPORTE QUEL salon/fil ----
+  // ---- Commandes slash "générales" ----
   const commandesGenerales = ["rename", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"];
   if (interaction.isChatInputCommand() && commandesGenerales.includes(interaction.commandName)) {
     if (!estStaffTicket(interaction)) {
@@ -1078,7 +1286,7 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  // ---- Commandes slash propres aux TICKETS (nécessitent d'être dans un fil de ticket) ----
+  // ---- Commandes slash propres aux TICKETS ----
   const commandesTicket = ["claim", "unclaim", "add", "remove", "priority", "reopen"];
   if (interaction.isChatInputCommand() && commandesTicket.includes(interaction.commandName)) {
     if (!estStaffTicket(interaction)) {
@@ -1088,7 +1296,6 @@ client.on("interactionCreate", async (interaction) => {
     const thread = interaction.channel;
     const estThread = thread && thread.isThread && thread.isThread();
 
-    // /reopen s'utilise dans un fil FERMÉ (donc plus dans `tickets`, mais dans `closedTickets`)
     if (interaction.commandName === "reopen") {
       if (!estThread || !closedTickets[thread.id]) {
         return interaction.reply({ content: "⚠️ Cette commande doit être utilisée dans un fil de ticket fermé.", ephemeral: true });
@@ -1175,7 +1382,6 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.deferReply({ ephemeral: true });
 
-    // ---- Attribution automatique du rôle au candidat lors d'une validation (/valid) ----
     let roleAttribue = false;
     if (estValidation && cfg.roleAValider) {
       const membreCible = await interaction.guild.members.fetch(userId).catch(() => null);
@@ -1213,7 +1419,6 @@ client.on("interactionCreate", async (interaction) => {
     let texteResultat = remplacerVariables(messageTemplate, vars);
     if (raison) texteResultat += `\n**Raison :** ${raison}`;
 
-    // ---- Envoi dans le salon de résultat configuré ----
     if (salonId) {
       const salonResultat = await client.channels.fetch(salonId).catch(() => null);
       if (salonResultat) {
@@ -1232,7 +1437,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ---- Envoi en MP ----
     let mpEnvoye = false;
     if (cfg.mpActif) {
       let texteMp = remplacerVariables(mpTemplate, vars);
@@ -1243,7 +1447,6 @@ client.on("interactionCreate", async (interaction) => {
         .catch(() => false);
     }
 
-    // ---- Historique des candidatures ----
     candHistory.unshift({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       userId,
@@ -1256,17 +1459,15 @@ client.on("interactionCreate", async (interaction) => {
       raison,
       date: new Date().toISOString(),
     });
-    if (candHistory.length > 500) candHistory = candHistory.slice(0, 500); // garde les 500 dernières
+    if (candHistory.length > 500) candHistory = candHistory.slice(0, 500);
     sauverCandHistory();
 
-    // ---- Confirmation éphémère au staff ----
     const suffixeMp = cfg.mpActif ? (mpEnvoye ? " (MP envoyé ✅)" : " (⚠️ MP non envoyé, DMs fermés ?)") : "";
     const suffixeRole = estValidation && cfg.roleAValider ? (roleAttribue ? " (rôle attribué ✅)" : " (⚠️ rôle non attribué)") : "";
     await interaction.editReply({
       content: `${estValidation ? "✅" : "❌"} Candidature de <@${userId}> ${estValidation ? "validée" : "refusée"}.${suffixeMp}${suffixeRole}`,
     });
 
-    // ---- Fermeture automatique du ticket ----
     if (cfg.fermetureAuto) {
       const delaiMs = Math.max(0, parseInt(cfg.fermetureDelai, 10) || 0) * 1000;
       setTimeout(() => {
@@ -1296,6 +1497,10 @@ client.on("interactionCreate", async (interaction) => {
       date: new Date().toISOString(),
     });
     sauverWarns();
+
+    // Pénalité XP
+    const penalty = gradesConfig.settings.xpPerWarn || -25;
+    await addXp(membre.id, penalty, "penalty", "Avertissement reçu");
 
     await envoyerLogModeration(
       embedLogModeration({
@@ -1349,7 +1554,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // 🆕 ---- Commande /intervention ----
+  // ---- Commande /intervention ----
   if (interaction.isChatInputCommand() && interaction.commandName === "intervention") {
     const type = interaction.options.getString("type");
     const gravite = interaction.options.getString("gravite");
@@ -1366,6 +1571,10 @@ client.on("interactionCreate", async (interaction) => {
     };
     interventions.push(entree);
     sauverInterventions();
+
+    // Gain d'XP pour l'intervention
+    const xpGain = gradesConfig.settings.xpPerIntervention || 50;
+    await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
 
     if (config.interventionsChannelId) {
       const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
@@ -1393,6 +1602,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
+  // ---- Commande /rapport ----
   if (interaction.isChatInputCommand() && interaction.commandName === "rapport") {
     const modal = new ModalBuilder()
       .setCustomId("rapportModal")
@@ -1451,12 +1661,135 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.reply({ embeds: [embed] });
   }
+
+  // ---- Commande /profile ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "profile") {
+    const target = interaction.options.getUser("membre") || interaction.user;
+    const data = xpData[target.id];
+    
+    if (!data) {
+      return interaction.reply({
+        embeds: [new EmbedBuilder()
+          .setColor(COULEUR_EMBED)
+          .setDescription(`❌ ${target.username} n'a pas encore d'XP.`)
+        ],
+        ephemeral: true
+      });
+    }
+    
+    const grade = getGradeForXp(data.xp || 0);
+    const { level, currentXp, nextXp } = getLevelFromXp(data.xp || 0);
+    const progress = nextXp ? Math.round((currentXp / nextXp) * 100) : 100;
+    
+    const embed = new EmbedBuilder()
+      .setColor(grade.color || COULEUR_EMBED)
+      .setTitle(`${grade.icon} ${grade.name}`)
+      .setDescription(`Profil de **${target.username}**`)
+      .addFields(
+        { name: "📊 Niveau", value: String(level), inline: true },
+        { name: "🏆 XP total", value: String(data.xp), inline: true },
+        { name: "🎯 Progression", value: nextXp ? `${progress}% (${currentXp}/${nextXp})` : "🏆 Max", inline: true },
+        { name: "🚑 Interventions", value: String(data.interventions || 0), inline: true },
+        { name: "⏱️ Temps de service", value: `${Math.floor((data.serviceTime || 0) / 3600)}h`, inline: true },
+        { name: "📝 Messages", value: String(data.messages || 0), inline: true }
+      )
+      .setTimestamp();
+    
+    if (grade.perks && grade.perks.length) {
+      embed.addFields({ name: "🔓 Privilèges", value: grade.perks.map(p => `• ${p}`).join('\n'), inline: false });
+    }
+    
+    await interaction.reply({ embeds: [embed] });
+  }
+
+  // ---- Commande /leaderboard ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "leaderboard") {
+    await interaction.deferReply();
+    
+    const sorted = Object.entries(xpData)
+      .sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0))
+      .slice(0, 10)
+      .map(([userId, data], i) => {
+        const grade = getGradeForXp(data.xp || 0);
+        const user = client.users.cache.get(userId);
+        return `**${i+1}.** ${user?.username || userId} — ${grade.icon} ${grade.name} (Niv. ${getLevelFromXp(data.xp || 0).level}) — ${data.xp || 0} XP`;
+      });
+    
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle("🏆 Classement des membres")
+      .setDescription(sorted.join('\n') || "Aucun membre")
+      .setTimestamp();
+    
+    await interaction.editReply({ embeds: [embed] });
+  }
+
+  // ---- Commande /givexp ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "givexp") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      return interaction.reply({ content: "⛔ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral: true });
+    }
+    
+    const membre = interaction.options.getUser("membre");
+    const quantite = interaction.options.getInteger("quantite");
+    const raison = interaction.options.getString("raison") || "Don manuel";
+    
+    await addXp(membre.id, quantite, "manual", raison);
+    
+    await interaction.reply({
+      content: `✅ ${quantite} XP ont été donnés à ${membre.tag}. Raison : ${raison}`,
+      ephemeral: true
+    });
+  }
+
+  // ---- Commande /grade ----
+  if (interaction.isChatInputCommand() && interaction.commandName === "grade") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      return interaction.reply({ content: "⛔ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral: true });
+    }
+    
+    const subcommand = interaction.options.getSubcommand();
+    const membre = interaction.options.getUser("membre");
+    
+    if (subcommand === "set") {
+      const gradeId = interaction.options.getString("grade");
+      const grade = gradesConfig.grades.find(g => g.id === gradeId);
+      
+      if (!grade) {
+        return interaction.reply({ content: "❌ Grade invalide.", ephemeral: true });
+      }
+      
+      if (!xpData[membre.id]) {
+        xpData[membre.id] = { xp: 0, serviceTime: 0, interventions: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+      }
+      
+      xpData[membre.id].xp = grade.xpRequired;
+      sauverXp();
+      
+      await interaction.reply({
+        content: `✅ ${membre.tag} a été promu au grade **${grade.name}** (${grade.xpRequired} XP).`,
+        ephemeral: true
+      });
+    }
+    
+    if (subcommand === "reset") {
+      if (!xpData[membre.id]) {
+        return interaction.reply({ content: `❌ ${membre.tag} n'a pas d'XP.`, ephemeral: true });
+      }
+      
+      delete xpData[membre.id];
+      sauverXp();
+      
+      await interaction.reply({
+        content: `✅ L'XP de ${membre.tag} a été réinitialisée.`,
+        ephemeral: true
+      });
+    }
+  }
 });
 
 // ==================================================================
-// ==================================================================
 //                        PANEL WEB (Express)
-// ==================================================================
 // ==================================================================
 const app = express();
 app.set("trust proxy", 1);
@@ -1488,14 +1821,11 @@ function getGuild(res) {
 }
 
 // ---- Auth Discord OAuth2 ----
-// 🆕 /login affiche maintenant une page d'accueil (comme le panel Arrkii) avant de lancer l'auth Discord.
-// Si la session existe déjà, on renvoie direct vers /panel.
 app.get("/login", (req, res) => {
   if (req.session.user) return res.redirect("/panel");
   res.sendFile(path.join(__dirname, "public", "login.html"));
 });
 
-// 🆕 Le vrai lancement de l'authentification Discord (bouton "Login with Discord" sur la page /login)
 app.get("/auth/discord", (req, res) => {
   const url =
     `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}` +
@@ -1639,7 +1969,7 @@ app.get("/api/roles", authRequis, (req, res) => {
   if (!guild) return;
 
   const roles = guild.roles.cache
-    .filter((r) => r.id !== guild.id) // exclut @everyone
+    .filter((r) => r.id !== guild.id)
     .map((r) => ({ id: r.id, name: r.name, color: r.hexColor, position: r.position }))
     .sort((a, b) => b.position - a.position);
 
@@ -1713,6 +2043,11 @@ app.post("/api/members/:id/kick", authRequis, async (req, res) => {
     const raison = req.body.reason || "Aucune raison fournie";
     const tag = membre.user.tag;
     await membre.kick(raison);
+    
+    // Pénalité XP
+    const penalty = gradesConfig.settings.xpPerKick || -50;
+    await addXp(req.params.id, penalty, "penalty", "Kick reçu");
+    
     await envoyerLogModeration(
       embedLogModeration({
         action: "Kick",
@@ -1740,6 +2075,11 @@ app.post("/api/members/:id/ban", authRequis, async (req, res) => {
     const membre = await guild.members.fetch(req.params.id).catch(() => null);
     if (membre) tag = membre.user.tag;
     await guild.members.ban(req.params.id, { reason: raison });
+    
+    // Pénalité XP
+    const penalty = gradesConfig.settings.xpPerBan || -100;
+    await addXp(req.params.id, penalty, "penalty", "Ban reçu");
+    
     await envoyerLogModeration(
       embedLogModeration({
         action: "Ban",
@@ -1824,6 +2164,10 @@ app.post("/api/members/:id/warn", authRequis, async (req, res) => {
     });
     sauverWarns();
 
+    // Pénalité XP
+    const penalty = gradesConfig.settings.xpPerWarn || -25;
+    await addXp(req.params.id, penalty, "penalty", "Avertissement reçu");
+
     await envoyerLogModeration(
       embedLogModeration({
         action: "Avertissement",
@@ -1876,23 +2220,22 @@ app.post("/api/settings", authRequis, (req, res) => {
     ticketStaffChannelId,
     ticketLogsChannelId,
     modLogsChannelId,
-    interventionsChannelId, // 🆕
+    interventionsChannelId,
     ticketAutoCloseHours,
   } = req.body;
-  // Fusion (et non écrasement) pour ne pas perdre ticketCounter / candidatures / etc.
   config.autoRoleId = autoRoleId || null;
   config.welcomeChannelId = welcomeChannelId || null;
   config.welcomeMessage = welcomeMessage || config.welcomeMessage;
   config.ticketStaffChannelId = ticketStaffChannelId || null;
   config.ticketLogsChannelId = ticketLogsChannelId || null;
   config.modLogsChannelId = modLogsChannelId || null;
-  config.interventionsChannelId = interventionsChannelId || null; // 🆕
+  config.interventionsChannelId = interventionsChannelId || null;
   config.ticketAutoCloseHours = Math.max(0, parseFloat(ticketAutoCloseHours) || 0);
   sauverConfig();
   res.json({ succes: true });
 });
 
-// ---- Gestion des candidatures (validation/refus de tickets via /valid et /refuser) ----
+// ---- Gestion des candidatures ----
 app.get("/api/settings/candidatures", authRequis, (req, res) => {
   res.json(config.candidatures);
 });
@@ -1950,7 +2293,7 @@ app.get("/api/candidatures/history", authRequis, (req, res) => {
   res.json(liste.slice(0, 200));
 });
 
-// 🆕 ---- Interventions ----
+// ---- Interventions ----
 app.get("/api/interventions/stats", authRequis, (req, res) => {
   res.json(statsInterventions());
 });
@@ -1992,12 +2335,10 @@ app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, 
     const options = { embeds: [embed] };
 
     if (req.file) {
-      // Image envoyée depuis l'ordinateur : elle part en pièce jointe avec le message
       const nomFichier = "image" + path.extname(req.file.originalname || "").slice(0, 10) || "image.png";
       embed.setImage(`attachment://${nomFichier}`);
       options.files = [{ attachment: req.file.buffer, name: nomFichier }];
     } else if (imageUrl) {
-      // Sinon, si une URL a été fournie, on l'utilise telle quelle
       embed.setImage(imageUrl);
     }
 
@@ -2049,7 +2390,6 @@ app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
   }
 });
 
-// ---- Note interne (visible uniquement dans le panel) sur un ticket ----
 app.post("/api/tickets/:userId/note", authRequis, (req, res) => {
   const { userId } = req.params;
   const ticket = tickets[userId];
@@ -2132,9 +2472,165 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// BACKUP / EXPORT / IMPORT
-// ==============================
+// ---- XP & GRADES API ----
+app.get('/api/xp/stats', authRequis, (req, res) => {
+  const totalXp = Object.values(xpData).reduce((sum, d) => sum + (d.xp || 0), 0);
+  const activeMembers = Object.keys(xpData).length;
+  const totalInterventions = Object.values(xpData).reduce((sum, d) => sum + (d.interventions || 0), 0);
+  
+  const grades = Object.values(xpData).map(d => getGradeForXp(d.xp || 0).name);
+  const gradeCounts = {};
+  grades.forEach(g => gradeCounts[g] = (gradeCounts[g] || 0) + 1);
+  let averageGrade = 'N/A';
+  if (grades.length) {
+    const sorted = Object.entries(gradeCounts).sort((a, b) => b[1] - a[1]);
+    averageGrade = sorted[0][0];
+  }
+  
+  res.json({ totalXp, activeMembers, totalInterventions, averageGrade });
+});
+
+app.get('/api/xp/top5', authRequis, (req, res) => {
+  const sorted = Object.entries(xpData)
+    .sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0))
+    .slice(0, 5)
+    .map(([userId, data]) => {
+      const grade = getGradeForXp(data.xp || 0);
+      const user = client.users.cache.get(userId);
+      return {
+        userId,
+        username: user?.username || userId,
+        xp: data.xp || 0,
+        level: getLevelFromXp(data.xp || 0).level,
+        grade: grade.name,
+        interventions: data.interventions || 0
+      };
+    });
+  res.json(sorted);
+});
+
+app.get('/api/grades', authRequis, (req, res) => {
+  res.json(gradesConfig);
+});
+
+app.post('/api/grades', authRequis, (req, res) => {
+  const { id, name, level, xpRequired, icon, color, perks, notifications } = req.body;
+  
+  if (gradesConfig.grades.some(g => g.id === id)) {
+    return res.status(400).json({ erreur: 'Un grade avec cet ID existe déjà' });
+  }
+  
+  gradesConfig.grades.push({
+    id, name, level, xpRequired, icon, color,
+    perks: perks || [],
+    notifications: notifications !== false
+  });
+  
+  gradesConfig.grades.sort((a, b) => a.xpRequired - b.xpRequired);
+  sauverGrades();
+  res.json({ succes: true });
+});
+
+app.delete('/api/grades/:id', authRequis, (req, res) => {
+  gradesConfig.grades = gradesConfig.grades.filter(g => g.id !== req.params.id);
+  sauverGrades();
+  res.json({ succes: true });
+});
+
+app.get('/api/xp/settings', authRequis, (req, res) => {
+  res.json(gradesConfig.settings);
+});
+
+app.post('/api/xp/settings', authRequis, (req, res) => {
+  gradesConfig.settings = { ...gradesConfig.settings, ...req.body };
+  sauverGrades();
+  res.json({ succes: true });
+});
+
+app.get('/api/xp/leaderboard', authRequis, (req, res) => {
+  let members = Object.entries(xpData)
+    .map(([userId, data]) => {
+      const grade = getGradeForXp(data.xp || 0);
+      const user = client.users.cache.get(userId);
+      return {
+        userId,
+        username: user?.username || userId,
+        xp: data.xp || 0,
+        level: getLevelFromXp(data.xp || 0).level,
+        grade: grade.name,
+        gradeId: grade.id,
+        gradeIcon: grade.icon,
+        gradeColor: grade.color,
+        interventions: data.interventions || 0,
+        serviceTime: data.serviceTime || 0,
+        messages: data.messages || 0,
+        voiceTime: data.voiceTime || 0
+      };
+    });
+
+  if (req.query.grade && req.query.grade !== 'all') {
+    members = members.filter(m => m.gradeId === req.query.grade);
+  }
+  if (req.query.search) {
+    const s = req.query.search.toLowerCase();
+    members = members.filter(m => m.username.toLowerCase().includes(s));
+  }
+
+  const sortField = req.query.sort || 'xp';
+  members.sort((a, b) => (b[sortField] || 0) - (a[sortField] || 0));
+
+  res.json(members);
+});
+
+app.get('/api/xp/profile', authRequis, (req, res) => {
+  const search = req.query.search || '';
+  let userId = search;
+  
+  if (!Object.keys(xpData).includes(search)) {
+    const found = client.users.cache.find(u => 
+      u.username.toLowerCase().includes(search.toLowerCase())
+    );
+    if (found) userId = found.id;
+  }
+  
+  if (!userId || !xpData[userId]) {
+    return res.status(404).json({ erreur: 'Membre non trouvé' });
+  }
+  
+  const data = xpData[userId];
+  const grade = getGradeForXp(data.xp || 0);
+  const user = client.users.cache.get(userId);
+  
+  res.json({
+    userId,
+    username: user?.username || userId,
+    xp: data.xp || 0,
+    level: getLevelFromXp(data.xp || 0).level,
+    grade: grade.name,
+    gradeIcon: grade.icon,
+    gradeColor: grade.color,
+    perks: grade.perks || [],
+    interventions: data.interventions || 0,
+    serviceTime: data.serviceTime || 0,
+    messages: data.messages || 0,
+    voiceTime: data.voiceTime || 0,
+    lastActivity: data.lastActivity || new Date().toISOString()
+  });
+});
+
+app.get('/api/xp/logs', authRequis, (req, res) => {
+  let logs = [...xpLogs];
+  if (req.query.type && req.query.type !== 'all') {
+    logs = logs.filter(l => l.type === req.query.type);
+  }
+  if (req.query.search) {
+    const s = req.query.search.toLowerCase();
+    logs = logs.filter(l => l.username.toLowerCase().includes(s));
+  }
+  res.json(logs);
+});
+
+// ---- BACKUP / EXPORT / IMPORT ----
 app.get("/api/backup", authRequis, (req, res) => {
   const backup = {
     generatedAt: new Date().toISOString(),
@@ -2144,7 +2640,10 @@ app.get("/api/backup", authRequis, (req, res) => {
     closedTickets,
     warns,
     candHistory,
-    interventions, // 🆕
+    interventions,
+    xpData,
+    gradesConfig,
+    xpLogs,
   };
   const nomFichier = `backup-ems-${new Date().toISOString().slice(0, 10)}.json`;
   res.setHeader("Content-Disposition", `attachment; filename="${nomFichier}"`);
@@ -2164,7 +2663,10 @@ app.post("/api/backup/import", authRequis, (req, res) => {
     if (data.closedTickets) { closedTickets = data.closedTickets; sauverClosedTickets(); }
     if (data.warns) { warns = data.warns; sauverWarns(); }
     if (data.candHistory) { candHistory = data.candHistory; sauverCandHistory(); }
-    if (data.interventions) { interventions = data.interventions; sauverInterventions(); } // 🆕
+    if (data.interventions) { interventions = data.interventions; sauverInterventions(); }
+    if (data.xpData) { xpData = data.xpData; sauverXp(); }
+    if (data.gradesConfig) { gradesConfig = data.gradesConfig; sauverGrades(); }
+    if (data.xpLogs) { xpLogs = data.xpLogs; sauverXpLogs(); }
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur import backup:", e);
