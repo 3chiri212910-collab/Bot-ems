@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
-<title>Panel EMS</title>
+<title>Panel EMS - Statistiques</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -122,7 +122,7 @@
   main {
     flex: 1;
     padding: 34px 44px 60px;
-    max-width: 820px;
+    max-width: 1200px;
     position: relative;
     z-index: 1;
   }
@@ -235,9 +235,13 @@
     transition: border-color .2s ease, transform .2s ease;
   }
   .carte:hover { border-color: var(--border-hover); }
-  .ligne { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
-  .stats-grille { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+  .stats-grille {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+  }
   .stat-carte {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -246,6 +250,7 @@
     backdrop-filter: blur(16px);
     box-shadow: var(--shadow-soft);
     transition: transform .2s ease, border-color .2s ease;
+    text-align: center;
   }
   .stat-carte:hover { transform: translateY(-2px); border-color: var(--border-hover); }
   .stat-carte .valeur {
@@ -257,6 +262,7 @@
     background-clip: text;
     color: transparent;
   }
+  .stat-carte .valeur.ok { background: linear-gradient(135deg, #34d399, #10b981); -webkit-background-clip: text; background-clip: text; }
   .stat-carte .label { font-size: 12px; color: var(--text-dim); margin-top: 5px; font-weight: 500; }
 
   .msg-ok, .msg-err {
@@ -272,118 +278,6 @@
 
   .hidden { display: none; }
 
-  .role-badge {
-    display: inline-flex;
-    align-items: center;
-    background: var(--accent-dim);
-    color: var(--accent);
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 600;
-    margin: 3px 5px 3px 0;
-    border: 1px solid rgba(255,45,120,0.2);
-  }
-  .role-badge button {
-    all: unset;
-    cursor: pointer;
-    margin-left: 7px;
-    font-weight: 700;
-    color: var(--accent);
-    opacity: .7;
-  }
-  .role-badge button:hover { opacity: 1; }
-
-  .warn-badge {
-    display: inline-flex;
-    align-items: center;
-    background: rgba(245,158,11,0.12);
-    color: var(--warn);
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 700;
-    margin: 3px 5px 3px 0;
-    border: 1px solid rgba(245,158,11,0.25);
-    cursor: pointer;
-  }
-  .warn-liste { margin-top: 10px; display: none; }
-  .warn-liste.ouvert { display: block; }
-  .warn-item {
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 9px 12px;
-    margin-bottom: 6px;
-    font-size: 12.5px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .warn-item .infos { color: var(--text); }
-  .warn-item .meta { color: var(--text-faint); font-size: 11px; margin-top: 3px; }
-  .warn-item button {
-    all: unset;
-    cursor: pointer;
-    color: var(--err);
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-
-  a.discret { color: var(--text-faint); font-size: 12.5px; text-decoration: none; transition: color .15s ease; }
-  a.discret:hover { color: var(--text-dim); }
-
-  .case-ligne {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 16px 0 8px;
-  }
-  .case-ligne input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 18px; height: 18px;
-    border-radius: 5px;
-    border: 1.5px solid var(--border);
-    background: var(--bg-input);
-    cursor: pointer;
-    position: relative;
-    flex-shrink: 0;
-    transition: all .18s ease;
-  }
-  .case-ligne input[type="checkbox"]:checked {
-    background: var(--accent-grad);
-    border-color: transparent;
-  }
-  .case-ligne input[type="checkbox"]:checked::after {
-    content: '';
-    position: absolute; left: 5px; top: 1px;
-    width: 5px; height: 9px;
-    border: solid white; border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .case-ligne label { margin: 0; color: var(--text); font-size: 13.5px; font-weight: 500; cursor: pointer; }
-
-  .variables-info {
-    font-size: 12px;
-    color: var(--text-dim);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    margin-top: 8px;
-    line-height: 1.7;
-  }
-  .variables-info code {
-    color: var(--accent);
-    background: var(--accent-dim);
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-family: 'SFMono-Regular', Consolas, monospace;
-  }
-
   .sous-titre {
     font-size: 11.5px;
     font-weight: 700;
@@ -398,59 +292,19 @@
 
   .deux-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
 
-  .hist-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .hist-badge {
-    padding: 3px 9px;
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 4px 10px;
     border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .hist-badge.validee { background: rgba(52,211,153,0.12); color: var(--ok); border: 1px solid rgba(52,211,153,0.25); }
-  .hist-badge.refusee { background: rgba(251,113,133,0.12); color: var(--err); border: 1px solid rgba(251,113,133,0.25); }
-
-  .note-zone { margin-top: 12px; }
-  .note-zone textarea { min-height: 60px; font-size: 12.5px; }
-
-  .encart-info {
-    font-size: 12.5px;
-    color: var(--text-dim);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 14px 16px;
-    line-height: 1.6;
-    margin-bottom: 16px;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin: 3px 5px 3px 0;
+    border: 1px solid rgba(255,45,120,0.2);
   }
 
-  /* XP & GRADES */
-  .tab-xp {
-    padding: 8px 16px;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-dim);
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    transition: all .18s ease;
-    font-family: inherit;
-  }
-  .tab-xp:hover { border-color: var(--border-hover); color: var(--text); }
-  .tab-xp.actif {
-    background: var(--accent-grad);
-    color: white;
-    border-color: transparent;
-  }
-  .xp-content { display: block; }
-  .xp-content.hidden { display: none; }
-
-  /* Service badges */
   .service-badge {
     display: inline-flex;
     align-items: center;
@@ -480,23 +334,121 @@
     border: 1px solid var(--border);
   }
 
-  .service-item {
+  .rank-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 14px;
+    padding: 12px 16px;
     background: var(--bg-card-solid);
     border-radius: var(--radius-sm);
-    margin-bottom: 8px;
-    border-left: 3px solid var(--ok);
+    margin-bottom: 6px;
+    border-left: 3px solid var(--accent);
     transition: border-color .2s ease;
   }
-  .service-item:hover { border-color: var(--accent); }
+  .rank-item:hover { border-color: var(--accent); }
+  .rank-item .info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .rank-item .info .nom {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .rank-item .info .details {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .rank-item .value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .rank-item .rank-num {
+    font-weight: 700;
+    color: var(--text-faint);
+    margin-right: 12px;
+    font-size: 13px;
+    min-width: 30px;
+  }
 
-  .service-item .info { display: flex; flex-direction: column; gap: 2px; }
-  .service-item .info .nom { font-weight: 600; }
-  .service-item .info .details { font-size: 12px; color: var(--text-dim); }
-  .service-item .temps { font-size: 14px; font-weight: 600; color: var(--ok); }
+  .search-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .search-bar input {
+    flex: 1;
+    min-width: 200px;
+  }
+  .search-bar select {
+    width: auto;
+    min-width: 150px;
+  }
+
+  .tab-stats {
+    padding: 8px 16px;
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all .18s ease;
+    font-family: inherit;
+  }
+  .tab-stats:hover { border-color: var(--border-hover); color: var(--text); }
+  .tab-stats.actif {
+    background: var(--accent-grad);
+    color: white;
+    border-color: transparent;
+  }
+
+  .stats-content { display: block; }
+  .stats-content.hidden { display: none; }
+
+  .daily-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin: 10px 0;
+  }
+  .daily-item {
+    background: var(--bg-card-solid);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+  .daily-item .jour {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .daily-item .temps {
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 4px;
+    color: var(--text);
+  }
+  .daily-item .temps.high { color: var(--accent); }
+
+  .warn-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(245,158,11,0.12);
+    color: var(--warn);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    margin: 3px 5px 3px 0;
+    border: 1px solid rgba(245,158,11,0.25);
+    cursor: pointer;
+  }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -507,8 +459,15 @@
     body { flex-direction: column; }
     nav { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
     main { max-width: 100%; padding: 24px; }
-    .stats-grille { grid-template-columns: 1fr; }
+    .stats-grille { grid-template-columns: 1fr 1fr; }
     .deux-col { grid-template-columns: 1fr; }
+    .daily-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .stats-grille { grid-template-columns: 1fr; }
+    .daily-grid { grid-template-columns: repeat(2, 1fr); }
+    .search-bar { flex-direction: column; }
+    .search-bar select { width: 100%; }
   }
 </style>
 </head>
@@ -517,23 +476,22 @@
 <nav>
   <h1><span class="mark">🚑</span> Panel EMS</h1>
   <div class="tab actif" data-tab="dashboard">📊 Dashboard</div>
+  <div class="tab" data-tab="service">🟢 Service</div>
+  <div class="tab" data-tab="interventions">🚑 Interventions</div>
+  <div class="tab" data-tab="rapports">📋 Rapports</div>
   <div class="tab" data-tab="moderation">🛡️ Modération</div>
   <div class="tab" data-tab="salons">💬 Salons</div>
   <div class="tab" data-tab="roles">🎭 Rôles</div>
-  <div class="tab" data-tab="bienvenue">👋 Bienvenue & Auto-rôle</div>
+  <div class="tab" data-tab="bienvenue">👋 Bienvenue</div>
   <div class="tab" data-tab="candidatures">✅ Candidatures</div>
-  <div class="tab" data-tab="historique">🕘 Historique candidatures</div>
-  <div class="tab" data-tab="service">🟢 Service</div>
-  <div class="tab" data-tab="rapport">📋 Rapports</div>
-  <div class="tab" data-tab="intervention">🚑 Interventions</div>
+  <div class="tab" data-tab="historique">🕘 Historique</div>
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
-  <div class="tab" data-tab="xp">🏆 Grades & XP</div>
   <div class="tab" data-tab="backup">💾 Sauvegarde</div>
   <div id="compte"></div>
   <div style="padding: 14px 10px 0; margin-top: auto;">
-    <a href="/logout" class="discret">↪ Déconnexion</a>
+    <a href="/logout" class="discret" style="color:var(--text-faint);font-size:12.5px;text-decoration:none;">↪ Déconnexion</a>
   </div>
 </nav>
 
@@ -541,14 +499,123 @@
 
   <!-- DASHBOARD -->
   <section id="vue-dashboard">
-    <h2>Dashboard</h2>
+    <h2>📊 Dashboard EMS</h2>
     <div class="stats-grille" id="stats-grille"></div>
     <button class="secondaire" onclick="chargerStats()">🔄 Rafraîchir</button>
   </section>
 
+  <!-- SERVICE -->
+  <section id="vue-service" class="hidden">
+    <h2>🟢 Statistiques de service</h2>
+    
+    <div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">
+      Temps de service total, par semaine et par jour pour chaque membre.
+    </div>
+
+    <div class="carte">
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+        <button class="tab-stats actif" data-service-tab="top">🏆 Classement total</button>
+        <button class="tab-stats" data-service-tab="weekly">📅 Classement semaine</button>
+        <button class="tab-stats" data-service-tab="member">👤 Profil membre</button>
+      </div>
+
+      <div id="service-top" class="stats-content">
+        <div id="service-top-liste"></div>
+      </div>
+
+      <div id="service-weekly" class="stats-content hidden">
+        <div id="service-weekly-liste"></div>
+      </div>
+
+      <div id="service-member" class="stats-content hidden">
+        <div class="search-bar">
+          <input id="service-search" placeholder="ID ou pseudo du membre..." />
+          <button onclick="chargerServiceMembre()" style="margin:0;">Rechercher</button>
+        </div>
+        <div id="service-member-content">
+          <div class="carte" style="text-align:center;color:var(--text-dim);">
+            Entrez un ID ou un pseudo pour voir les stats de service
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INTERVENTIONS -->
+  <section id="vue-interventions" class="hidden">
+    <h2>🚑 Statistiques d'interventions</h2>
+    
+    <div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">
+      Nombre total d'interventions par membre, avec classement complet.
+    </div>
+
+    <div class="stats-grille" id="intervention-stats-cards">
+      <div class="stat-carte">
+        <div class="valeur" id="intervention-total">0</div>
+        <div class="label">Total interventions</div>
+      </div>
+      <div class="stat-carte">
+        <div class="valeur" id="intervention-intervenants">0</div>
+        <div class="label">Intervenants uniques</div>
+      </div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;font-size:16px;">🏆 Classement des intervenants</h3>
+      <div id="intervention-top-liste"></div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;font-size:16px;">👤 Interventions d'un membre</h3>
+      <div class="search-bar">
+        <input id="intervention-search" placeholder="ID ou pseudo du membre..." />
+        <button onclick="chargerInterventionsMembre()" style="margin:0;">Rechercher</button>
+      </div>
+      <div id="intervention-member-content">
+        <div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses interventions</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RAPPORTS -->
+  <section id="vue-rapports" class="hidden">
+    <h2>📋 Statistiques de rapports médicaux</h2>
+    
+    <div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">
+      Nombre total de rapports médicaux par membre, avec classement complet.
+    </div>
+
+    <div class="stats-grille" id="rapport-stats-cards">
+      <div class="stat-carte">
+        <div class="valeur" id="rapport-total">0</div>
+        <div class="label">Total rapports</div>
+      </div>
+      <div class="stat-carte">
+        <div class="valeur" id="rapport-auteurs">0</div>
+        <div class="label">Rapporteurs uniques</div>
+      </div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;font-size:16px;">🏆 Classement des rapporteurs</h3>
+      <div id="rapport-top-liste"></div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;font-size:16px;">👤 Rapports d'un membre</h3>
+      <div class="search-bar">
+        <input id="rapport-search" placeholder="ID ou pseudo du membre..." />
+        <button onclick="chargerRapportsMembre()" style="margin:0;">Rechercher</button>
+      </div>
+      <div id="rapport-member-content">
+        <div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses rapports</div>
+      </div>
+    </div>
+  </section>
+
   <!-- MODERATION -->
   <section id="vue-moderation" class="hidden">
-    <h2>Modération</h2>
+    <h2>🛡️ Modération</h2>
     <label>Rechercher un membre (pseudo)</label>
     <input id="mod-recherche" placeholder="Tape un pseudo..." oninput="rechercherMembres(this.value)" />
     <div id="mod-resultats" style="margin-top: 16px;"></div>
@@ -556,7 +623,7 @@
 
   <!-- SALONS -->
   <section id="vue-salons" class="hidden">
-    <h2>Salons</h2>
+    <h2>💬 Salons</h2>
     <div class="carte">
       <label>Nouveau salon</label>
       <input id="salon-nom" placeholder="nom-du-salon" />
@@ -573,7 +640,7 @@
 
   <!-- ROLES -->
   <section id="vue-roles" class="hidden">
-    <h2>Rôles</h2>
+    <h2>🎭 Rôles</h2>
     <div class="carte">
       <label>Nouveau rôle</label>
       <input id="role-nom" placeholder="Nom du rôle" />
@@ -587,8 +654,8 @@
 
   <!-- BIENVENUE -->
   <section id="vue-bienvenue" class="hidden">
-    <h2>Bienvenue & Auto-rôle</h2>
-    <label>Rôle(s) attribué(s) automatiquement à l'arrivée <span class="small-hint">Maintenez Ctrl/Cmd pour sélectionner plusieurs rôles</span></label>
+    <h2>👋 Bienvenue & Auto-rôle</h2>
+    <label>Rôle(s) attribué(s) automatiquement à l'arrivée</label>
     <select id="param-autorole" multiple><option value="">Aucun</option></select>
 
     <label>Salon de bienvenue</label>
@@ -601,14 +668,14 @@
     <label>Salon staff pour les tickets</label>
     <select id="param-salon-tickets"><option value="">Aucun</option></select>
 
-    <label>Salon des logs de tickets (transcripts, ouvertures/fermetures)</label>
-    <select id="param-salon-logs-tickets"><option value="">Aucun (utilise le salon staff)</option></select>
+    <label>Salon des logs de tickets</label>
+    <select id="param-salon-logs-tickets"><option value="">Aucun</option></select>
 
-    <label>Auto-fermeture des tickets après X heures d'inactivité (0 = désactivé)</label>
+    <label>Auto-fermeture des tickets (heures)</label>
     <input id="param-autoclose-heures" type="number" min="0" step="0.5" value="0" />
 
     <div class="sous-titre">Modération</div>
-    <label>Salon des logs de modération (kick / ban / timeout / warn)</label>
+    <label>Salon des logs de modération</label>
     <select id="param-salon-modlogs"><option value="">Aucun</option></select>
 
     <div class="sous-titre">Service</div>
@@ -616,7 +683,7 @@
     <select id="param-salon-service"><option value="">Aucun</option></select>
 
     <div class="sous-titre">Rapports médicaux</div>
-    <label>Salon du message de rapport médical</label>
+    <label>Salon du message de rapport</label>
     <select id="param-salon-rapport"><option value="">Aucun</option></select>
 
     <div class="sous-titre">Interventions</div>
@@ -629,13 +696,12 @@
 
   <!-- CANDIDATURES -->
   <section id="vue-candidatures" class="hidden">
-    <h2>Gestion des candidatures</h2>
-
+    <h2>✅ Gestion des candidatures</h2>
+    <!-- Contenu identique à avant -->
     <div class="case-ligne">
       <input type="checkbox" id="cand-actif" />
-      <label for="cand-actif">Activer le système de validation (/valid, /refuser)</label>
+      <label for="cand-actif">Activer le système de validation</label>
     </div>
-
     <div class="sous-titre">Salons de résultat</div>
     <div class="deux-col">
       <div>
@@ -643,246 +709,82 @@
         <select id="cand-salon-validation"><option value="">Aucun</option></select>
       </div>
       <div>
-        <label>Salon des refus (optionnel)</label>
-        <select id="cand-salon-refus"><option value="">Utiliser le même que validation</option></select>
+        <label>Salon des refus</label>
+        <select id="cand-salon-refus"><option value="">Utiliser le même</option></select>
       </div>
     </div>
-
-    <div class="sous-titre">Permissions <span class="small-hint">Maintenez Ctrl/Cmd pour sélectionner plusieurs rôles</span></div>
-    <div>
-      <label>Rôle(s) autorisé(s) à utiliser /valid</label>
-      <select id="cand-roles-valid" multiple><option value="">Administrateurs uniquement</option></select>
-    </div>
-    <div>
-      <label>Rôle(s) autorisé(s) à utiliser /refuser</label>
-      <select id="cand-roles-refus" multiple><option value="">Administrateurs uniquement</option></select>
-    </div>
-
-    <div class="sous-titre">Récompense <span class="small-hint">Maintenez Ctrl/Cmd pour sélectionner plusieurs rôles</span></div>
-    <label>Rôle(s) attribué(s) automatiquement au candidat lors d'une validation (/valid)</label>
+    <label>Rôle(s) autorisé(s) à valider</label>
+    <select id="cand-roles-valid" multiple><option value="">Administrateurs</option></select>
+    <label>Rôle(s) autorisé(s) à refuser</label>
+    <select id="cand-roles-refus" multiple><option value="">Administrateurs</option></select>
+    <label>Rôle(s) attribué(s) lors d'une validation</label>
     <select id="cand-roles-attribution" multiple><option value="">Aucun</option></select>
-
-    <div class="sous-titre">Options</div>
     <div class="case-ligne">
       <input type="checkbox" id="cand-mp-actif" />
-      <label for="cand-mp-actif">Envoyer un message privé au candidat</label>
+      <label for="cand-mp-actif">Envoyer un MP</label>
     </div>
     <div class="case-ligne">
       <input type="checkbox" id="cand-mention-user" />
-      <label for="cand-mention-user">Mentionner le candidat dans le salon de résultat</label>
+      <label for="cand-mention-user">Mentionner le candidat</label>
     </div>
     <div class="case-ligne">
       <input type="checkbox" id="cand-fermeture-auto" />
-      <label for="cand-fermeture-auto">Fermer automatiquement le ticket après validation/refus</label>
+      <label for="cand-fermeture-auto">Fermer le ticket automatiquement</label>
     </div>
-    <label>Délai avant fermeture automatique (secondes)</label>
+    <label>Délai avant fermeture (secondes)</label>
     <input id="cand-fermeture-delai" type="number" min="0" value="10" />
-
-    <div class="sous-titre">Messages personnalisés</div>
-    <div class="variables-info">
-      Variables disponibles : <code>{user}</code> <code>{mention}</code> <code>{username}</code>
-      <code>{server}</code> <code>{staff}</code> <code>{ticket}</code> <code>{date}</code> <code>{raison}</code>
-    </div>
-
-    <label>Message envoyé dans le salon de résultat lors d'une validation</label>
+    <div class="sous-titre">Messages</div>
+    <label>Message de validation</label>
     <textarea id="cand-msg-validation"></textarea>
-
-    <label>Message envoyé dans le salon de résultat lors d'un refus</label>
+    <label>Message de refus</label>
     <textarea id="cand-msg-refus"></textarea>
-
-    <label>Message privé (MP) envoyé lors d'une validation</label>
+    <label>MP de validation</label>
     <textarea id="cand-mp-validation"></textarea>
-
-    <label>Message privé (MP) envoyé lors d'un refus</label>
+    <label>MP de refus</label>
     <textarea id="cand-mp-refus"></textarea>
-
     <button onclick="sauverCandidatures()">Enregistrer</button>
     <div id="cand-statut"></div>
   </section>
 
-  <!-- HISTORIQUE CANDIDATURES -->
+  <!-- HISTORIQUE -->
   <section id="vue-historique" class="hidden">
-    <h2>Historique des candidatures</h2>
-    <div class="encart-info">Les 200 dernières validations / refus effectués via <code>/valid</code> et <code>/refuser</code> (ou le panel).</div>
-    <label>Rechercher (pseudo, ticket, staff)</label>
+    <h2>🕘 Historique des candidatures</h2>
+    <label>Rechercher</label>
     <input id="hist-recherche" placeholder="Tape pour filtrer..." oninput="chargerHistorique()" />
     <div id="liste-historique" style="margin-top:16px;"></div>
   </section>
 
-  <!-- SERVICE -->
-  <section id="vue-service" class="hidden">
-    <h2>🟢 Gestion du service</h2>
-    
-    <div class="encart-info">
-      Les membres peuvent prendre/déposer leur service via les boutons dans le salon configuré ou avec les commandes 
-      <code>/service start</code> et <code>/service stop</code>.<br>
-      L'XP est automatiquement gagnée pendant le service (configurable dans l'onglet Grades & XP).
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">🔧 Configuration du salon de service</h3>
-      <label>Salon où sera envoyé le message avec les boutons</label>
-      <select id="service-config-salon"><option value="">Aucun</option></select>
-      <button onclick="configurerService()">Définir le salon</button>
-      <div id="service-config-statut"></div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">📊 Membres en service</h3>
-      <div id="service-liste">
-        <p style="color:var(--text-dim);">Chargement...</p>
-      </div>
-      <button class="secondaire petit" onclick="chargerService()" style="margin-top:10px;">🔄 Rafraîchir</button>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">📈 Statistiques de service</h3>
-      <div class="stats-grille" id="service-stats">
-        <div class="stat-carte">
-          <div class="valeur" id="service-total">0</div>
-          <div class="label">Total sessions</div>
-        </div>
-        <div class="stat-carte">
-          <div class="valeur" id="service-moyenne">0h</div>
-          <div class="label">Moyenne par session</div>
-        </div>
-        <div class="stat-carte">
-          <div class="valeur" id="service-total-time">0h</div>
-          <div class="label">Temps total cumulé</div>
-        </div>
-        <div class="stat-carte">
-          <div class="valeur" id="service-members">0</div>
-          <div class="label">Membres uniques</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">📋 Historique des sessions (dernières 20)</h3>
-      <div id="service-sessions">
-        <p style="color:var(--text-dim);">Chargement...</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- RAPPORT -->
-  <section id="vue-rapport" class="hidden">
-    <h2>📋 Système de rapports médicaux</h2>
-    
-    <div class="encart-info">
-      Les membres peuvent créer des rapports médicaux via les boutons dans le salon configuré ou avec la commande 
-      <code>/rapport</code>.<br>
-      Chaque rapport rapporte de l'XP (configurable dans l'onglet Grades & XP).
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">🔧 Configuration du salon de rapports</h3>
-      <label>Salon où sera envoyé le message avec les boutons</label>
-      <select id="rapport-config-salon"><option value="">Aucun</option></select>
-      <button onclick="configurerRapport()">Définir le salon</button>
-      <div id="rapport-config-statut"></div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">📊 Statistiques des rapports</h3>
-      <div class="stats-grille" id="rapport-stats">
-        <div class="stat-carte">
-          <div class="valeur" id="rapport-total">0</div>
-          <div class="label">Total rapports</div>
-        </div>
-        <div class="stat-carte">
-          <div class="valeur" id="rapport-auteurs">0</div>
-          <div class="label">Rapporteurs actifs</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">🏆 Top rapporteurs</h3>
-      <div id="rapport-top">
-        <p style="color:var(--text-dim);">Chargement...</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- INTERVENTION -->
-  <section id="vue-intervention" class="hidden">
-    <h2>🚑 Système d'interventions</h2>
-    
-    <div class="encart-info">
-      Les membres peuvent logger des interventions via les boutons dans le salon configuré ou avec la commande 
-      <code>/intervention</code>.<br>
-      Chaque intervention rapporte de l'XP (configurable dans l'onglet Grades & XP).
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">🔧 Configuration du salon d'interventions</h3>
-      <label>Salon où sera envoyé le message avec les boutons</label>
-      <select id="intervention-config-salon"><option value="">Aucun</option></select>
-      <button onclick="configurerIntervention()">Définir le salon</button>
-      <div id="intervention-config-statut"></div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">📊 Statistiques des interventions</h3>
-      <div class="stats-grille" id="intervention-stats">
-        <div class="stat-carte">
-          <div class="valeur" id="intervention-total">0</div>
-          <div class="label">Total interventions</div>
-        </div>
-        <div class="stat-carte">
-          <div class="valeur" id="intervention-intervenants">0</div>
-          <div class="label">Intervenants actifs</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">🏆 Top intervenants</h3>
-      <div id="intervention-top">
-        <p style="color:var(--text-dim);">Chargement...</p>
-      </div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;">📋 Dernières interventions</h3>
-      <div id="intervention-recent">
-        <p style="color:var(--text-dim);">Chargement...</p>
-      </div>
-    </div>
-  </section>
-
   <!-- ANNONCES -->
   <section id="vue-embed" class="hidden">
-    <h2>Envoyer une annonce / embed</h2>
+    <h2>📢 Envoyer une annonce</h2>
     <label>Salon</label>
     <select id="embed-salon"></select>
     <label>Titre</label>
-    <input id="embed-titre" placeholder="Ex: Ouverture du serveur" />
+    <input id="embed-titre" placeholder="Titre de l'annonce" />
     <label>Description</label>
-    <textarea id="embed-description" placeholder="Contenu de l'annonce..."></textarea>
+    <textarea id="embed-description" placeholder="Contenu..."></textarea>
     <label>Couleur (hex)</label>
     <input id="embed-couleur" value="#ff2d78" />
-    <label>Image depuis ton ordinateur (optionnel)</label>
+    <label>Image (fichier)</label>
     <input id="embed-image-fichier" type="file" accept="image/*" />
-    <label>OU Image (URL, optionnel)</label>
+    <label>OU Image (URL)</label>
     <input id="embed-image" placeholder="https://..." />
-    <label>Footer (optionnel)</label>
-    <input id="embed-footer" placeholder="Ex: Équipe EMS" />
+    <label>Footer</label>
+    <input id="embed-footer" placeholder="Footer..." />
     <button onclick="envoyerEmbed()">Envoyer</button>
     <div id="embed-statut"></div>
   </section>
 
   <!-- TICKETS -->
   <section id="vue-tickets" class="hidden">
-    <h2>Tickets ouverts</h2>
-    <button class="secondaire" onclick="chargerTickets()" style="margin-bottom: 16px;">🔄 Rafraîchir</button>
+    <h2>🎫 Tickets ouverts</h2>
+    <button class="secondaire" onclick="chargerTickets()">🔄 Rafraîchir</button>
     <div id="liste-tickets"></div>
   </section>
 
   <!-- GIVEAWAYS -->
   <section id="vue-giveaways" class="hidden">
-    <h2>Giveaways</h2>
+    <h2>🎉 Giveaways</h2>
     <div class="carte">
       <label>Salon</label>
       <select id="giveaway-salon"></select>
@@ -898,224 +800,14 @@
     <div id="liste-giveaways"></div>
   </section>
 
-  <!-- GRADES & XP -->
-  <section id="vue-xp" class="hidden">
-    <h2>🏆 Système de Grades & XP</h2>
-    
-    <!-- ✅ UNIQUEMENT UN MENU XP (pas de doublon) -->
-    <div style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
-      <button class="tab-xp actif" data-xp-tab="dashboard">📊 Dashboard</button>
-      <button class="tab-xp" data-xp-tab="grades">🎖️ Grades</button>
-      <button class="tab-xp" data-xp-tab="settings">⚙️ Paramètres</button>
-      <button class="tab-xp" data-xp-tab="leaderboard">🏅 Classement</button>
-      <button class="tab-xp" data-xp-tab="profile">👤 Profil</button>
-      <button class="tab-xp" data-xp-tab="logs">📋 Logs</button>
-    </div>
-
-    <div id="xp-dashboard" class="xp-content">
-      <div class="stats-grille" id="xp-stats"></div>
-      <div class="carte">
-        <!-- ✅ Pas de titre en dur, généré par JavaScript -->
-        <div id="xp-top5"></div>
-      </div>
-    </div>
-
-    <div id="xp-grades" class="xp-content hidden">
-      <div class="carte">
-        <h3 style="margin-top:0;">Nouveau grade</h3>
-        <div class="deux-col">
-          <div>
-            <label>Nom du grade</label>
-            <input id="grade-nom" placeholder="Ex: Médecin Chef" />
-          </div>
-          <div>
-            <label>ID du grade (unique)</label>
-            <input id="grade-id" placeholder="ex: medecin_chef" />
-          </div>
-        </div>
-        <div class="deux-col">
-          <div>
-            <label>Niveau</label>
-            <input id="grade-niveau" type="number" value="1" />
-          </div>
-          <div>
-            <label>XP requis</label>
-            <input id="grade-xp" type="number" value="0" />
-          </div>
-        </div>
-        <div class="deux-col">
-          <div>
-            <label>Icône (emoji)</label>
-            <input id="grade-icone" value="🟢" />
-          </div>
-          <div>
-            <label>Couleur (hex)</label>
-            <input id="grade-couleur" value="#34d399" />
-          </div>
-        </div>
-        <label>Privilèges (séparés par des virgules)</label>
-        <input id="grade-perks" placeholder="Ex: Accès admin, Gestion des rapports" />
-        <div class="case-ligne">
-          <input type="checkbox" id="grade-notifications" checked />
-          <label for="grade-notifications">Notifications de montée de grade</label>
-        </div>
-        <button onclick="creerGrade()">Créer le grade</button>
-        <div id="grade-statut"></div>
-      </div>
-
-      <div id="liste-grades"></div>
-    </div>
-
-    <div id="xp-settings" class="xp-content hidden">
-      <div class="carte">
-        <h3 style="margin-top:0;">Gains d'XP</h3>
-        <div class="deux-col">
-          <div>
-            <label>XP par minute en service</label>
-            <input id="xp-per-minute" type="number" step="0.1" />
-          </div>
-          <div>
-            <label>XP par intervention</label>
-            <input id="xp-per-intervention" type="number" />
-          </div>
-        </div>
-        <div class="deux-col">
-          <div>
-            <label>XP par message</label>
-            <input id="xp-per-message" type="number" step="0.1" />
-          </div>
-          <div>
-            <label>XP par minute vocal</label>
-            <input id="xp-per-voice" type="number" step="0.1" />
-          </div>
-        </div>
-        <div class="deux-col">
-          <div>
-            <label>XP par rapport</label>
-            <input id="xp-per-rapport" type="number" />
-          </div>
-          <div>
-            <label>&nbsp;</label>
-          </div>
-        </div>
-        
-        <h3 style="margin-top:24px;">Pénalités</h3>
-        <div class="deux-col">
-          <div>
-            <label>XP par avertissement</label>
-            <input id="xp-per-warn" type="number" />
-          </div>
-          <div>
-            <label>XP par kick</label>
-            <input id="xp-per-kick" type="number" />
-          </div>
-        </div>
-        <div>
-          <label>XP par ban</label>
-          <input id="xp-per-ban" type="number" />
-        </div>
-
-        <h3 style="margin-top:24px;">Cooldowns (secondes)</h3>
-        <div class="deux-col">
-          <div>
-            <label>Messages</label>
-            <input id="xp-cooldown-message" type="number" />
-          </div>
-          <div>
-            <label>Vocal</label>
-            <input id="xp-cooldown-voice" type="number" />
-          </div>
-        </div>
-
-        <h3 style="margin-top:24px;">Multiplicateurs</h3>
-        <div class="deux-col">
-          <div>
-            <label>Weekend</label>
-            <input id="xp-boost-weekend" type="number" step="0.1" />
-          </div>
-          <div>
-            <label>Événement</label>
-            <input id="xp-boost-event" type="number" step="0.1" />
-          </div>
-        </div>
-
-        <h3 style="margin-top:24px;">Messages</h3>
-        <label>Message de montée de grade</label>
-        <input id="xp-levelup-message" placeholder="{user} {grade} {level}" />
-        <label>Message de statut XP</label>
-        <input id="xp-status-message" placeholder="{user} {level} {xp} {grade}" />
-
-        <div class="case-ligne">
-          <input type="checkbox" id="xp-notifications" checked />
-          <label for="xp-notifications">Activer les notifications</label>
-        </div>
-
-        <button onclick="sauverXPSettings()">Enregistrer</button>
-        <div id="xp-settings-statut"></div>
-      </div>
-    </div>
-
-    <div id="xp-leaderboard" class="xp-content hidden">
-      <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-        <select id="lb-sort" onchange="chargerLeaderboard()">
-          <option value="xp">XP total</option>
-          <option value="level">Niveau</option>
-          <option value="interventions">Interventions</option>
-          <option value="rapports">Rapports</option>
-          <option value="serviceTime">Temps en service</option>
-          <option value="messages">Messages</option>
-          <option value="voiceTime">Temps vocal</option>
-        </select>
-        <input id="lb-search" placeholder="Rechercher..." oninput="chargerLeaderboard()" style="width:200px;" />
-        <select id="lb-grade-filter" onchange="chargerLeaderboard()">
-          <option value="all">Tous les grades</option>
-        </select>
-      </div>
-      <div id="leaderboard-liste"></div>
-    </div>
-
-    <div id="xp-profile" class="xp-content hidden">
-      <div style="display:flex; gap:12px; margin-bottom:16px;">
-        <input id="profile-search" placeholder="ID ou pseudo du membre..." style="flex:1;" />
-        <button onclick="chargerProfil()" style="margin:0;">Rechercher</button>
-      </div>
-      <div id="profile-content">
-        <div class="carte" style="text-align:center; color:var(--text-dim);">
-          Entrez un ID ou un pseudo pour voir le profil
-        </div>
-      </div>
-    </div>
-
-    <div id="xp-logs" class="xp-content hidden">
-      <div style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-        <input id="logs-search" placeholder="Rechercher..." oninput="chargerXPLogs()" style="flex:1;" />
-        <select id="logs-type" onchange="chargerXPLogs()">
-          <option value="all">Tous les types</option>
-          <option value="intervention">Interventions</option>
-          <option value="rapport">Rapports</option>
-          <option value="message">Messages</option>
-          <option value="voice">Vocal</option>
-          <option value="service">Temps de service</option>
-          <option value="manual">Manuel</option>
-          <option value="penalty">Pénalité</option>
-        </select>
-      </div>
-      <div id="logs-liste"></div>
-    </div>
-  </section>
-
   <!-- BACKUP -->
   <section id="vue-backup" class="hidden">
-    <h2>Sauvegarde</h2>
+    <h2>💾 Sauvegarde</h2>
     <div class="carte">
-      <h3 style="margin-top:0;font-size:15px;">📤 Exporter</h3>
-      <p style="color:var(--text-dim);font-size:13px;">Télécharge un fichier JSON contenant toute la config, les tickets, giveaways, avertissements, l'historique des candidatures, les données XP et les données de service.</p>
-      <button onclick="exporterBackup()">Télécharger la sauvegarde</button>
+      <button onclick="exporterBackup()">📤 Télécharger la sauvegarde</button>
     </div>
     <div class="carte">
-      <h3 style="margin-top:0;font-size:15px;">📥 Importer</h3>
-      <p style="color:var(--text-dim);font-size:13px;">⚠️ Ceci écrase les données actuelles avec celles du fichier.</p>
-      <label>Fichier de sauvegarde (.json)</label>
+      <label>📥 Importer une sauvegarde</label>
       <input id="backup-fichier" type="file" accept="application/json" />
       <button class="danger" onclick="importerBackup()">Importer et écraser</button>
       <div id="backup-statut"></div>
@@ -1125,1404 +817,1171 @@
 </main>
 
 <script>
-  // ==========================================
-  // NAVIGATION
-  // ==========================================
-  const tabs = document.querySelectorAll('.tab');
-  const vues = {
-    dashboard: chargerStats,
-    moderation: null,
-    salons: chargerSalonsListe,
-    roles: chargerRolesListe,
-    bienvenue: function() { chargerParametres(); chargerServiceConfig(); chargerRapportConfig(); chargerInterventionConfig(); },
-    candidatures: chargerCandidatures,
-    historique: chargerHistorique,
-    service: function() { chargerService(); chargerServiceConfig(); },
-    rapport: function() { chargerRapport(); chargerRapportConfig(); },
-    intervention: function() { chargerIntervention(); chargerInterventionConfig(); },
-    embed: chargerSalons,
-    tickets: chargerTickets,
-    giveaways: chargerGiveaways,
-    xp: function() { chargerXPDashboard(); },
-    backup: null,
-  };
+// ==========================================
+// NAVIGATION
+// ==========================================
+const tabs = document.querySelectorAll('.tab');
+const vues = {
+  dashboard: chargerStats,
+  service: function() { chargerService(); chargerServiceTop(); chargerServiceWeekly(); },
+  interventions: function() { chargerInterventionsStats(); chargerInterventionsTop(); },
+  rapports: function() { chargerRapportsStats(); chargerRapportsTop(); },
+  moderation: null,
+  salons: chargerSalonsListe,
+  roles: chargerRolesListe,
+  bienvenue: chargerParametres,
+  candidatures: chargerCandidatures,
+  historique: chargerHistorique,
+  embed: chargerSalons,
+  tickets: chargerTickets,
+  giveaways: chargerGiveaways,
+  backup: null,
+};
 
-  tabs.forEach(tab => tab.addEventListener('click', () => {
-    tabs.forEach(t => t.classList.remove('actif'));
+tabs.forEach(tab => tab.addEventListener('click', () => {
+  tabs.forEach(t => t.classList.remove('actif'));
+  tab.classList.add('actif');
+  document.querySelectorAll('main section').forEach(s => s.classList.add('hidden'));
+  document.getElementById('vue-' + tab.dataset.tab).classList.remove('hidden');
+  if (vues[tab.dataset.tab]) vues[tab.dataset.tab]();
+}));
+
+// ==========================================
+// SERVICE TABS
+// ==========================================
+document.querySelectorAll('[data-service-tab]').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('[data-service-tab]').forEach(t => t.classList.remove('actif'));
     tab.classList.add('actif');
-    document.querySelectorAll('main section').forEach(s => s.classList.add('hidden'));
-    document.getElementById('vue-' + tab.dataset.tab).classList.remove('hidden');
-    if (vues[tab.dataset.tab]) vues[tab.dataset.tab]();
-  }));
+    document.querySelectorAll('#vue-service .stats-content').forEach(c => c.classList.add('hidden'));
+    document.getElementById('service-' + tab.dataset.serviceTab).classList.remove('hidden');
+  });
+});
 
-  // ==========================================
-  // COMPTE
-  // ==========================================
-  async function chargerCompte() {
-    try {
-      const res = await fetch('/api/me');
-      if (!res.ok) { window.location.href = '/login'; return; }
-      const user = await res.json();
-      document.getElementById('compte').innerHTML =
-        (user.avatar ? `<img src="${user.avatar}" />` : '') + `<span>${user.username}</span>`;
-    } catch (e) {
-      console.error('Erreur chargement compte:', e);
-    }
+// ==========================================
+// COMPTE
+// ==========================================
+async function chargerCompte() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) { window.location.href = '/login'; return; }
+    const user = await res.json();
+    document.getElementById('compte').innerHTML =
+      (user.avatar ? `<img src="${user.avatar}" />` : '') + `<span>${user.username}</span>`;
+  } catch (e) {
+    console.error('Erreur chargement compte:', e);
   }
+}
 
-  // ==========================================
-  // DASHBOARD
-  // ==========================================
-  async function chargerStats() {
-    try {
-      const res = await fetch('/api/stats');
-      const s = await res.json();
-      const items = [
-        ['Membres', s.memberCount], ['Salons', s.channelCount], ['Rôles', s.roleCount],
-        ['Ping', s.ping + ' ms'], ['Uptime', Math.floor(s.uptime/60) + ' min'],
-        ['Tickets ouverts', s.ticketsOuverts], ['Giveaways actifs', s.giveawaysActifs],
-        ['🟢 En service', s.servicesActifs || 0],
-      ];
-      document.getElementById('stats-grille').innerHTML = items.map(([label, val]) =>
-        `<div class="stat-carte"><div class="valeur">${val}</div><div class="label">${label}</div></div>`
-      ).join('');
-    } catch (e) {
-      console.error('Erreur chargement stats:', e);
-    }
+// ==========================================
+// FORMATAGE
+// ==========================================
+function formatTime(seconds) {
+  if (!seconds || seconds < 0) return '0h0m';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h${minutes}`;
+}
+
+function formatTimeShort(seconds) {
+  if (!seconds || seconds < 0) return '0h';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h${minutes}m`;
+}
+
+// ==========================================
+// DASHBOARD
+// ==========================================
+async function chargerStats() {
+  try {
+    const res = await fetch('/api/stats');
+    const s = await res.json();
+    const items = [
+      ['Membres', s.memberCount],
+      ['Salons', s.channelCount],
+      ['Rôles', s.roleCount],
+      ['Ping', s.ping + ' ms'],
+      ['Uptime', Math.floor(s.uptime/60) + ' min'],
+      ['🟢 En service', s.servicesActifs || 0],
+      ['🚑 Interventions', s.totalInterventions || 0],
+      ['📋 Rapports', s.totalRapports || 0],
+      ['⏱️ Service total', s.totalServiceTime + 'h'],
+      ['🎫 Tickets', s.ticketsOuverts || 0],
+      ['🎉 Giveaways', s.giveawaysActifs || 0],
+    ];
+    document.getElementById('stats-grille').innerHTML = items.map(([label, val]) =>
+      `<div class="stat-carte"><div class="valeur">${val}</div><div class="label">${label}</div></div>`
+    ).join('');
+  } catch (e) {
+    console.error('Erreur chargement stats:', e);
   }
+}
 
-  // ==========================================
-  // MODERATION
-  // ==========================================
-  let rechercheTimeout;
-  function rechercherMembres(q) {
-    clearTimeout(rechercheTimeout);
-    rechercheTimeout = setTimeout(async () => {
-      if (!q) { document.getElementById('mod-resultats').innerHTML = ''; return; }
-      try {
-        const res = await fetch('/api/members/search?q=' + encodeURIComponent(q));
-        const membres = await res.json();
-        const roles = await (await fetch('/api/roles')).json();
-        const optionsRoles = roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-
-        document.getElementById('mod-resultats').innerHTML = membres.map(m => `
-          <div class="carte">
-            <div class="ligne">
-              <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${m.tag}</div>
-              <div>
-                ${m.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
-                <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
-              </div>
-            </div>
-            <div style="margin-top:8px;">
-              ${m.roles.map(r => `<span class="role-badge">${r.name}<button onclick="modifierRole('${m.id}','${r.id}','remove')">×</button></span>`).join('')}
-            </div>
-            <div id="warn-liste-${m.id}" class="warn-liste"></div>
-            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-              <select id="role-add-${m.id}" style="width:auto;">${optionsRoles}</select>
-              <button class="petit secondaire" onclick="modifierRole('${m.id}', document.getElementById('role-add-${m.id}').value, 'add')">+ Rôle</button>
-              <button class="petit secondaire" onclick="timeoutMembre('${m.id}')">Timeout 10min</button>
-              <button class="petit avertir" onclick="avertirMembre('${m.id}')">⚠️ Avertir</button>
-              <button class="petit danger" onclick="kickMembre('${m.id}')">Kick</button>
-              <button class="petit danger" onclick="banMembre('${m.id}')">Ban</button>
-            </div>
-          </div>
-        `).join('') || '<p style="color:var(--text-dim);">Aucun résultat.</p>';
-      } catch (e) {
-        console.error('Erreur recherche membres:', e);
-      }
-    }, 400);
-  }
-
-  async function toggleWarns(userId) {
-    const zone = document.getElementById('warn-liste-' + userId);
-    if (zone.classList.contains('ouvert')) { zone.classList.remove('ouvert'); return; }
-    try {
-      const res = await fetch(`/api/members/${userId}/warns`);
-      const liste = await res.json();
-      zone.innerHTML = liste.length
-        ? liste.map(w => `
-          <div class="warn-item">
-            <div>
-              <div class="infos">${w.reason}</div>
-              <div class="meta">Par ${w.staffTag} — ${new Date(w.date).toLocaleString('fr-FR')}</div>
-            </div>
-            <button onclick="supprimerWarn('${userId}','${w.id}')">Supprimer</button>
-          </div>
-        `).join('')
-        : '<p style="color:var(--text-dim);font-size:12.5px;">Aucun avertissement.</p>';
-      zone.classList.add('ouvert');
-    } catch (e) {
-      console.error('Erreur chargement warns:', e);
-    }
-  }
-
-  async function avertirMembre(userId) {
-    const raison = prompt("Raison de l'avertissement ?");
-    if (!raison) return;
-    try {
-      const res = await fetch(`/api/members/${userId}/warn`, {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison })
-      });
-      if (res.ok) rechercherMembres(document.getElementById('mod-recherche').value);
-      else alert("Échec de l'avertissement.");
-    } catch (e) {
-      console.error('Erreur avertissement:', e);
-      alert("Erreur lors de l'avertissement.");
-    }
-  }
-
-  async function supprimerWarn(userId, warnId) {
-    if (!confirm('Supprimer cet avertissement ?')) return;
-    try {
-      await fetch(`/api/members/${userId}/warns/${warnId}`, { method: 'DELETE' });
-      toggleWarns(userId);
-    } catch (e) {
-      console.error('Erreur suppression warn:', e);
-    }
-  }
-
-  async function modifierRole(userId, roleId, action) {
-    try {
-      await fetch(`/api/members/${userId}/roles/${roleId}`, {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action })
-      });
-      rechercherMembres(document.getElementById('mod-recherche').value);
-    } catch (e) {
-      console.error('Erreur modification rôle:', e);
-    }
-  }
-
-  async function kickMembre(userId) {
-    const raison = prompt('Raison du kick ? (optionnel)') || '';
-    if (!confirm('Kick ce membre ?')) return;
-    try {
-      await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
-      rechercherMembres(document.getElementById('mod-recherche').value);
-    } catch (e) {
-      console.error('Erreur kick:', e);
-      alert("Erreur lors du kick.");
-    }
-  }
-
-  async function banMembre(userId) {
-    const raison = prompt('Raison du ban ? (optionnel)') || '';
-    if (!confirm('Bannir ce membre ?')) return;
-    try {
-      await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
-      rechercherMembres(document.getElementById('mod-recherche').value);
-    } catch (e) {
-      console.error('Erreur ban:', e);
-      alert("Erreur lors du ban.");
-    }
-  }
-
-  async function timeoutMembre(userId) {
-    try {
-      await fetch(`/api/members/${userId}/timeout`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 10 }) });
-      rechercherMembres(document.getElementById('mod-recherche').value);
-    } catch (e) {
-      console.error('Erreur timeout:', e);
-      alert("Erreur lors du timeout.");
-    }
-  }
-
-  // ==========================================
-  // SALONS
-  // ==========================================
-  async function chargerSalonsListe() {
-    try {
-      const res = await fetch('/api/channels/all');
-      const salons = await res.json();
-      document.getElementById('liste-salons').innerHTML = salons.map(c => `
-        <div class="carte ligne">
-          <span>#${c.name}</span>
-          <button class="petit danger" onclick="supprimerSalon('${c.id}')">Supprimer</button>
-        </div>
-      `).join('');
-    } catch (e) {
-      console.error('Erreur chargement salons:', e);
-    }
-  }
-
-  async function creerSalon() {
-    const statut = document.getElementById('salon-statut');
-    try {
-      const res = await fetch('/api/channels', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name: document.getElementById('salon-nom').value, type: document.getElementById('salon-type').value })
-      });
-      statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) { document.getElementById('salon-nom').value = ''; chargerSalonsListe(); }
-    } catch (e) {
-      console.error('Erreur création salon:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  async function supprimerSalon(id) {
-    if (!confirm('Supprimer ce salon ?')) return;
-    try {
-      await fetch('/api/channels/' + id, { method: 'DELETE' });
-      chargerSalonsListe();
-    } catch (e) {
-      console.error('Erreur suppression salon:', e);
-    }
-  }
-
-  // ==========================================
-  // ROLES
-  // ==========================================
-  async function chargerRolesListe() {
-    try {
-      const res = await fetch('/api/roles');
-      const roles = await res.json();
-      document.getElementById('liste-roles').innerHTML = roles.map(r => `
-        <div class="carte ligne">
-          <span style="color:${r.color !== '#000000' ? r.color : 'var(--text)'};">${r.name}</span>
-          <button class="petit danger" onclick="supprimerRole('${r.id}')">Supprimer</button>
-        </div>
-      `).join('');
-    } catch (e) {
-      console.error('Erreur chargement rôles:', e);
-    }
-  }
-
-  async function creerRole() {
-    const statut = document.getElementById('role-statut');
-    try {
-      const res = await fetch('/api/roles', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name: document.getElementById('role-nom').value, color: document.getElementById('role-couleur').value })
-      });
-      statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) { document.getElementById('role-nom').value = ''; chargerRolesListe(); }
-    } catch (e) {
-      console.error('Erreur création rôle:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  async function supprimerRole(id) {
-    if (!confirm('Supprimer ce rôle ?')) return;
-    try {
-      await fetch('/api/roles/' + id, { method: 'DELETE' });
-      chargerRolesListe();
-    } catch (e) {
-      console.error('Erreur suppression rôle:', e);
-    }
-  }
-
-  // ==========================================
-  // BIENVENUE / PARAMETRES
-  // ==========================================
-  async function chargerParametres() {
-    try {
-      const [salons, params] = await Promise.all([
-        (await fetch('/api/channels')).json(),
-        (await fetch('/api/settings')).json(),
-      ]);
-      const roles = await (await fetch('/api/roles')).json();
-
-      const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      const optionsRoles = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-
-      const autoRoleSelect = document.getElementById('param-autorole');
-      autoRoleSelect.innerHTML = optionsRoles;
-      if (params.autoRoleIds && Array.isArray(params.autoRoleIds)) {
-        Array.from(autoRoleSelect.options).forEach(opt => {
-          opt.selected = params.autoRoleIds.includes(opt.value);
-        });
-      }
-
-      document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
-      document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
-      document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun (utilise le salon staff)</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
-      document.getElementById('param-salon-service').innerHTML = optionsSalons;
-      document.getElementById('param-salon-rapport').innerHTML = optionsSalons;
-      document.getElementById('param-salon-intervention').innerHTML = optionsSalons;
-
-      document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
-      document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
-      document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
-      document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
-      document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
-      document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
-      document.getElementById('param-salon-service').value = params.serviceChannelId || '';
-      document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
-      document.getElementById('param-salon-intervention').value = params.interventionChannelId || '';
-    } catch (e) {
-      console.error('Erreur chargement paramètres:', e);
-    }
-  }
-
-  async function sauverParametres() {
-    const statut = document.getElementById('param-statut');
-    const autoRoleSelect = document.getElementById('param-autorole');
-    const autoRoleIds = Array.from(autoRoleSelect.selectedOptions).map(opt => opt.value).filter(v => v);
+// ==========================================
+// SERVICE
+// ==========================================
+async function chargerService() {
+  try {
+    const res = await fetch('/api/service/active');
+    const active = await res.json();
+    const container = document.getElementById('service-top-liste');
     
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          autoRoleIds: autoRoleIds,
-          welcomeChannelId: document.getElementById('param-salon-bienvenue').value,
-          welcomeMessage: document.getElementById('param-message-bienvenue').value,
-          ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
-          ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
-          modLogsChannelId: document.getElementById('param-salon-modlogs').value,
-          ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
-          serviceChannelId: document.getElementById('param-salon-service').value,
-          rapportChannelId: document.getElementById('param-salon-rapport').value,
-          interventionChannelId: document.getElementById('param-salon-intervention').value,
-        })
-      });
-      statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    } catch (e) {
-      console.error('Erreur sauvegarde paramètres:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // CANDIDATURES
-  // ==========================================
-  async function chargerCandidatures() {
-    try {
-      const [salons, roles, cfg] = await Promise.all([
-        (await fetch('/api/channels')).json(),
-        (await fetch('/api/roles')).json(),
-        (await fetch('/api/settings/candidatures')).json(),
-      ]);
-
-      const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      const optionsSalonRefus = '<option value="">Utiliser le même que validation</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      const optionsRoles = '<option value="">Administrateurs uniquement</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-      const optionsRolesAttribution = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-
-      document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
-      document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
-      
-      const rolesValidSelect = document.getElementById('cand-roles-valid');
-      rolesValidSelect.innerHTML = optionsRoles;
-      if (cfg.rolesValid && Array.isArray(cfg.rolesValid)) {
-        Array.from(rolesValidSelect.options).forEach(opt => {
-          opt.selected = cfg.rolesValid.includes(opt.value);
-        });
-      }
-
-      const rolesRefusSelect = document.getElementById('cand-roles-refus');
-      rolesRefusSelect.innerHTML = optionsRoles;
-      if (cfg.rolesRefus && Array.isArray(cfg.rolesRefus)) {
-        Array.from(rolesRefusSelect.options).forEach(opt => {
-          opt.selected = cfg.rolesRefus.includes(opt.value);
-        });
-      }
-
-      const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
-      rolesAttributionSelect.innerHTML = optionsRolesAttribution;
-      if (cfg.rolesAttribution && Array.isArray(cfg.rolesAttribution)) {
-        Array.from(rolesAttributionSelect.options).forEach(opt => {
-          opt.selected = cfg.rolesAttribution.includes(opt.value);
-        });
-      }
-
-      document.getElementById('cand-actif').checked = !!cfg.actif;
-      document.getElementById('cand-salon-validation').value = cfg.salonValidation || '';
-      document.getElementById('cand-salon-refus').value = cfg.salonRefus || '';
-      document.getElementById('cand-mp-actif').checked = cfg.mpActif !== false;
-      document.getElementById('cand-mention-user').checked = cfg.mentionUser !== false;
-      document.getElementById('cand-fermeture-auto').checked = !!cfg.fermetureAuto;
-      document.getElementById('cand-fermeture-delai').value = cfg.fermetureDelai ?? 10;
-      document.getElementById('cand-msg-validation').value = cfg.messageValidation || '';
-      document.getElementById('cand-msg-refus').value = cfg.messageRefus || '';
-      document.getElementById('cand-mp-validation').value = cfg.mpValidation || '';
-      document.getElementById('cand-mp-refus').value = cfg.mpRefus || '';
-    } catch (e) {
-      console.error('Erreur chargement candidatures:', e);
-    }
-  }
-
-  async function sauverCandidatures() {
-    const statut = document.getElementById('cand-statut');
-    
-    const rolesValidSelect = document.getElementById('cand-roles-valid');
-    const rolesRefusSelect = document.getElementById('cand-roles-refus');
-    const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
-    
-    try {
-      const res = await fetch('/api/settings/candidatures', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          actif: document.getElementById('cand-actif').checked,
-          salonValidation: document.getElementById('cand-salon-validation').value,
-          salonRefus: document.getElementById('cand-salon-refus').value,
-          rolesValid: Array.from(rolesValidSelect.selectedOptions).map(opt => opt.value).filter(v => v),
-          rolesRefus: Array.from(rolesRefusSelect.selectedOptions).map(opt => opt.value).filter(v => v),
-          rolesAttribution: Array.from(rolesAttributionSelect.selectedOptions).map(opt => opt.value).filter(v => v),
-          mpActif: document.getElementById('cand-mp-actif').checked,
-          mentionUser: document.getElementById('cand-mention-user').checked,
-          fermetureAuto: document.getElementById('cand-fermeture-auto').checked,
-          fermetureDelai: document.getElementById('cand-fermeture-delai').value,
-          messageValidation: document.getElementById('cand-msg-validation').value,
-          messageRefus: document.getElementById('cand-msg-refus').value,
-          mpValidation: document.getElementById('cand-mp-validation').value,
-          mpRefus: document.getElementById('cand-mp-refus').value,
-        })
-      });
-      statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    } catch (e) {
-      console.error('Erreur sauvegarde candidatures:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // HISTORIQUE CANDIDATURES
-  // ==========================================
-  let histTimeout;
-  function chargerHistorique() {
-    clearTimeout(histTimeout);
-    histTimeout = setTimeout(async () => {
-      try {
-        const q = document.getElementById('hist-recherche') ? document.getElementById('hist-recherche').value : '';
-        const res = await fetch('/api/candidatures/history?q=' + encodeURIComponent(q));
-        const liste = await res.json();
-        document.getElementById('liste-historique').innerHTML = liste.length ? liste.map(h => `
-          <div class="carte">
-            <div class="hist-item">
-              <div>
-                <div style="font-weight:600;">${h.username} ${h.ticketNumber ? '— ticket #' + h.ticketNumber : ''}</div>
-                <div style="color:var(--text-dim);font-size:12.5px;margin-top:3px;">Par ${h.staffTag} — ${new Date(h.date).toLocaleString('fr-FR')}</div>
-                ${h.raison ? `<div style="margin-top:6px;font-size:12.5px;">💬 ${h.raison}</div>` : ''}
-              </div>
-              <span class="hist-badge ${h.result}">${h.result === 'validee' ? '✅ Validée' : '❌ Refusée'}</span>
-            </div>
-          </div>
-        `).join('') : `<p style="color:var(--text-dim);">Aucune entrée dans l'historique.</p>`;
-      } catch (e) {
-        console.error('Erreur chargement historique:', e);
-      }
-    }, 250);
-  }
-
-  // ==========================================
-  // SERVICE
-  // ==========================================
-  async function chargerService() {
-    try {
-      const res = await fetch('/api/service/active');
-      const active = await res.json();
-      
-      const liste = document.getElementById('service-liste');
-      if (active.length === 0) {
-        liste.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
-      } else {
-        let html = '';
-        let totalSessions = 0;
-        let totalDuration = 0;
-        let uniqueMembers = new Set();
-        
-        for (const s of active) {
-          const userRes = await fetch(`/api/xp/profile?search=${s.userId}`);
-          const user = await userRes.json();
-          const start = new Date(s.startTime);
-          const duration = Math.floor((Date.now() - start) / 60000);
-          const hours = Math.floor(duration / 60);
-          const minutes = duration % 60;
-          
-          const statsRes = await fetch(`/api/service/member/${s.userId}`);
-          const stats = await statsRes.json();
-          if (stats.sessions) {
-            totalSessions += stats.sessions.length;
-            stats.sessions.forEach(session => {
-              totalDuration += session.duration || 0;
-            });
-          }
-          uniqueMembers.add(s.userId);
-          
-          html += `
-            <div class="service-item">
-              <div class="info">
-                <span class="nom">${user.username || s.userId}</span>
-                <span class="details">🟢 En service depuis ${start.toLocaleTimeString('fr-FR')}</span>
-              </div>
-              <div class="temps">${hours}h${minutes}</div>
-            </div>
-          `;
-        }
-        
-        liste.innerHTML = html;
-        
-        document.getElementById('service-total').textContent = totalSessions || 0;
-        const avg = totalSessions > 0 ? Math.floor(totalDuration / totalSessions / 60) : 0;
-        document.getElementById('service-moyenne').textContent = avg + 'h';
-        document.getElementById('service-total-time').textContent = Math.floor(totalDuration / 3600) + 'h';
-        document.getElementById('service-members').textContent = uniqueMembers.size;
-      }
-      
-      chargerSessions();
-    } catch (e) {
-      console.error('Erreur chargement service:', e);
-    }
-  }
-
-  async function chargerSessions() {
-    try {
-      const res = await fetch('/api/xp/leaderboard?sort=serviceTime');
-      const members = await res.json();
-      
-      let allSessions = [];
-      for (const m of members.slice(0, 10)) {
-        const statsRes = await fetch(`/api/service/member/${m.userId}`);
-        const stats = await statsRes.json();
-        if (stats.sessions) {
-          stats.sessions.forEach(session => {
-            allSessions.push({
-              username: m.username,
-              start: new Date(session.start),
-              end: session.end ? new Date(session.end) : null,
-              duration: session.duration || 0,
-              userId: m.userId
-            });
-          });
-        }
-      }
-      
-      allSessions.sort((a, b) => b.start - a.start);
-      const recent = allSessions.slice(0, 20);
-      
-      const container = document.getElementById('service-sessions');
-      if (recent.length === 0) {
-        container.innerHTML = '<p style="color:var(--text-dim);">Aucune session enregistrée.</p>';
-        return;
-      }
-      
-      container.innerHTML = recent.map(s => {
-        const duration = Math.floor((s.duration || 0) / 60);
-        const hours = Math.floor(duration / 60);
-        const minutes = duration % 60;
-        return `
-          <div class="service-item" style="border-left-color:var(--border-hover);">
+    if (active.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
+    } else {
+      let html = '<div style="margin-bottom:12px;font-weight:600;color:var(--ok);">🟢 En service actuellement</div>';
+      for (const s of active) {
+        const user = await fetchUser(s.userId);
+        const start = new Date(s.startTime);
+        const duration = Math.floor((Date.now() - start) / 1000);
+        html += `
+          <div class="rank-item" style="border-left-color:var(--ok);">
             <div class="info">
-              <span class="nom">${s.username}</span>
-              <span class="details">${s.start.toLocaleString('fr-FR')} → ${s.end ? s.end.toLocaleString('fr-FR') : 'En cours'}</span>
+              <span class="nom">${user?.username || s.userId}</span>
+              <span class="details">Depuis ${start.toLocaleTimeString('fr-FR')}</span>
             </div>
-            <div class="temps">${hours}h${minutes}</div>
+            <div class="value" style="color:var(--ok);">${formatTime(duration)}</div>
           </div>
         `;
-      }).join('');
-    } catch (e) {
-      console.error('Erreur chargement sessions:', e);
-    }
-  }
-
-  async function chargerServiceConfig() {
-    try {
-      const salons = await (await fetch('/api/channels')).json();
-      const params = await (await fetch('/api/settings')).json();
-      
-      const select = document.getElementById('service-config-salon');
-      select.innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      select.value = params.serviceChannelId || '';
-    } catch (e) {
-      console.error('Erreur chargement config service:', e);
-    }
-  }
-
-  async function configurerService() {
-    const statut = document.getElementById('service-config-statut');
-    const channelId = document.getElementById('service-config-salon').value;
-    
-    try {
-      const res = await fetch('/api/service/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ channelId })
-      });
-      
-      statut.textContent = res.ok ? '✅ Salon de service configuré !' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) chargerParametres();
-    } catch (e) {
-      console.error('Erreur configuration service:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // RAPPORT
-  // ==========================================
-  async function chargerRapport() {
-    try {
-      const statsRes = await fetch('/api/xp/stats');
-      const stats = await statsRes.json();
-      
-      document.getElementById('rapport-total').textContent = stats.totalRapports || 0;
-      document.getElementById('rapport-auteurs').textContent = 
-        Object.values(await (await fetch('/api/xp/leaderboard')).json()).filter(m => m.rapports > 0).length || 0;
-      
-      const topRes = await fetch('/api/xp/leaderboard?sort=rapports');
-      const top = await topRes.json();
-      const topRapporteurs = top.filter(m => m.rapports > 0).slice(0, 5);
-      
-      const topContainer = document.getElementById('rapport-top');
-      if (topRapporteurs.length === 0) {
-        topContainer.innerHTML = '<p style="color:var(--text-dim);">Aucun rapport n\'a encore été rédigé.</p>';
-      } else {
-        topContainer.innerHTML = topRapporteurs.map((m, i) => `
-          <div class="service-item" style="border-left-color:var(--accent);">
-            <div class="info">
-              <span class="nom">#${i+1} ${m.username}</span>
-              <span class="details">${m.gradeIcon} ${m.grade}</span>
-            </div>
-            <div class="temps">${m.rapports} rapport(s)</div>
-          </div>
-        `).join('');
       }
-    } catch (e) {
-      console.error('Erreur chargement rapport:', e);
+      container.innerHTML = html;
     }
+  } catch (e) {
+    console.error('Erreur chargement service:', e);
   }
+}
 
-  async function chargerRapportConfig() {
-    try {
-      const salons = await (await fetch('/api/channels')).json();
-      const params = await (await fetch('/api/settings')).json();
-      
-      const select = document.getElementById('rapport-config-salon');
-      select.innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      select.value = params.rapportChannelId || '';
-    } catch (e) {
-      console.error('Erreur chargement config rapport:', e);
-    }
-  }
-
-  async function configurerRapport() {
-    const statut = document.getElementById('rapport-config-statut');
-    const channelId = document.getElementById('rapport-config-salon').value;
+async function chargerServiceTop() {
+  try {
+    const res = await fetch('/api/service/top');
+    const data = await res.json();
+    const container = document.getElementById('service-top-liste');
     
-    try {
-      const res = await fetch('/api/rapport/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ channelId })
-      });
-      
-      statut.textContent = res.ok ? '✅ Salon de rapports configuré !' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) chargerParametres();
-    } catch (e) {
-      console.error('Erreur configuration rapport:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // INTERVENTION
-  // ==========================================
-  const LABELS_TYPE_INTERVENTION = {
-    accident_circulation: "🚗 Accident de circulation",
-    arme: "🔫 Arme à feu / arme blanche",
-    agression: "🥊 Bagarre / agression",
-    overdose: "💊 Overdose / intoxication",
-    noyade: "🌊 Noyade",
-    chute: "🤕 Chute",
-    malaise: "😵 Malaise",
-    autre: "❓ Autre",
-  };
-  const LABELS_GRAVITE_INTERVENTION = {
-    legere: "🟢 Légère",
-    moyenne: "🟡 Moyenne",
-    critique: "🟠 Critique",
-    deces: "⚫ Décès",
-  };
-
-  async function chargerIntervention() {
-    try {
-      const statsRes = await fetch('/api/xp/stats');
-      const stats = await statsRes.json();
-      
-      document.getElementById('intervention-total').textContent = stats.totalInterventions || 0;
-      document.getElementById('intervention-intervenants').textContent = 
-        Object.values(await (await fetch('/api/xp/leaderboard')).json()).filter(m => m.interventions > 0).length || 0;
-      
-      const topRes = await fetch('/api/xp/leaderboard?sort=interventions');
-      const top = await topRes.json();
-      const topIntervenants = top.filter(m => m.interventions > 0).slice(0, 5);
-      
-      const topContainer = document.getElementById('intervention-top');
-      if (topIntervenants.length === 0) {
-        topContainer.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention n\'a encore été loggée.</p>';
-      } else {
-        topContainer.innerHTML = topIntervenants.map((m, i) => `
-          <div class="service-item" style="border-left-color:var(--accent);">
-            <div class="info">
-              <span class="nom">#${i+1} ${m.username}</span>
-              <span class="details">${m.gradeIcon} ${m.grade}</span>
-            </div>
-            <div class="temps">${m.interventions} intervention(s)</div>
-          </div>
-        `).join('');
-      }
-      
-      const recentRes = await fetch('/api/interventions');
-      const recent = await recentRes.json();
-      const recentContainer = document.getElementById('intervention-recent');
-      if (recent.length === 0) {
-        recentContainer.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention récente.</p>';
-      } else {
-        recentContainer.innerHTML = recent.slice(0, 5).map(iv => `
-          <div class="service-item" style="border-left-color:var(--border-hover);">
-            <div class="info">
-              <span class="nom">${LABELS_TYPE_INTERVENTION[iv.type] || iv.type}</span>
-              <span class="details">${LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite} — ${iv.patient || 'Patient inconnu'} — ${iv.staffTag}</span>
-            </div>
-            <div class="temps" style="font-size:12px;color:var(--text-dim);">${new Date(iv.date).toLocaleDateString('fr-FR')}</div>
-          </div>
-        `).join('');
-      }
-    } catch (e) {
-      console.error('Erreur chargement intervention:', e);
-    }
-  }
-
-  async function chargerInterventionConfig() {
-    try {
-      const salons = await (await fetch('/api/channels')).json();
-      const params = await (await fetch('/api/settings')).json();
-      
-      const select = document.getElementById('intervention-config-salon');
-      select.innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      select.value = params.interventionChannelId || '';
-    } catch (e) {
-      console.error('Erreur chargement config intervention:', e);
-    }
-  }
-
-  async function configurerIntervention() {
-    const statut = document.getElementById('intervention-config-statut');
-    const channelId = document.getElementById('intervention-config-salon').value;
-    
-    try {
-      const res = await fetch('/api/intervention/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ channelId })
-      });
-      
-      statut.textContent = res.ok ? '✅ Salon d\'interventions configuré !' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) chargerParametres();
-    } catch (e) {
-      console.error('Erreur configuration intervention:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // ANNONCES
-  // ==========================================
-  async function chargerSalons() {
-    try {
-      const res = await fetch('/api/channels');
-      const salons = await res.json();
-      const html = salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-      document.getElementById('embed-salon').innerHTML = html;
-      document.getElementById('giveaway-salon').innerHTML = html;
-    } catch (e) {
-      console.error('Erreur chargement salons:', e);
-    }
-  }
-
-  async function envoyerEmbed() {
-    const statut = document.getElementById('embed-statut');
-    const fichier = document.getElementById('embed-image-fichier').files[0];
-
-    const donnees = new FormData();
-    donnees.append('channelId', document.getElementById('embed-salon').value);
-    donnees.append('title', document.getElementById('embed-titre').value);
-    donnees.append('description', document.getElementById('embed-description').value);
-    donnees.append('color', document.getElementById('embed-couleur').value);
-    donnees.append('imageUrl', document.getElementById('embed-image').value);
-    donnees.append('footer', document.getElementById('embed-footer').value);
-    if (fichier) donnees.append('imageFile', fichier);
-
-    try {
-      const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
-      const data = await res.json();
-      statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    } catch (e) {
-      console.error('Erreur envoi embed:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // TICKETS
-  // ==========================================
-  async function chargerTickets() {
-    try {
-      const res = await fetch('/api/tickets');
-      const tickets = await res.json();
-      const liste = document.getElementById('liste-tickets');
-      if (tickets.length === 0) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
-      liste.innerHTML = tickets.map(t => `
-        <div class="carte">
-          <div style="font-weight:600;margin-bottom:2px;">#${t.number || '?'} — ${t.username}</div>
-          ${t.lastActivity ? `<div style="color:var(--text-faint);font-size:11.5px;margin-bottom:8px;">Dernière activité : ${new Date(t.lastActivity).toLocaleString('fr-FR')}</div>` : ''}
-          <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
-          <button onclick="repondreTicket('${t.userId}')">Répondre</button>
-          <button class="secondaire" onclick="fermerTicket('${t.userId}')">Fermer</button>
-          <div id="statut-${t.userId}"></div>
-          <div class="note-zone">
-            <label>📝 Note interne (visible uniquement dans le panel)</label>
-            <textarea id="note-${t.userId}" placeholder="Note staff...">${t.note || ''}</textarea>
-            <button class="petit secondaire" onclick="sauverNoteTicket('${t.userId}')">Enregistrer la note</button>
-            <span id="note-statut-${t.userId}" style="margin-left:8px;font-size:12px;"></span>
-          </div>
-        </div>
-      `).join('');
-    } catch (e) {
-      console.error('Erreur chargement tickets:', e);
-    }
-  }
-
-  async function repondreTicket(userId) {
-    const message = document.getElementById('reply-' + userId).value;
-    const statut = document.getElementById('statut-' + userId);
-    if (!message) return;
-    try {
-      const res = await fetch(`/api/tickets/${userId}/reply`, {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
-      });
-      statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) document.getElementById('reply-' + userId).value = '';
-    } catch (e) {
-      console.error('Erreur réponse ticket:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  async function sauverNoteTicket(userId) {
-    const note = document.getElementById('note-' + userId).value;
-    const statut = document.getElementById('note-statut-' + userId);
-    try {
-      const res = await fetch(`/api/tickets/${userId}/note`, {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
-      });
-      statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      setTimeout(() => { statut.textContent = ''; }, 2500);
-    } catch (e) {
-      console.error('Erreur sauvegarde note:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  async function fermerTicket(userId) {
-    try {
-      await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
-      chargerTickets();
-    } catch (e) {
-      console.error('Erreur fermeture ticket:', e);
-    }
-  }
-
-  // ==========================================
-  // GIVEAWAYS
-  // ==========================================
-  async function chargerGiveaways() {
-    try {
-      await chargerSalons();
-      const res = await fetch('/api/giveaways');
-      const gs = await res.json();
-      document.getElementById('liste-giveaways').innerHTML = gs.map(g => `
-        <div class="carte">
-          <div style="font-weight:600;">${g.prize} — ${g.participants.length} participant(s)</div>
-          <div style="color:var(--text-dim);font-size:13px;">${g.ended ? 'Terminé' : 'En cours'}</div>
-          ${!g.ended ? `<button class="petit secondaire" onclick="terminerGiveawayPanel('${g.id}')">Terminer maintenant</button>` : ''}
-        </div>
-      `).join('') || '<p style="color:var(--text-dim);">Aucun giveaway.</p>';
-    } catch (e) {
-      console.error('Erreur chargement giveaways:', e);
-    }
-  }
-
-  async function creerGiveaway() {
-    const statut = document.getElementById('giveaway-statut');
-    try {
-      const res = await fetch('/api/giveaways', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          channelId: document.getElementById('giveaway-salon').value,
-          prize: document.getElementById('giveaway-prize').value,
-          durationMinutes: document.getElementById('giveaway-duree').value,
-          winnersCount: document.getElementById('giveaway-gagnants').value,
-        })
-      });
-      statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) chargerGiveaways();
-    } catch (e) {
-      console.error('Erreur création giveaway:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  async function terminerGiveawayPanel(id) {
-    try {
-      await fetch(`/api/giveaways/${id}/end`, { method: 'POST' });
-      chargerGiveaways();
-    } catch (e) {
-      console.error('Erreur terminaison giveaway:', e);
-    }
-  }
-
-  // ==========================================
-  // BACKUP
-  // ==========================================
-  function exporterBackup() {
-    window.location.href = '/api/backup';
-  }
-
-  async function importerBackup() {
-    const statut = document.getElementById('backup-statut');
-    const fichier = document.getElementById('backup-fichier').files[0];
-    if (!fichier) { statut.textContent = '❌ Choisis un fichier .json'; statut.className = 'msg-err'; return; }
-    if (!confirm('Cette action va écraser les données actuelles avec celles du fichier. Continuer ?')) return;
-
-    try {
-      const texte = await fichier.text();
-      const data = JSON.parse(texte);
-      const res = await fetch('/api/backup/import', {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
-      });
-      statut.textContent = res.ok ? '✅ Sauvegarde importée avec succès' : "❌ Échec de l'import";
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    } catch (e) {
-      console.error('Erreur import backup:', e);
-      statut.textContent = '❌ Fichier invalide';
-      statut.className = 'msg-err';
-    }
-  }
-
-  // ==========================================
-  // XP & GRADES
-  // ==========================================
-  document.querySelectorAll('.tab-xp').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab-xp').forEach(t => t.classList.remove('actif'));
-      tab.classList.add('actif');
-      document.querySelectorAll('.xp-content').forEach(c => c.classList.add('hidden'));
-      document.getElementById('xp-' + tab.dataset.xpTab).classList.remove('hidden');
-      
-      const actions = {
-        dashboard: chargerXPDashboard,
-        grades: chargerGradesListe,
-        settings: chargerXPSettings,
-        leaderboard: chargerLeaderboard,
-        profile: null,
-        logs: chargerXPLogs
-      };
-      if (actions[tab.dataset.xpTab]) actions[tab.dataset.xpTab]();
-    });
-  });
-
-  async function chargerXPDashboard() {
-    try {
-      const res = await fetch('/api/xp/stats');
-      const stats = await res.json();
-      
-      document.getElementById('xp-stats').innerHTML = [
-        ['Total XP', stats.totalXp || 0],
-        ['Membres actifs', stats.activeMembers || 0],
-        ['Total interventions', stats.totalInterventions || 0],
-        ['Total rapports', stats.totalRapports || 0],
-        ['Grade moyen', stats.averageGrade || 'N/A']
-      ].map(([label, val]) => `
-        <div class="stat-carte">
-          <div class="valeur">${val}</div>
-          <div class="label">${label}</div>
-        </div>
-      `).join('');
-
-      const topRes = await fetch('/api/xp/top5');
-      const top = await topRes.json();
-      document.getElementById('xp-top5').innerHTML = `
-        <h3 style="margin-top:0;font-size:16px;">🏆 Top 5 des membres</h3>
-        ${top.map((m, i) => `
-          <div class="carte" style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <strong>#${i+1}</strong> ${m.username}
-                <span style="color:var(--text-dim);font-size:12px;">${m.grade}</span>
-              </div>
-              <div>
-                <span style="font-weight:600;">${m.xp}</span> XP - Niveau ${m.level}
-                <span style="color:var(--text-dim);font-size:11px;margin-left:6px;">🚑${m.interventions} 📋${m.rapports}</span>
-              </div>
-            </div>
-          </div>
-        `).join('')}
-      `;
-    } catch (e) {
-      console.error('Erreur chargement dashboard XP:', e);
-    }
-  }
-
-  async function chargerGradesListe() {
-    try {
-      const res = await fetch('/api/grades');
-      const data = await res.json();
-      
-      document.getElementById('liste-grades').innerHTML = data.grades.map(g => `
-        <div class="carte">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-              <div style="font-size:20px;font-weight:700;color:${g.color}">
-                ${g.icon} ${g.name}
-              </div>
-              <div style="color:var(--text-dim);font-size:13px;">
-                Niveau ${g.level} • ${g.xpRequired} XP requis
-              </div>
-              <div style="margin-top:6px;">
-                ${(g.perks || []).map(p => `<span class="role-badge">${p}</span>`).join('')}
-              </div>
-            </div>
-            <div style="display:flex; gap:6px;">
-              <button class="petit danger" onclick="supprimerGrade('${g.id}')">🗑️</button>
-            </div>
-          </div>
-        </div>
-      `).join('') || '<p style="color:var(--text-dim);">Aucun grade configuré.</p>';
-    } catch (e) {
-      console.error('Erreur chargement grades:', e);
-    }
-  }
-
-  async function creerGrade() {
-    const statut = document.getElementById('grade-statut');
-    const data = {
-      id: document.getElementById('grade-id').value.trim(),
-      name: document.getElementById('grade-nom').value.trim(),
-      level: parseInt(document.getElementById('grade-niveau').value) || 1,
-      xpRequired: parseInt(document.getElementById('grade-xp').value) || 0,
-      icon: document.getElementById('grade-icone').value || '🟢',
-      color: document.getElementById('grade-couleur').value || '#34d399',
-      perks: document.getElementById('grade-perks').value.split(',').map(s => s.trim()).filter(Boolean),
-      notifications: document.getElementById('grade-notifications').checked
-    };
-    
-    if (!data.id || !data.name) {
-      statut.textContent = '❌ ID et Nom sont requis';
-      statut.className = 'msg-err';
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service.</p>';
       return;
     }
-    
-    try {
-      const res = await fetch('/api/grades', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-      });
-      
-      statut.textContent = res.ok ? '✅ Grade créé' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-      if (res.ok) {
-        document.getElementById('grade-id').value = '';
-        document.getElementById('grade-nom').value = '';
-        chargerGradesListe();
-      }
-    } catch (e) {
-      console.error('Erreur création grade:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
 
-  async function supprimerGrade(id) {
-    if (!confirm('Supprimer ce grade ?')) return;
-    try {
-      await fetch(`/api/grades/${id}`, { method: 'DELETE' });
-      chargerGradesListe();
-    } catch (e) {
-      console.error('Erreur suppression grade:', e);
-    }
-  }
-
-  async function chargerXPSettings() {
-    try {
-      const res = await fetch('/api/xp/settings');
-      const settings = await res.json();
-      
-      document.getElementById('xp-per-minute').value = settings.xpPerMinute || 1;
-      document.getElementById('xp-per-intervention').value = settings.xpPerIntervention || 50;
-      document.getElementById('xp-per-rapport').value = settings.xpPerRapport || 50;
-      document.getElementById('xp-per-message').value = settings.xpPerMessage || 0.5;
-      document.getElementById('xp-per-voice').value = settings.xpPerVoiceMinute || 2;
-      document.getElementById('xp-per-warn').value = settings.xpPerWarn || -25;
-      document.getElementById('xp-per-kick').value = settings.xpPerKick || -50;
-      document.getElementById('xp-per-ban').value = settings.xpPerBan || -100;
-      document.getElementById('xp-cooldown-message').value = settings.cooldowns?.message || 60;
-      document.getElementById('xp-cooldown-voice').value = settings.cooldowns?.voice || 300;
-      document.getElementById('xp-boost-weekend').value = settings.xpBoosts?.weekend || 1.5;
-      document.getElementById('xp-boost-event').value = settings.xpBoosts?.event || 2.0;
-      document.getElementById('xp-levelup-message').value = settings.levelUpMessage || '';
-      document.getElementById('xp-status-message').value = settings.xpMessage || '';
-      document.getElementById('xp-notifications').checked = settings.notifications !== false;
-    } catch (e) {
-      console.error('Erreur chargement settings XP:', e);
-    }
-  }
-
-  async function sauverXPSettings() {
-    const statut = document.getElementById('xp-settings-statut');
-    const data = {
-      xpPerMinute: parseFloat(document.getElementById('xp-per-minute').value) || 1,
-      xpPerIntervention: parseInt(document.getElementById('xp-per-intervention').value) || 50,
-      xpPerRapport: parseInt(document.getElementById('xp-per-rapport').value) || 50,
-      xpPerMessage: parseFloat(document.getElementById('xp-per-message').value) || 0.5,
-      xpPerVoiceMinute: parseFloat(document.getElementById('xp-per-voice').value) || 2,
-      xpPerWarn: parseInt(document.getElementById('xp-per-warn').value) || -25,
-      xpPerKick: parseInt(document.getElementById('xp-per-kick').value) || -50,
-      xpPerBan: parseInt(document.getElementById('xp-per-ban').value) || -100,
-      cooldowns: {
-        message: parseInt(document.getElementById('xp-cooldown-message').value) || 60,
-        voice: parseInt(document.getElementById('xp-cooldown-voice').value) || 300
-      },
-      xpBoosts: {
-        weekend: parseFloat(document.getElementById('xp-boost-weekend').value) || 1.5,
-        event: parseFloat(document.getElementById('xp-boost-event').value) || 2.0
-      },
-      levelUpMessage: document.getElementById('xp-levelup-message').value,
-      xpMessage: document.getElementById('xp-status-message').value,
-      notifications: document.getElementById('xp-notifications').checked
-    };
-    
-    try {
-      const res = await fetch('/api/xp/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-      });
-      
-      statut.textContent = res.ok ? '✅ Paramètres enregistrés' : '❌ Erreur';
-      statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    } catch (e) {
-      console.error('Erreur sauvegarde settings XP:', e);
-      statut.textContent = '❌ Erreur';
-      statut.className = 'msg-err';
-    }
-  }
-
-  async function chargerLeaderboard() {
-    try {
-      const sort = document.getElementById('lb-sort').value;
-      const search = document.getElementById('lb-search').value;
-      const gradeFilter = document.getElementById('lb-grade-filter').value;
-      
-      const params = new URLSearchParams({ sort, search, grade: gradeFilter });
-      const res = await fetch(`/api/xp/leaderboard?${params}`);
-      const data = await res.json();
-      
-      document.getElementById('leaderboard-liste').innerHTML = data.map((m, i) => `
-        <div class="carte" style="margin-bottom:8px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-            <div>
-              <span style="font-weight:700;color:var(--text-dim);">#${i+1}</span>
-              <span style="font-weight:600;">${m.username}</span>
-              <span style="font-size:12px;color:${m.gradeColor};font-weight:600;">${m.gradeIcon} ${m.grade}</span>
-              ${m.isOnService ? '<span class="service-badge" style="font-size:10px;padding:2px 8px;">🟢</span>' : ''}
+    let html = '<div style="margin-bottom:12px;font-weight:600;">🏆 Classement selon le temps de service total</div>';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      const isActive = getServiceStatus(item.userId);
+      html += `
+        <div class="rank-item" style="border-left-color:${isActive ? 'var(--ok)' : 'var(--border-hover)'};">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId} ${isActive ? '<span class="service-badge" style="font-size:10px;padding:2px 8px;">🟢</span>' : ''}</span>
+              <span class="details">${item.sessions ? item.sessions.length + ' session(s)' : ''}</span>
             </div>
-            <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:13px;">
-              <span>🏆 ${m.xp} XP</span>
-              <span>📊 Niv. ${m.level}</span>
-              <span>🚑 ${m.interventions} interventions</span>
-              <span>📋 ${m.rapports || 0} rapports</span>
-              <span>⏱️ ${Math.floor(m.serviceTime / 3600)}h</span>
+          </div>
+          <div class="value">${formatTime(item.totalTime || 0)}</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top service:', e);
+  }
+}
+
+async function chargerServiceWeekly() {
+  try {
+    const res = await fetch('/api/service/top/weekly');
+    const data = await res.json();
+    const container = document.getElementById('service-weekly-liste');
+    
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service cette semaine.</p>';
+      return;
+    }
+
+    let html = '<div style="margin-bottom:12px;font-weight:600;">📅 Classement selon le temps de service de la semaine</div>';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      html += `
+        <div class="rank-item">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId}</span>
             </div>
+          </div>
+          <div class="value">${formatTime(item.weeklyTime || 0)}</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top weekly:', e);
+  }
+}
+
+async function chargerServiceMembre() {
+  const search = document.getElementById('service-search').value.trim();
+  if (!search) return;
+  
+  try {
+    const userId = await resolveUser(search);
+    if (!userId) {
+      document.getElementById('service-member-content').innerHTML = 
+        '<div class="carte" style="text-align:center;color:var(--err);">❌ Membre non trouvé</div>';
+      return;
+    }
+
+    const res = await fetch(`/api/service/member/${userId}`);
+    const stats = await res.json();
+    const user = await fetchUser(userId);
+    
+    if (!stats || stats.totalTime === 0) {
+      document.getElementById('service-member-content').innerHTML = `
+        <div class="carte" style="text-align:center;color:var(--text-dim);">
+          ${user?.username || userId} n'a pas encore de temps de service enregistré.
+        </div>
+      `;
+      return;
+    }
+
+    const isActive = getServiceStatus(userId);
+    const daily = stats.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    const maxDaily = Math.max(...Object.values(daily));
+
+    document.getElementById('service-member-content').innerHTML = `
+      <div class="carte">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-size:20px;font-weight:700;">${user?.username || userId}</div>
+            ${isActive ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:24px;font-weight:700;color:var(--accent);">${formatTime(stats.totalTime || 0)}</div>
+            <div style="color:var(--text-dim);font-size:13px;">Total cumulé</div>
           </div>
         </div>
-      `).join('') || '<p style="color:var(--text-dim);">Aucun membre trouvé.</p>';
-      
-      const grades = await (await fetch('/api/grades')).json();
-      const select = document.getElementById('lb-grade-filter');
-      const currentVal = select.value;
-      select.innerHTML = '<option value="all">Tous les grades</option>' + 
-        grades.grades.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-      select.value = currentVal;
-    } catch (e) {
-      console.error('Erreur chargement leaderboard:', e);
-    }
-  }
 
-  async function chargerProfil() {
-    const search = document.getElementById('profile-search').value.trim();
-    if (!search) return;
-    
-    try {
-      const res = await fetch(`/api/xp/profile?search=${encodeURIComponent(search)}`);
-      const data = await res.json();
-      
-      if (!data || !data.username) {
-        document.getElementById('profile-content').innerHTML = `
-          <div class="carte" style="text-align:center; color:var(--text-dim);">
-            Membre non trouvé
+        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur ok">${formatTime(stats.weeklyTime || 0)}</div>
+            <div class="label">Cette semaine</div>
           </div>
-        `;
-        return;
-      }
-      
-      const { level, currentXp, nextXp } = getLevelInfo(data.xp);
-      const progress = nextXp ? Math.round((currentXp / nextXp) * 100) : 100;
-      
-      document.getElementById('profile-content').innerHTML = `
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${stats.sessions ? stats.sessions.length : 0}</div>
+            <div class="label">Sessions</div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <div style="font-weight:600;margin-bottom:8px;">📅 Temps par jour</div>
+          <div class="daily-grid">
+            ${jours.map(j => `
+              <div class="daily-item">
+                <div class="jour">${j.charAt(0).toUpperCase() + j.slice(1)}</div>
+                <div class="temps ${daily[j] === maxDaily && maxDaily > 0 ? 'high' : ''}">${formatTimeShort(daily[j] || 0)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        ${stats.sessions && stats.sessions.length > 0 ? `
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+            <div style="font-weight:600;margin-bottom:8px;">📋 Dernières sessions</div>
+            ${stats.sessions.slice(-5).reverse().map(s => `
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-dim);">${new Date(s.start).toLocaleString('fr-FR')}</span>
+                <span style="font-weight:600;">${formatTime(s.duration || 0)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erreur chargement service membre:', e);
+    document.getElementById('service-member-content').innerHTML = 
+      '<div class="carte" style="text-align:center;color:var(--err);">❌ Erreur lors du chargement</div>';
+  }
+}
+
+// ==========================================
+// INTERVENTIONS
+// ==========================================
+async function chargerInterventionsStats() {
+  try {
+    const res = await fetch('/api/interventions/stats');
+    const stats = await res.json();
+    document.getElementById('intervention-total').textContent = stats.total || 0;
+    
+    const users = new Set(interventions.map(iv => iv.userId));
+    document.getElementById('intervention-intervenants').textContent = users.size || 0;
+  } catch (e) {
+    console.error('Erreur chargement stats interventions:', e);
+  }
+}
+
+async function chargerInterventionsTop() {
+  try {
+    const res = await fetch('/api/interventions/top');
+    const data = await res.json();
+    const container = document.getElementById('intervention-top-liste');
+    
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention enregistrée.</p>';
+      return;
+    }
+
+    let html = '';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      html += `
+        <div class="rank-item">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId}</span>
+            </div>
+          </div>
+          <div class="value">${item.count} intervention(s)</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top interventions:', e);
+  }
+}
+
+async function chargerInterventionsMembre() {
+  const search = document.getElementById('intervention-search').value.trim();
+  if (!search) return;
+  
+  try {
+    const userId = await resolveUser(search);
+    if (!userId) {
+      document.getElementById('intervention-member-content').innerHTML = 
+        '<div style="color:var(--err);text-align:center;">❌ Membre non trouvé</div>';
+      return;
+    }
+
+    const res = await fetch(`/api/interventions/user/${userId}`);
+    const data = await res.json();
+    const user = await fetchUser(userId);
+    
+    if (!data || data.length === 0) {
+      document.getElementById('intervention-member-content').innerHTML = 
+        `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore d'intervention.</div>`;
+      return;
+    }
+
+    const types = {};
+    data.forEach(iv => {
+      types[iv.type] = (types[iv.type] || 0) + 1;
+    });
+
+    document.getElementById('intervention-member-content').innerHTML = `
+      <div class="carte">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:18px;font-weight:700;">${user?.username || userId}</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent);">${data.length} intervention(s)</div>
+        </div>
+        ${Object.keys(types).length > 0 ? `
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+            ${Object.entries(types).map(([type, count]) => `
+              <span class="role-badge">${LABELS_TYPE_INTERVENTION[type] || type}: ${count}</span>
+            `).join('')}
+          </div>
+        ` : ''}
+        <div style="margin-top:12px;max-height:300px;overflow-y:auto;">
+          ${data.slice(-10).reverse().map(iv => `
+            <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">
+              <span>${LABELS_TYPE_INTERVENTION[iv.type] || iv.type} (${LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite})</span>
+              <span style="color:var(--text-dim);">${iv.patient || 'Patient inconnu'} — ${new Date(iv.date).toLocaleDateString('fr-FR')}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erreur chargement interventions membre:', e);
+    document.getElementById('intervention-member-content').innerHTML = 
+      '<div style="color:var(--err);text-align:center;">❌ Erreur lors du chargement</div>';
+  }
+}
+
+// ==========================================
+// RAPPORTS
+// ==========================================
+async function chargerRapportsStats() {
+  try {
+    const res = await fetch('/api/rapports/stats');
+    const stats = await res.json();
+    document.getElementById('rapport-total').textContent = stats.total || 0;
+    document.getElementById('rapport-auteurs').textContent = stats.users || 0;
+  } catch (e) {
+    console.error('Erreur chargement stats rapports:', e);
+  }
+}
+
+async function chargerRapportsTop() {
+  try {
+    const res = await fetch('/api/rapports/top');
+    const data = await res.json();
+    const container = document.getElementById('rapport-top-liste');
+    
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun rapport enregistré.</p>';
+      return;
+    }
+
+    let html = '';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      html += `
+        <div class="rank-item">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId}</span>
+            </div>
+          </div>
+          <div class="value">${item.count} rapport(s)</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top rapports:', e);
+  }
+}
+
+async function chargerRapportsMembre() {
+  const search = document.getElementById('rapport-search').value.trim();
+  if (!search) return;
+  
+  try {
+    const userId = await resolveUser(search);
+    if (!userId) {
+      document.getElementById('rapport-member-content').innerHTML = 
+        '<div style="color:var(--err);text-align:center;">❌ Membre non trouvé</div>';
+      return;
+    }
+
+    const res = await fetch(`/api/rapports/user/${userId}`);
+    const data = await res.json();
+    const user = await fetchUser(userId);
+    
+    if (!data || data.length === 0) {
+      document.getElementById('rapport-member-content').innerHTML = 
+        `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore de rapport.</div>`;
+      return;
+    }
+
+    document.getElementById('rapport-member-content').innerHTML = `
+      <div class="carte">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:18px;font-weight:700;">${user?.username || userId}</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent);">${data.length} rapport(s)</div>
+        </div>
+        <div style="margin-top:12px;max-height:400px;overflow-y:auto;">
+          ${data.slice(-10).reverse().map(r => `
+            <div style="padding:10px;border-bottom:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
+                <span style="font-weight:600;">${r.patient}</span>
+                <span style="color:var(--text-dim);font-size:12px;">${new Date(r.date).toLocaleString('fr-FR')}</span>
+              </div>
+              <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">${r.situation.substring(0, 100)}${r.situation.length > 100 ? '...' : ''}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erreur chargement rapports membre:', e);
+    document.getElementById('rapport-member-content').innerHTML = 
+      '<div style="color:var(--err);text-align:center;">❌ Erreur lors du chargement</div>';
+  }
+}
+
+// ==========================================
+// MODERATION
+// ==========================================
+let rechercheTimeout;
+let cachedInterventions = [];
+let cachedServiceData = {};
+
+async function fetchUser(userId) {
+  try {
+    const res = await fetch(`/api/members/search?q=${userId}`);
+    const data = await res.json();
+    if (data && data.length > 0) return data[0];
+    return null;
+  } catch { return null; }
+}
+
+async function resolveUser(search) {
+  try {
+    const res = await fetch(`/api/members/search?q=${encodeURIComponent(search)}`);
+    const data = await res.json();
+    if (data && data.length > 0) return data[0].id;
+    return null;
+  } catch { return null; }
+}
+
+function getServiceStatus(userId) {
+  return cachedServiceData[userId]?.active || false;
+}
+
+function rechercherMembres(q) {
+  clearTimeout(rechercheTimeout);
+  rechercheTimeout = setTimeout(async () => {
+    if (!q) { document.getElementById('mod-resultats').innerHTML = ''; return; }
+    try {
+      const res = await fetch('/api/members/search?q=' + encodeURIComponent(q));
+      const membres = await res.json();
+      const roles = await (await fetch('/api/roles')).json();
+      const optionsRoles = roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+      // Cache data for service status
+      const serviceRes = await fetch('/api/service/stats');
+      cachedServiceData = await serviceRes.json();
+
+      document.getElementById('mod-resultats').innerHTML = membres.map(m => `
         <div class="carte">
-          <div style="text-align:center; margin-bottom:20px;">
-            <div style="font-size:48px; line-height:1.2;">${data.gradeIcon || '👤'}</div>
-            <div style="font-size:24px; font-weight:700; color:${data.gradeColor || 'var(--text)'};">
-              ${data.grade || 'Aucun grade'}
-            </div>
-            <div style="font-size:20px; font-weight:600;">${data.username}</div>
-            <div style="color:var(--text-dim); font-size:14px;">ID: ${data.userId}</div>
-            <div style="margin-top:8px;">
-              ${data.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
-              ${data.serviceStart ? `<span style="color:var(--text-dim);font-size:12px;margin-left:8px;">Depuis ${new Date(data.serviceStart).toLocaleTimeString('fr-FR')}</span>` : ''}
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${m.tag}</div>
+            <div>
+              ${m.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
+              <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
+              <span class="role-badge">🚑 ${m.interventions} interventions</span>
+              <span class="role-badge">📋 ${m.rapports} rapports</span>
+              <span class="role-badge">⏱️ ${m.serviceTime}h de service</span>
             </div>
           </div>
-          
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:12px; margin:16px 0;">
-            <div class="stat-carte" style="text-align:center;">
-              <div class="valeur">${level}</div>
-              <div class="label">Niveau</div>
-            </div>
-            <div class="stat-carte" style="text-align:center;">
-              <div class="valeur">${data.xp}</div>
-              <div class="label">XP total</div>
-            </div>
-            <div class="stat-carte" style="text-align:center;">
-              <div class="valeur">${data.interventions || 0}</div>
-              <div class="label">Interventions</div>
-            </div>
-            <div class="stat-carte" style="text-align:center;">
-              <div class="valeur">${data.rapports || 0}</div>
-              <div class="label">Rapports</div>
-            </div>
-            <div class="stat-carte" style="text-align:center;">
-              <div class="valeur">${Math.floor((data.serviceTime || 0) / 3600)}h</div>
-              <div class="label">Temps de service</div>
-            </div>
+          <div style="margin-top:8px;">
+            ${m.roles.map(r => `<span class="role-badge">${r.name}</span>`).join('')}
           </div>
-          
-          ${nextXp ? `
-            <div style="margin:16px 0;">
-              <div style="display:flex; justify-content:space-between; font-size:13px; color:var(--text-dim);">
-                <span>Progression</span>
-                <span>${currentXp} / ${nextXp} XP</span>
-              </div>
-              <div style="background:var(--bg-input); height:8px; border-radius:999px; overflow:hidden; margin-top:4px;">
-                <div style="background:var(--accent-grad); height:100%; width:${progress}%; transition:width 0.6s ease;"></div>
-              </div>
-              <div style="text-align:right; font-size:12px; color:var(--text-dim); margin-top:2px;">
-                ${progress}%
-              </div>
-            </div>
-          ` : '<div style="color:var(--ok); text-align:center; margin:12px 0;">🏆 Niveau maximum atteint !</div>'}
-          
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px; margin-top:12px;">
-            <div style="color:var(--text-dim);">Messages: <strong style="color:var(--text);">${data.messages || 0}</strong></div>
-            <div style="color:var(--text-dim);">Temps vocal: <strong style="color:var(--text);">${Math.floor((data.voiceTime || 0) / 3600)}h</strong></div>
-            <div style="color:var(--text-dim);">Dernière activité: <strong style="color:var(--text);">${new Date(data.lastActivity).toLocaleDateString('fr-FR')}</strong></div>
+          <div id="warn-liste-${m.id}" class="warn-liste" style="margin-top:8px;display:none;"></div>
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <select id="role-add-${m.id}" style="width:auto;">${optionsRoles}</select>
+            <button class="petit secondaire" onclick="modifierRole('${m.id}', document.getElementById('role-add-${m.id}').value, 'add')">+ Rôle</button>
+            <button class="petit secondaire" onclick="timeoutMembre('${m.id}')">Timeout 10min</button>
+            <button class="petit avertir" onclick="avertirMembre('${m.id}')">⚠️ Avertir</button>
+            <button class="petit danger" onclick="kickMembre('${m.id}')">Kick</button>
+            <button class="petit danger" onclick="banMembre('${m.id}')">Ban</button>
           </div>
-          
-          ${data.perks && data.perks.length ? `
-            <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
-              <div style="font-weight:600; margin-bottom:8px;">Privilèges</div>
-              ${data.perks.map(p => `<span class="role-badge">${p}</span>`).join('')}
-            </div>
-          ` : ''}
         </div>
-      `;
+      `).join('') || '<p style="color:var(--text-dim);">Aucun résultat.</p>';
     } catch (e) {
-      console.error('Erreur chargement profil:', e);
-      document.getElementById('profile-content').innerHTML = `
-        <div class="carte" style="text-align:center; color:var(--err);">
-          ❌ Erreur lors du chargement du profil
-        </div>
-      `;
+      console.error('Erreur recherche membres:', e);
     }
-  }
+  }, 400);
+}
 
-  function getLevelInfo(xp) {
-    let level = 1;
-    let xpNeeded = 100;
-    let totalXp = 0;
-    while (totalXp + xpNeeded <= xp) {
-      totalXp += xpNeeded;
-      level++;
-      xpNeeded = Math.floor(xpNeeded * 1.2);
-    }
-    return { level, currentXp: xp - totalXp, nextXp: xpNeeded };
-  }
-
-  let logsTimeout;
-  function chargerXPLogs() {
-    clearTimeout(logsTimeout);
-    logsTimeout = setTimeout(async () => {
-      try {
-        const search = document.getElementById('logs-search').value;
-        const type = document.getElementById('logs-type').value;
-        
-        const params = new URLSearchParams({ search, type });
-        const res = await fetch(`/api/xp/logs?${params}`);
-        const logs = await res.json();
-        
-        document.getElementById('logs-liste').innerHTML = logs.slice(0, 100).map(log => `
-          <div class="carte" style="margin-bottom:6px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-              <div>
-                <strong>${log.username}</strong>
-                <span style="color:var(--text-dim);font-size:12px;">${log.type}</span>
-                <span style="font-size:12px;color:${log.amount >= 0 ? 'var(--ok)' : 'var(--err)'};">
-                  ${log.amount >= 0 ? '+' : ''}${log.amount} XP
-                </span>
-              </div>
-              <div style="font-size:12px;color:var(--text-dim);">
-                ${log.reason || ''} • ${new Date(log.date).toLocaleString('fr-FR')}
-              </div>
-            </div>
+async function toggleWarns(userId) {
+  const zone = document.getElementById('warn-liste-' + userId);
+  if (zone.style.display === 'block') { zone.style.display = 'none'; return; }
+  try {
+    const res = await fetch(`/api/members/${userId}/warns`);
+    const liste = await res.json();
+    zone.innerHTML = liste.length
+      ? liste.map(w => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <div>
+            <div>${w.reason}</div>
+            <div style="color:var(--text-faint);font-size:11px;">Par ${w.staffTag} — ${new Date(w.date).toLocaleString('fr-FR')}</div>
           </div>
-        `).join('') || '<p style="color:var(--text-dim);">Aucun log trouvé.</p>';
-      } catch (e) {
-        console.error('Erreur chargement logs XP:', e);
-      }
-    }, 300);
+          <button class="petit danger" style="margin:0;padding:2px 8px;font-size:11px;" onclick="supprimerWarn('${userId}','${w.id}')">×</button>
+        </div>
+      `).join('')
+      : '<p style="color:var(--text-dim);font-size:12.5px;">Aucun avertissement.</p>';
+    zone.style.display = 'block';
+  } catch (e) {
+    console.error('Erreur chargement warns:', e);
   }
+}
 
-  // ==========================================
-  // INITIALISATION
-  // ==========================================
-  chargerCompte();
-  chargerStats();
+async function avertirMembre(userId) {
+  const raison = prompt("Raison de l'avertissement ?");
+  if (!raison) return;
+  try {
+    const res = await fetch(`/api/members/${userId}/warn`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison })
+    });
+    if (res.ok) rechercherMembres(document.getElementById('mod-recherche').value);
+    else alert("Échec de l'avertissement.");
+  } catch (e) {
+    console.error('Erreur avertissement:', e);
+    alert("Erreur lors de l'avertissement.");
+  }
+}
+
+async function supprimerWarn(userId, warnId) {
+  if (!confirm('Supprimer cet avertissement ?')) return;
+  try {
+    await fetch(`/api/members/${userId}/warns/${warnId}`, { method: 'DELETE' });
+    toggleWarns(userId);
+  } catch (e) {
+    console.error('Erreur suppression warn:', e);
+  }
+}
+
+async function modifierRole(userId, roleId, action) {
+  try {
+    await fetch(`/api/members/${userId}/roles/${roleId}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action })
+    });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur modification rôle:', e);
+  }
+}
+
+async function kickMembre(userId) {
+  const raison = prompt('Raison du kick ? (optionnel)') || '';
+  if (!confirm('Kick ce membre ?')) return;
+  try {
+    await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur kick:', e);
+    alert("Erreur lors du kick.");
+  }
+}
+
+async function banMembre(userId) {
+  const raison = prompt('Raison du ban ? (optionnel)') || '';
+  if (!confirm('Bannir ce membre ?')) return;
+  try {
+    await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur ban:', e);
+    alert("Erreur lors du ban.");
+  }
+}
+
+async function timeoutMembre(userId) {
+  try {
+    await fetch(`/api/members/${userId}/timeout`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 10 }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur timeout:', e);
+    alert("Erreur lors du timeout.");
+  }
+}
+
+// ==========================================
+// SALONS
+// ==========================================
+async function chargerSalonsListe() {
+  try {
+    const res = await fetch('/api/channels/all');
+    const salons = await res.json();
+    document.getElementById('liste-salons').innerHTML = salons.map(c => `
+      <div class="carte" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>#${c.name}</span>
+        <button class="petit danger" onclick="supprimerSalon('${c.id}')">Supprimer</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement salons:', e);
+  }
+}
+
+async function creerSalon() {
+  const statut = document.getElementById('salon-statut');
+  try {
+    const res = await fetch('/api/channels', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: document.getElementById('salon-nom').value, type: document.getElementById('salon-type').value })
+    });
+    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) { document.getElementById('salon-nom').value = ''; chargerSalonsListe(); }
+  } catch (e) {
+    console.error('Erreur création salon:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function supprimerSalon(id) {
+  if (!confirm('Supprimer ce salon ?')) return;
+  try {
+    await fetch('/api/channels/' + id, { method: 'DELETE' });
+    chargerSalonsListe();
+  } catch (e) {
+    console.error('Erreur suppression salon:', e);
+  }
+}
+
+// ==========================================
+// ROLES
+// ==========================================
+async function chargerRolesListe() {
+  try {
+    const res = await fetch('/api/roles');
+    const roles = await res.json();
+    document.getElementById('liste-roles').innerHTML = roles.map(r => `
+      <div class="carte" style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:${r.color !== '#000000' ? r.color : 'var(--text)'};">${r.name}</span>
+        <button class="petit danger" onclick="supprimerRole('${r.id}')">Supprimer</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement rôles:', e);
+  }
+}
+
+async function creerRole() {
+  const statut = document.getElementById('role-statut');
+  try {
+    const res = await fetch('/api/roles', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: document.getElementById('role-nom').value, color: document.getElementById('role-couleur').value })
+    });
+    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) { document.getElementById('role-nom').value = ''; chargerRolesListe(); }
+  } catch (e) {
+    console.error('Erreur création rôle:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function supprimerRole(id) {
+  if (!confirm('Supprimer ce rôle ?')) return;
+  try {
+    await fetch('/api/roles/' + id, { method: 'DELETE' });
+    chargerRolesListe();
+  } catch (e) {
+    console.error('Erreur suppression rôle:', e);
+  }
+}
+
+// ==========================================
+// BIENVENUE / PARAMETRES
+// ==========================================
+async function chargerParametres() {
+  try {
+    const [salons, params] = await Promise.all([
+      (await fetch('/api/channels')).json(),
+      (await fetch('/api/settings')).json(),
+    ]);
+    const roles = await (await fetch('/api/roles')).json();
+
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsRoles = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+    const autoRoleSelect = document.getElementById('param-autorole');
+    autoRoleSelect.innerHTML = optionsRoles;
+    if (params.autoRoleIds && Array.isArray(params.autoRoleIds)) {
+      Array.from(autoRoleSelect.options).forEach(opt => {
+        opt.selected = params.autoRoleIds.includes(opt.value);
+      });
+    }
+
+    document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
+    document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
+    document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
+    document.getElementById('param-salon-service').innerHTML = optionsSalons;
+    document.getElementById('param-salon-rapport').innerHTML = optionsSalons;
+    document.getElementById('param-salon-intervention').innerHTML = optionsSalons;
+
+    document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
+    document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
+    document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
+    document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
+    document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
+    document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
+    document.getElementById('param-salon-service').value = params.serviceChannelId || '';
+    document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
+    document.getElementById('param-salon-intervention').value = params.interventionChannelId || '';
+  } catch (e) {
+    console.error('Erreur chargement paramètres:', e);
+  }
+}
+
+async function sauverParametres() {
+  const statut = document.getElementById('param-statut');
+  const autoRoleSelect = document.getElementById('param-autorole');
+  const autoRoleIds = Array.from(autoRoleSelect.selectedOptions).map(opt => opt.value).filter(v => v);
+  
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        autoRoleIds: autoRoleIds,
+        welcomeChannelId: document.getElementById('param-salon-bienvenue').value,
+        welcomeMessage: document.getElementById('param-message-bienvenue').value,
+        ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
+        ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
+        modLogsChannelId: document.getElementById('param-salon-modlogs').value,
+        ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
+        serviceChannelId: document.getElementById('param-salon-service').value,
+        rapportChannelId: document.getElementById('param-salon-rapport').value,
+        interventionChannelId: document.getElementById('param-salon-intervention').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur sauvegarde paramètres:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// ==========================================
+// CANDIDATURES
+// ==========================================
+async function chargerCandidatures() {
+  try {
+    const [salons, roles, cfg] = await Promise.all([
+      (await fetch('/api/channels')).json(),
+      (await fetch('/api/roles')).json(),
+      (await fetch('/api/settings/candidatures')).json(),
+    ]);
+
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsSalonRefus = '<option value="">Utiliser le même</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsRoles = '<option value="">Administrateurs</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    const optionsRolesAttr = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+
+    document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
+    document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
+    
+    const rolesValidSelect = document.getElementById('cand-roles-valid');
+    rolesValidSelect.innerHTML = optionsRoles;
+    if (cfg.rolesValid && Array.isArray(cfg.rolesValid)) {
+      Array.from(rolesValidSelect.options).forEach(opt => {
+        opt.selected = cfg.rolesValid.includes(opt.value);
+      });
+    }
+
+    const rolesRefusSelect = document.getElementById('cand-roles-refus');
+    rolesRefusSelect.innerHTML = optionsRoles;
+    if (cfg.rolesRefus && Array.isArray(cfg.rolesRefus)) {
+      Array.from(rolesRefusSelect.options).forEach(opt => {
+        opt.selected = cfg.rolesRefus.includes(opt.value);
+      });
+    }
+
+    const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
+    rolesAttributionSelect.innerHTML = optionsRolesAttr;
+    if (cfg.rolesAttribution && Array.isArray(cfg.rolesAttribution)) {
+      Array.from(rolesAttributionSelect.options).forEach(opt => {
+        opt.selected = cfg.rolesAttribution.includes(opt.value);
+      });
+    }
+
+    document.getElementById('cand-actif').checked = !!cfg.actif;
+    document.getElementById('cand-salon-validation').value = cfg.salonValidation || '';
+    document.getElementById('cand-salon-refus').value = cfg.salonRefus || '';
+    document.getElementById('cand-mp-actif').checked = cfg.mpActif !== false;
+    document.getElementById('cand-mention-user').checked = cfg.mentionUser !== false;
+    document.getElementById('cand-fermeture-auto').checked = !!cfg.fermetureAuto;
+    document.getElementById('cand-fermeture-delai').value = cfg.fermetureDelai ?? 10;
+    document.getElementById('cand-msg-validation').value = cfg.messageValidation || '';
+    document.getElementById('cand-msg-refus').value = cfg.messageRefus || '';
+    document.getElementById('cand-mp-validation').value = cfg.mpValidation || '';
+    document.getElementById('cand-mp-refus').value = cfg.mpRefus || '';
+  } catch (e) {
+    console.error('Erreur chargement candidatures:', e);
+  }
+}
+
+async function sauverCandidatures() {
+  const statut = document.getElementById('cand-statut');
+  const rolesValidSelect = document.getElementById('cand-roles-valid');
+  const rolesRefusSelect = document.getElementById('cand-roles-refus');
+  const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
+  
+  try {
+    const res = await fetch('/api/settings/candidatures', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        actif: document.getElementById('cand-actif').checked,
+        salonValidation: document.getElementById('cand-salon-validation').value,
+        salonRefus: document.getElementById('cand-salon-refus').value,
+        rolesValid: Array.from(rolesValidSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        rolesRefus: Array.from(rolesRefusSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        rolesAttribution: Array.from(rolesAttributionSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        mpActif: document.getElementById('cand-mp-actif').checked,
+        mentionUser: document.getElementById('cand-mention-user').checked,
+        fermetureAuto: document.getElementById('cand-fermeture-auto').checked,
+        fermetureDelai: document.getElementById('cand-fermeture-delai').value,
+        messageValidation: document.getElementById('cand-msg-validation').value,
+        messageRefus: document.getElementById('cand-msg-refus').value,
+        mpValidation: document.getElementById('cand-mp-validation').value,
+        mpRefus: document.getElementById('cand-mp-refus').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur sauvegarde candidatures:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// ==========================================
+// HISTORIQUE
+// ==========================================
+let histTimeout;
+function chargerHistorique() {
+  clearTimeout(histTimeout);
+  histTimeout = setTimeout(async () => {
+    try {
+      const q = document.getElementById('hist-recherche').value || '';
+      const res = await fetch('/api/candidatures/history?q=' + encodeURIComponent(q));
+      const liste = await res.json();
+      document.getElementById('liste-historique').innerHTML = liste.length ? liste.map(h => `
+        <div class="carte">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div style="font-weight:600;">${h.username} ${h.ticketNumber ? '— ticket #' + h.ticketNumber : ''}</div>
+              <div style="color:var(--text-dim);font-size:12.5px;margin-top:3px;">Par ${h.staffTag} — ${new Date(h.date).toLocaleString('fr-FR')}</div>
+              ${h.raison ? `<div style="margin-top:6px;font-size:12.5px;">💬 ${h.raison}</div>` : ''}
+            </div>
+            <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;${h.result === 'validee' ? 'background:rgba(52,211,153,0.12);color:var(--ok);border:1px solid rgba(52,211,153,0.25);' : 'background:rgba(251,113,133,0.12);color:var(--err);border:1px solid rgba(251,113,133,0.25);'}">${h.result === 'validee' ? '✅ Validée' : '❌ Refusée'}</span>
+          </div>
+        </div>
+      `).join('') : `<p style="color:var(--text-dim);">Aucune entrée dans l'historique.</p>`;
+    } catch (e) {
+      console.error('Erreur chargement historique:', e);
+    }
+  }, 250);
+}
+
+// ==========================================
+// ANNONCES
+// ==========================================
+async function chargerSalons() {
+  try {
+    const res = await fetch('/api/channels');
+    const salons = await res.json();
+    const html = salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    document.getElementById('embed-salon').innerHTML = html;
+    document.getElementById('giveaway-salon').innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement salons:', e);
+  }
+}
+
+async function envoyerEmbed() {
+  const statut = document.getElementById('embed-statut');
+  const fichier = document.getElementById('embed-image-fichier').files[0];
+
+  const donnees = new FormData();
+  donnees.append('channelId', document.getElementById('embed-salon').value);
+  donnees.append('title', document.getElementById('embed-titre').value);
+  donnees.append('description', document.getElementById('embed-description').value);
+  donnees.append('color', document.getElementById('embed-couleur').value);
+  donnees.append('imageUrl', document.getElementById('embed-image').value);
+  donnees.append('footer', document.getElementById('embed-footer').value);
+  if (fichier) donnees.append('imageFile', fichier);
+
+  try {
+    const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
+    const data = await res.json();
+    statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur envoi embed:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// ==========================================
+// TICKETS
+// ==========================================
+async function chargerTickets() {
+  try {
+    const res = await fetch('/api/tickets');
+    const tickets = await res.json();
+    const liste = document.getElementById('liste-tickets');
+    if (tickets.length === 0) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
+    liste.innerHTML = tickets.map(t => `
+      <div class="carte">
+        <div style="font-weight:600;margin-bottom:2px;">#${t.number || '?'} — ${t.username}</div>
+        ${t.lastActivity ? `<div style="color:var(--text-faint);font-size:11.5px;margin-bottom:8px;">Dernière activité : ${new Date(t.lastActivity).toLocaleString('fr-FR')}</div>` : ''}
+        <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
+        <button onclick="repondreTicket('${t.userId}')">Répondre</button>
+        <button class="secondaire" onclick="fermerTicket('${t.userId}')">Fermer</button>
+        <div id="statut-${t.userId}"></div>
+        <div style="margin-top:10px;">
+          <label style="font-size:12px;color:var(--text-dim);">📝 Note interne</label>
+          <textarea id="note-${t.userId}" placeholder="Note staff..." style="min-height:40px;font-size:12px;">${t.note || ''}</textarea>
+          <button class="petit secondaire" onclick="sauverNoteTicket('${t.userId}')">Enregistrer la note</button>
+          <span id="note-statut-${t.userId}" style="margin-left:8px;font-size:12px;"></span>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement tickets:', e);
+  }
+}
+
+async function repondreTicket(userId) {
+  const message = document.getElementById('reply-' + userId).value;
+  const statut = document.getElementById('statut-' + userId);
+  if (!message) return;
+  try {
+    const res = await fetch(`/api/tickets/${userId}/reply`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
+    });
+    statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) document.getElementById('reply-' + userId).value = '';
+  } catch (e) {
+    console.error('Erreur réponse ticket:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function sauverNoteTicket(userId) {
+  const note = document.getElementById('note-' + userId).value;
+  const statut = document.getElementById('note-statut-' + userId);
+  try {
+    const res = await fetch(`/api/tickets/${userId}/note`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
+    });
+    statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    setTimeout(() => { statut.textContent = ''; }, 2500);
+  } catch (e) {
+    console.error('Erreur sauvegarde note:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function fermerTicket(userId) {
+  try {
+    await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
+    chargerTickets();
+  } catch (e) {
+    console.error('Erreur fermeture ticket:', e);
+  }
+}
+
+// ==========================================
+// GIVEAWAYS
+// ==========================================
+async function chargerGiveaways() {
+  try {
+    await chargerSalons();
+    const res = await fetch('/api/giveaways');
+    const gs = await res.json();
+    document.getElementById('liste-giveaways').innerHTML = gs.map(g => `
+      <div class="carte">
+        <div style="font-weight:600;">${g.prize} — ${g.participants.length} participant(s)</div>
+        <div style="color:var(--text-dim);font-size:13px;">${g.ended ? 'Terminé' : 'En cours'}</div>
+        ${!g.ended ? `<button class="petit secondaire" onclick="terminerGiveawayPanel('${g.id}')">Terminer maintenant</button>` : ''}
+      </div>
+    `).join('') || '<p style="color:var(--text-dim);">Aucun giveaway.</p>';
+  } catch (e) {
+    console.error('Erreur chargement giveaways:', e);
+  }
+}
+
+async function creerGiveaway() {
+  const statut = document.getElementById('giveaway-statut');
+  try {
+    const res = await fetch('/api/giveaways', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        channelId: document.getElementById('giveaway-salon').value,
+        prize: document.getElementById('giveaway-prize').value,
+        durationMinutes: document.getElementById('giveaway-duree').value,
+        winnersCount: document.getElementById('giveaway-gagnants').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) chargerGiveaways();
+  } catch (e) {
+    console.error('Erreur création giveaway:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function terminerGiveawayPanel(id) {
+  try {
+    await fetch(`/api/giveaways/${id}/end`, { method: 'POST' });
+    chargerGiveaways();
+  } catch (e) {
+    console.error('Erreur terminaison giveaway:', e);
+  }
+}
+
+// ==========================================
+// BACKUP
+// ==========================================
+function exporterBackup() {
+  window.location.href = '/api/backup';
+}
+
+async function importerBackup() {
+  const statut = document.getElementById('backup-statut');
+  const fichier = document.getElementById('backup-fichier').files[0];
+  if (!fichier) { statut.textContent = '❌ Choisis un fichier .json'; statut.className = 'msg-err'; return; }
+  if (!confirm('Cette action va écraser les données actuelles. Continuer ?')) return;
+
+  try {
+    const texte = await fichier.text();
+    const data = JSON.parse(texte);
+    const res = await fetch('/api/backup/import', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    statut.textContent = res.ok ? '✅ Sauvegarde importée' : "❌ Échec de l'import";
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur import backup:', e);
+    statut.textContent = '❌ Fichier invalide';
+    statut.className = 'msg-err';
+  }
+}
+
+// ==========================================
+// CONSTANTES
+// ==========================================
+const LABELS_TYPE_INTERVENTION = {
+  accident_circulation: "🚗 Accident de circulation",
+  arme: "🔫 Arme à feu / arme blanche",
+  agression: "🥊 Bagarre / agression",
+  overdose: "💊 Overdose / intoxication",
+  noyade: "🌊 Noyade",
+  chute: "🤕 Chute",
+  malaise: "😵 Malaise",
+  autre: "❓ Autre",
+};
+
+const LABELS_GRAVITE_INTERVENTION = {
+  legere: "🟢 Légère",
+  moyenne: "🟡 Moyenne",
+  critique: "🟠 Critique",
+  deces: "⚫ Décès",
+};
+
+// ==========================================
+// INITIALISATION
+// ==========================================
+chargerCompte();
+chargerStats();
 </script>
 
 </body>
