@@ -504,6 +504,8 @@
   <div class="tab" data-tab="candidatures">✅ Candidatures</div>
   <div class="tab" data-tab="historique">🕘 Historique candidatures</div>
   <div class="tab" data-tab="service">🟢 Service</div>
+  <div class="tab" data-tab="rapport">📋 Rapports</div>
+  <div class="tab" data-tab="intervention">🚑 Interventions</div>
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
@@ -592,6 +594,14 @@
     <div class="sous-titre">Service</div>
     <label>Salon du message de prise de service</label>
     <select id="param-salon-service"><option value="">Aucun</option></select>
+
+    <div class="sous-titre">Rapports médicaux</div>
+    <label>Salon du message de rapport médical</label>
+    <select id="param-salon-rapport"><option value="">Aucun</option></select>
+
+    <div class="sous-titre">Interventions</div>
+    <label>Salon du message d'intervention</label>
+    <select id="param-salon-intervention"><option value="">Aucun</option></select>
 
     <button onclick="sauverParametres()">Enregistrer</button>
     <div id="param-statut"></div>
@@ -732,6 +742,93 @@
     <div class="carte">
       <h3 style="margin-top:0;">📋 Historique des sessions (dernières 20)</h3>
       <div id="service-sessions">
+        <p style="color:var(--text-dim);">Chargement...</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- RAPPORT -->
+  <section id="vue-rapport" class="hidden">
+    <h2>📋 Système de rapports médicaux</h2>
+    
+    <div class="encart-info">
+      Les membres peuvent créer des rapports médicaux via les boutons dans le salon configuré ou avec la commande 
+      <code>/rapport</code>.<br>
+      Chaque rapport rapporte de l'XP (configurable dans l'onglet Grades & XP).
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">🔧 Configuration du salon de rapports</h3>
+      <label>Salon où sera envoyé le message avec les boutons</label>
+      <select id="rapport-config-salon"><option value="">Aucun</option></select>
+      <button onclick="configurerRapport()">Définir le salon</button>
+      <div id="rapport-config-statut"></div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">📊 Statistiques des rapports</h3>
+      <div class="stats-grille" id="rapport-stats">
+        <div class="stat-carte">
+          <div class="valeur" id="rapport-total">0</div>
+          <div class="label">Total rapports</div>
+        </div>
+        <div class="stat-carte">
+          <div class="valeur" id="rapport-auteurs">0</div>
+          <div class="label">Rapporteurs actifs</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">🏆 Top rapporteurs</h3>
+      <div id="rapport-top">
+        <p style="color:var(--text-dim);">Chargement...</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- INTERVENTION -->
+  <section id="vue-intervention" class="hidden">
+    <h2>🚑 Système d'interventions</h2>
+    
+    <div class="encart-info">
+      Les membres peuvent logger des interventions via les boutons dans le salon configuré ou avec la commande 
+      <code>/intervention</code>.<br>
+      Chaque intervention rapporte de l'XP (configurable dans l'onglet Grades & XP).
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">🔧 Configuration du salon d'interventions</h3>
+      <label>Salon où sera envoyé le message avec les boutons</label>
+      <select id="intervention-config-salon"><option value="">Aucun</option></select>
+      <button onclick="configurerIntervention()">Définir le salon</button>
+      <div id="intervention-config-statut"></div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">📊 Statistiques des interventions</h3>
+      <div class="stats-grille" id="intervention-stats">
+        <div class="stat-carte">
+          <div class="valeur" id="intervention-total">0</div>
+          <div class="label">Total interventions</div>
+        </div>
+        <div class="stat-carte">
+          <div class="valeur" id="intervention-intervenants">0</div>
+          <div class="label">Intervenants actifs</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">🏆 Top intervenants</h3>
+      <div id="intervention-top">
+        <p style="color:var(--text-dim);">Chargement...</p>
+      </div>
+    </div>
+
+    <div class="carte">
+      <h3 style="margin-top:0;">📋 Dernières interventions</h3>
+      <div id="intervention-recent">
         <p style="color:var(--text-dim);">Chargement...</p>
       </div>
     </div>
@@ -936,6 +1033,7 @@
           <option value="xp">XP total</option>
           <option value="level">Niveau</option>
           <option value="interventions">Interventions</option>
+          <option value="rapports">Rapports</option>
           <option value="serviceTime">Temps en service</option>
           <option value="messages">Messages</option>
           <option value="voiceTime">Temps vocal</option>
@@ -966,6 +1064,7 @@
         <select id="logs-type" onchange="chargerXPLogs()">
           <option value="all">Tous les types</option>
           <option value="intervention">Interventions</option>
+          <option value="rapport">Rapports</option>
           <option value="message">Messages</option>
           <option value="voice">Vocal</option>
           <option value="service">Temps de service</option>
@@ -1004,10 +1103,12 @@
     moderation: null,
     salons: chargerSalonsListe,
     roles: chargerRolesListe,
-    bienvenue: chargerParametres,
+    bienvenue: function() { chargerParametres(); chargerServiceConfig(); chargerRapportConfig(); chargerInterventionConfig(); },
     candidatures: chargerCandidatures,
     historique: chargerHistorique,
     service: function() { chargerService(); chargerServiceConfig(); },
+    rapport: function() { chargerRapport(); chargerRapportConfig(); },
+    intervention: function() { chargerIntervention(); chargerInterventionConfig(); },
     embed: chargerSalons,
     tickets: chargerTickets,
     giveaways: chargerGiveaways,
@@ -1214,6 +1315,8 @@
     document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun (utilise le salon staff)</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
     document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
     document.getElementById('param-salon-service').innerHTML = optionsSalons;
+    document.getElementById('param-salon-rapport').innerHTML = optionsSalons;
+    document.getElementById('param-salon-intervention').innerHTML = optionsSalons;
 
     document.getElementById('param-autorole').value = params.autoRoleId || '';
     document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
@@ -1223,7 +1326,10 @@
     document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
     document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
     document.getElementById('param-salon-service').value = params.serviceChannelId || '';
+    document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
+    document.getElementById('param-salon-intervention').value = params.interventionChannelId || '';
   }
+
   async function sauverParametres() {
     const statut = document.getElementById('param-statut');
     const res = await fetch('/api/settings', {
@@ -1237,6 +1343,8 @@
         modLogsChannelId: document.getElementById('param-salon-modlogs').value,
         ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
         serviceChannelId: document.getElementById('param-salon-service').value,
+        rapportChannelId: document.getElementById('param-salon-rapport').value,
+        interventionChannelId: document.getElementById('param-salon-intervention').value,
       })
     });
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
@@ -1379,12 +1487,10 @@
       document.getElementById('service-members').textContent = uniqueMembers.size;
     }
     
-    // Charger l'historique des sessions
     chargerSessions();
   }
 
   async function chargerSessions() {
-    // Récupérer toutes les sessions de tous les membres
     const res = await fetch('/api/xp/leaderboard?sort=serviceTime');
     const members = await res.json();
     
@@ -1451,10 +1557,153 @@
     
     statut.textContent = res.ok ? '✅ Salon de service configuré !' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    if (res.ok) {
-      // Recharger les paramètres
-      chargerParametres();
+    if (res.ok) chargerParametres();
+  }
+
+  // ---- RAPPORT ----
+  async function chargerRapport() {
+    // Stats
+    const statsRes = await fetch('/api/xp/stats');
+    const stats = await statsRes.json();
+    
+    document.getElementById('rapport-total').textContent = stats.totalRapports || 0;
+    document.getElementById('rapport-auteurs').textContent = 
+      Object.values(await (await fetch('/api/xp/leaderboard')).json()).filter(m => m.rapports > 0).length || 0;
+    
+    // Top rapporteurs
+    const topRes = await fetch('/api/xp/leaderboard?sort=rapports');
+    const top = await topRes.json();
+    const topRapporteurs = top.filter(m => m.rapports > 0).slice(0, 5);
+    
+    const topContainer = document.getElementById('rapport-top');
+    if (topRapporteurs.length === 0) {
+      topContainer.innerHTML = '<p style="color:var(--text-dim);">Aucun rapport n\'a encore été rédigé.</p>';
+    } else {
+      topContainer.innerHTML = topRapporteurs.map((m, i) => `
+        <div class="service-item" style="border-left-color:var(--accent);">
+          <div class="info">
+            <span class="nom">#${i+1} ${m.username}</span>
+            <span class="details">${m.gradeIcon} ${m.grade}</span>
+          </div>
+          <div class="temps">${m.rapports} rapport(s)</div>
+        </div>
+      `).join('');
     }
+  }
+
+  async function chargerRapportConfig() {
+    const salons = await (await fetch('/api/channels')).json();
+    const params = await (await fetch('/api/settings')).json();
+    
+    const select = document.getElementById('rapport-config-salon');
+    select.innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    select.value = params.rapportChannelId || '';
+  }
+
+  async function configurerRapport() {
+    const statut = document.getElementById('rapport-config-statut');
+    const channelId = document.getElementById('rapport-config-salon').value;
+    
+    const res = await fetch('/api/rapport/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ channelId })
+    });
+    
+    statut.textContent = res.ok ? '✅ Salon de rapports configuré !' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) chargerParametres();
+  }
+
+  // ---- INTERVENTION ----
+  async function chargerIntervention() {
+    // Stats
+    const statsRes = await fetch('/api/xp/stats');
+    const stats = await statsRes.json();
+    
+    document.getElementById('intervention-total').textContent = stats.totalInterventions || 0;
+    document.getElementById('intervention-intervenants').textContent = 
+      Object.values(await (await fetch('/api/xp/leaderboard')).json()).filter(m => m.interventions > 0).length || 0;
+    
+    // Top intervenants
+    const topRes = await fetch('/api/xp/leaderboard?sort=interventions');
+    const top = await topRes.json();
+    const topIntervenants = top.filter(m => m.interventions > 0).slice(0, 5);
+    
+    const topContainer = document.getElementById('intervention-top');
+    if (topIntervenants.length === 0) {
+      topContainer.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention n\'a encore été loggée.</p>';
+    } else {
+      topContainer.innerHTML = topIntervenants.map((m, i) => `
+        <div class="service-item" style="border-left-color:var(--accent);">
+          <div class="info">
+            <span class="nom">#${i+1} ${m.username}</span>
+            <span class="details">${m.gradeIcon} ${m.grade}</span>
+          </div>
+          <div class="temps">${m.interventions} intervention(s)</div>
+        </div>
+      `).join('');
+    }
+    
+    // Dernières interventions
+    const recentRes = await fetch('/api/interventions');
+    const recent = await recentRes.json();
+    const recentContainer = document.getElementById('intervention-recent');
+    if (recent.length === 0) {
+      recentContainer.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention récente.</p>';
+    } else {
+      recentContainer.innerHTML = recent.slice(0, 5).map(iv => `
+        <div class="service-item" style="border-left-color:var(--border-hover);">
+          <div class="info">
+            <span class="nom">${LABELS_TYPE_INTERVENTION[iv.type] || iv.type}</span>
+            <span class="details">${LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite} — ${iv.patient || 'Patient inconnu'} — ${iv.staffTag}</span>
+          </div>
+          <div class="temps" style="font-size:12px;color:var(--text-dim);">${new Date(iv.date).toLocaleDateString('fr-FR')}</div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // Définition des labels pour l'affichage
+  const LABELS_TYPE_INTERVENTION = {
+    accident_circulation: "🚗 Accident de circulation",
+    arme: "🔫 Arme à feu / arme blanche",
+    agression: "🥊 Bagarre / agression",
+    overdose: "💊 Overdose / intoxication",
+    noyade: "🌊 Noyade",
+    chute: "🤕 Chute",
+    malaise: "😵 Malaise",
+    autre: "❓ Autre",
+  };
+  const LABELS_GRAVITE_INTERVENTION = {
+    legere: "🟢 Légère",
+    moyenne: "🟡 Moyenne",
+    critique: "🟠 Critique",
+    deces: "⚫ Décès",
+  };
+
+  async function chargerInterventionConfig() {
+    const salons = await (await fetch('/api/channels')).json();
+    const params = await (await fetch('/api/settings')).json();
+    
+    const select = document.getElementById('intervention-config-salon');
+    select.innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    select.value = params.interventionChannelId || '';
+  }
+
+  async function configurerIntervention() {
+    const statut = document.getElementById('intervention-config-statut');
+    const channelId = document.getElementById('intervention-config-salon').value;
+    
+    const res = await fetch('/api/intervention/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ channelId })
+    });
+    
+    statut.textContent = res.ok ? '✅ Salon d\'interventions configuré !' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) chargerParametres();
   }
 
   // ---- ANNONCES ----
@@ -1618,6 +1867,7 @@
       ['Total XP', stats.totalXp || 0],
       ['Membres actifs', stats.activeMembers || 0],
       ['Total interventions', stats.totalInterventions || 0],
+      ['Total rapports', stats.totalRapports || 0],
       ['Grade moyen', stats.averageGrade || 'N/A']
     ].map(([label, val]) => `
       <div class="stat-carte">
@@ -1637,6 +1887,7 @@
           </div>
           <div>
             <span style="font-weight:600;">${m.xp}</span> XP - Niveau ${m.level}
+            <span style="color:var(--text-dim);font-size:11px;margin-left:6px;">🚑${m.interventions} 📋${m.rapports}</span>
           </div>
         </div>
       </div>
@@ -1784,6 +2035,7 @@
             <span>🏆 ${m.xp} XP</span>
             <span>📊 Niv. ${m.level}</span>
             <span>🚑 ${m.interventions} interventions</span>
+            <span>📋 ${m.rapports || 0} rapports</span>
             <span>⏱️ ${Math.floor(m.serviceTime / 3600)}h</span>
           </div>
         </div>
@@ -1844,6 +2096,10 @@
           <div class="stat-carte" style="text-align:center;">
             <div class="valeur">${data.interventions || 0}</div>
             <div class="label">Interventions</div>
+          </div>
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${data.rapports || 0}</div>
+            <div class="label">Rapports</div>
           </div>
           <div class="stat-carte" style="text-align:center;">
             <div class="valeur">${Math.floor((data.serviceTime || 0) / 3600)}h</div>
