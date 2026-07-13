@@ -155,9 +155,9 @@ const CANDIDATURES_DEFAUT = {
   actif: false,
   salonValidation: null,
   salonRefus: null,
-  rolesValid: [], // ✅ CHANGÉ: tableau de rôles
-  rolesRefus: [], // ✅ CHANGÉ: tableau de rôles
-  rolesAttribution: [], // ✅ CHANGÉ: tableau de rôles
+  rolesValid: [],
+  rolesRefus: [],
+  rolesAttribution: [],
   mpActif: true,
   mentionUser: true,
   fermetureAuto: false,
@@ -169,7 +169,7 @@ const CANDIDATURES_DEFAUT = {
 };
 
 let config = lire(CONFIG_FILE, {
-  autoRoleIds: [], // ✅ CHANGÉ: tableau de rôles
+  autoRoleIds: [],
   welcomeChannelId: null,
   welcomeMessage: "Bienvenue {user} sur **{server}** ! Tu es le membre **#{count}**.",
   ticketStaffChannelId: null,
@@ -230,7 +230,7 @@ function sauverXpLogs() { ecrire(XP_LOGS_FILE, xpLogs); }
 function sauverService() { ecrire(SERVICE_FILE, serviceData); }
 
 // ==============================
-// FONCTIONS XP CORRIGÉES
+// FONCTIONS XP
 // ==============================
 function getGradeForXp(xp) {
   const sorted = [...gradesConfig.grades].sort((a, b) => b.xpRequired - a.xpRequired);
@@ -313,15 +313,13 @@ async function addXp(userId, amount, source, reason) {
 }
 
 // ==============================
-// FONCTIONS SERVICE CORRIGÉES
+// FONCTIONS SERVICE
 // ==============================
 function getServiceStatus(userId) {
   const data = serviceData[userId];
   if (!data || !data.active) return null;
-  // Vérifier si le service est toujours valide (max 24h)
   const start = new Date(data.startTime);
   if (Date.now() - start.getTime() > 24 * 60 * 60 * 1000) {
-    // Service trop long, arrêt automatique
     stopService(userId).catch(() => {});
     return null;
   }
@@ -341,7 +339,6 @@ function getActiveServices() {
           totalTime: data.totalTime || 0
         });
       } else {
-        // Service expiré, arrêt automatique
         stopService(userId).catch(() => {});
       }
     }
@@ -359,10 +356,7 @@ async function startService(userId) {
     };
   }
   
-  // Empêcher le double service
-  if (serviceData[userId].active) {
-    return null;
-  }
+  if (serviceData[userId].active) return null;
   
   serviceData[userId].active = true;
   serviceData[userId].startTime = now.toISOString();
@@ -381,7 +375,6 @@ async function stopService(userId) {
   const start = new Date(data.startTime);
   const duration = Math.floor((now - start) / 1000);
   
-  // Ne pas enregistrer si moins de 30 secondes
   if (duration < 30) {
     data.active = false;
     sauverService();
@@ -401,7 +394,6 @@ async function stopService(userId) {
   
   sauverService();
   
-  // Calcul de l'XP gagnée pendant le service
   const xpPerMinute = gradesConfig.settings.xpPerMinute || 1;
   const minutes = Math.floor(duration / 60);
   const isWeekend = now.getDay() === 0 || now.getDay() === 6;
@@ -535,40 +527,9 @@ const client = new Client({
 });
 
 // ==============================
-// COMMANDES SLASH
+// COMMANDES SLASH (GARDER UNIQUEMENT CELLES NÉCESSAIRES)
 // ==============================
 const commands = [
-  // Rapport médical
-  new SlashCommandBuilder()
-    .setName("rapport")
-    .setDescription("Générer un rapport médical d'intervention"),
-
-  // Intervention
-  new SlashCommandBuilder()
-    .setName("intervention")
-    .setDescription("Logger une intervention pour les statistiques")
-    .addStringOption((o) =>
-      o.setName("type").setDescription("Type d'intervention").setRequired(true).addChoices(
-        { name: "🚗 Accident de circulation", value: "accident_circulation" },
-        { name: "🔫 Arme à feu / arme blanche", value: "arme" },
-        { name: "🥊 Bagarre / agression", value: "agression" },
-        { name: "💊 Overdose / intoxication", value: "overdose" },
-        { name: "🌊 Noyade", value: "noyade" },
-        { name: "🤕 Chute", value: "chute" },
-        { name: "😵 Malaise", value: "malaise" },
-        { name: "❓ Autre", value: "autre" }
-      )
-    )
-    .addStringOption((o) =>
-      o.setName("gravite").setDescription("Gravité").setRequired(true).addChoices(
-        { name: "🟢 Légère", value: "legere" },
-        { name: "🟡 Moyenne", value: "moyenne" },
-        { name: "🟠 Critique", value: "critique" },
-        { name: "⚫ Décès", value: "deces" }
-      )
-    )
-    .addStringOption((o) => o.setName("patient").setDescription("Nom du patient (optionnel)").setRequired(false)),
-
   // Tickets
   new SlashCommandBuilder()
     .setName("rename")
@@ -691,6 +652,9 @@ const commands = [
     .setDescription("Voir les membres en service (staff)"),
 ].map((cmd) => cmd.toJSON());
 
+// SUPPRIMER les commandes /rapport et /intervention des commandes slash
+// car elles seront désormais uniquement via les boutons
+
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 // ==============================
@@ -716,7 +680,6 @@ async function chargerDepuisRedis() {
   ]);
   if (c) {
     config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
-    // Migration des données
     if (!Array.isArray(config.candidatures.rolesValid)) {
       config.candidatures.rolesValid = config.candidatures.roleValid ? [config.candidatures.roleValid] : [];
       delete config.candidatures.roleValid;
@@ -775,21 +738,17 @@ process.on('uncaughtException', (error) => {
 client.once("clientReady", async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
   
-  // Giveaways
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
   }
   
-  // Tickets inactifs
   setInterval(verifierTicketsInactifs, 15 * 60 * 1000);
   verifierTicketsInactifs();
 
-  // Envoyer les messages
   await envoyerMessageService();
   await envoyerMessageRapport();
   await envoyerMessageIntervention();
 
-  // ✅ CORRIGÉ: XP service uniquement quand le membre est actif
   setInterval(async () => {
     try {
       const guild = client.guilds.cache.get(GUILD_ID);
@@ -797,7 +756,6 @@ client.once("clientReady", async () => {
       
       const activeServices = getActiveServices();
       for (const service of activeServices) {
-        // Vérifier que le membre est toujours en ligne
         const member = await guild.members.fetch(service.userId).catch(() => null);
         if (!member || member.presence?.status === 'offline') {
           console.log(`🛑 Service arrêté automatiquement pour ${member?.user?.username || service.userId} (offline)`);
@@ -806,16 +764,12 @@ client.once("clientReady", async () => {
           continue;
         }
         
-        // Vérifier que le membre est toujours dans un salon vocal (optionnel)
-        // On ne donne XP que toutes les 10 minutes pour éviter le spam
         const now = Date.now();
         const lastPing = new Date(service.lastPing || service.startTime).getTime();
-        if (now - lastPing < 600000) continue; // 10 minutes
+        if (now - lastPing < 600000) continue;
         
-        // Mettre à jour le ping
         await updateServicePing(service.userId);
         
-        // Donner l'XP toutes les 10 minutes
         const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
         const boost = isWeekend ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
         const xpPerMinute = gradesConfig.settings.xpPerMinute || 1;
@@ -828,9 +782,8 @@ client.once("clientReady", async () => {
     } catch (e) {
       console.error("Erreur gain XP service:", e);
     }
-  }, 600000); // Toutes les 10 minutes
+  }, 600000);
 
-  // Vérifier les services orphelins (membres offline) toutes les 5 minutes
   setInterval(async () => {
     try {
       const guild = client.guilds.cache.get(GUILD_ID);
@@ -919,7 +872,6 @@ async function envoyerMessageService() {
     config.serviceMessageId = message.id;
     sauverConfig();
     
-    // Mettre à jour toutes les 30s
     setInterval(async () => {
       const newEmbed = await construireEmbedService();
       await message.edit({ embeds: [newEmbed] }).catch(() => {});
@@ -1518,13 +1470,12 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // ✅ Gain d'XP pour les messages (uniquement si en service)
+  // Gain d'XP pour les messages (uniquement si en service)
   if (message.guild && !message.author.bot) {
     const userId = message.author.id;
     
-    // Vérifier si le membre est en service
     const serviceStatus = getServiceStatus(userId);
-    if (!serviceStatus) return; // Pas d'XP si pas en service
+    if (!serviceStatus) return;
     
     const lastMsg = xpData[userId]?.lastMessage || 0;
     const cooldown = gradesConfig.settings.cooldowns?.message || 60;
@@ -1604,7 +1555,9 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   try {
-    // ---- BOUTONS SERVICE ----
+    // ========================================
+    // BOUTONS SERVICE
+    // ========================================
     if (interaction.isButton() && ["service_start", "service_stop", "service_status"].includes(interaction.customId)) {
       await interaction.deferReply({ flags: 64 });
       const userId = interaction.user.id;
@@ -1662,12 +1615,23 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ---- BOUTONS RAPPORT ----
+    // ========================================
+    // BOUTONS RAPPORT (MÊME SYSTÈME QUE /rapport)
+    // ========================================
     if (interaction.isButton() && ["rapport_new", "rapport_mes_stats", "rapport_top"].includes(interaction.customId)) {
-      await interaction.deferReply({ flags: 64 });
       const userId = interaction.user.id;
 
+      // Vérifier si le membre est en service
+      const serviceStatus = getServiceStatus(userId);
+      if (!serviceStatus && interaction.customId === "rapport_new") {
+        return interaction.reply({ 
+          content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          flags: 64 
+        });
+      }
+
       if (interaction.customId === "rapport_new") {
+        // 👇 MÊME MODAL QUE /rapport AVEC SITUATIONS.JS
         const modal = new ModalBuilder()
           .setCustomId("rapportModal")
           .setTitle("Rapport d'intervention médicale");
@@ -1704,6 +1668,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       else if (interaction.customId === "rapport_mes_stats") {
+        await interaction.deferReply({ flags: 64 });
         const data = xpData[userId];
         const rapports = data?.rapports || 0;
         const grade = getGradeForXp(data?.xp || 0);
@@ -1722,6 +1687,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       else if (interaction.customId === "rapport_top") {
+        await interaction.deferReply({ flags: 64 });
         const topRapporteurs = Object.entries(xpData)
           .filter(([_, data]) => (data.rapports || 0) > 0)
           .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
@@ -1748,12 +1714,25 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ---- BOUTONS INTERVENTION ----
+    // ========================================
+    // BOUTONS INTERVENTION (MÊME SYSTÈME QUE /intervention)
+    // ========================================
     if (interaction.isButton() && ["intervention_new", "intervention_mes_stats", "intervention_top"].includes(interaction.customId)) {
-      await interaction.deferReply({ flags: 64 });
       const userId = interaction.user.id;
 
+      // Vérifier si le membre est en service
+      const serviceStatus = getServiceStatus(userId);
+      if (!serviceStatus && (interaction.customId === "intervention_new" || interaction.customId === "intervention_mes_stats")) {
+        return interaction.reply({ 
+          content: "❌ Tu dois être en service pour utiliser cette fonction ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          flags: 64 
+        });
+      }
+
       if (interaction.customId === "intervention_new") {
+        // 👇 MÊME SYSTÈME DE SÉLECTION QUE /intervention
+        await interaction.deferReply({ flags: 64 });
+
         const row1 = new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId("intervention_type_select")
@@ -1782,7 +1761,6 @@ client.on("interactionCreate", async (interaction) => {
             )
         );
 
-        // Vérifier si l'interaction est toujours valide
         if (!interaction.replied && !interaction.deferred) {
           await interaction.editReply({
             content: "Sélectionne le type et la gravité de l'intervention :",
@@ -1793,6 +1771,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       else if (interaction.customId === "intervention_mes_stats") {
+        await interaction.deferReply({ flags: 64 });
         const data = xpData[userId];
         const interventionsCount = data?.interventions || 0;
         const grade = getGradeForXp(data?.xp || 0);
@@ -1811,6 +1790,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       else if (interaction.customId === "intervention_top") {
+        await interaction.deferReply({ flags: 64 });
         const topIntervenants = Object.entries(xpData)
           .filter(([_, data]) => (data.interventions || 0) > 0)
           .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
@@ -1837,7 +1817,9 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ---- INTERVENTION SELECT MENUS ----
+    // ========================================
+    // SELECT MENUS INTERVENTION
+    // ========================================
     if (interaction.isStringSelectMenu() && interaction.customId === "intervention_type_select") {
       const type = interaction.values[0];
       if (!interaction.client.interventionData) interaction.client.interventionData = {};
@@ -1855,7 +1837,7 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.update({ content: "❌ Sélectionne d'abord le type d'intervention.", components: [] });
       }
 
-      // ✅ Vérifier si le membre est en service
+      // ✅ Vérifier si le membre est en service (double vérification)
       const serviceStatus = getServiceStatus(interaction.user.id);
       if (!serviceStatus) {
         return interaction.update({ 
@@ -1903,6 +1885,7 @@ client.on("interactionCreate", async (interaction) => {
         components: [] 
       });
 
+      // Mettre à jour l'embed d'intervention
       if (config.interventionChannelId && config.interventionMessageId) {
         const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
         if (channel) {
@@ -1918,7 +1901,70 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ---- BOUTONS TICKET ----
+    // ========================================
+    // MODAL RAPPORT (MÊME QUE /rapport)
+    // ========================================
+    if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
+      // ✅ Vérifier si le membre est en service
+      const serviceStatus = getServiceStatus(interaction.user.id);
+      if (!serviceStatus) {
+        return interaction.reply({ 
+          content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          flags: 64 
+        });
+      }
+
+      const patient = interaction.fields.getTextInputValue("patient");
+      const situation = interaction.fields.getTextInputValue("situation");
+
+      // 👇 UTILISATION DE SITUATIONS.JS
+      const rapport = trouverSituation(situation);
+
+      const maintenant = new Date();
+      const dateStr = maintenant.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const heureStr = maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+      const diagnosticTexte = rapport.diagnostic.map((d) => `• ${d}`).join("\n");
+      const soinsTexte = rapport.prise_en_charge.map((s) => `• ${s}`).join("\n");
+
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle(`📋 Rapport Médical - ${NOM_SERVEUR}`)
+        .addFields(
+          { name: "👤 Patient", value: patient, inline: true },
+          { name: "🩺 Intervenant", value: `<@${interaction.user.id}>`, inline: true },
+          { name: "🕒 Date et heure", value: `${dateStr} - ${heureStr}`, inline: false },
+          { name: "📌 Motif de prise en charge", value: situation, inline: false },
+          { name: "🔍 Examen réalisé", value: rapport.examen, inline: false },
+          { name: "🩹 Diagnostic", value: diagnosticTexte, inline: false },
+          { name: "💉 Prise en charge", value: soinsTexte, inline: false },
+          { name: "📝 Observations", value: rapport.observations, inline: false }
+        )
+        .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
+        .setTimestamp();
+
+      const xpGain = gradesConfig.settings.xpPerRapport || 50;
+      await addXp(interaction.user.id, xpGain, "rapport", `Rapport médical pour ${patient}`);
+
+      // Mettre à jour l'embed de rapport
+      if (config.rapportChannelId && config.rapportMessageId) {
+        const channel = await client.channels.fetch(config.rapportChannelId).catch(() => null);
+        if (channel) {
+          const msg = await channel.messages.fetch(config.rapportMessageId).catch(() => null);
+          if (msg) {
+            const newEmbed = await construireEmbedRapport();
+            await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+          }
+        }
+      }
+
+      await interaction.reply({ embeds: [embed] });
+      return;
+    }
+
+    // ========================================
+    // BOUTONS TICKET
+    // ========================================
     if (interaction.isButton() && interaction.customId.startsWith("ticket_")) {
       if (!estStaffTicket(interaction)) {
         return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
@@ -2003,7 +2049,9 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // ---- USER SELECT MENUS TICKET ----
+    // ========================================
+    // USER SELECT MENUS TICKET
+    // ========================================
     if (interaction.isUserSelectMenu() && (interaction.customId === "ticket_add_select" || interaction.customId === "ticket_remove_select")) {
       if (!estStaffTicket(interaction)) {
         return interaction.reply({ content: "⛔ Tu n'as pas la permission de faire ça.", flags: 64 });
@@ -2027,7 +2075,20 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ---- BOUTON GIVEAWAY ----
+    // ========================================
+    // MODAL TICKET RENAME
+    // ========================================
+    if (interaction.isModalSubmit() && interaction.customId === "ticket_rename_modal") {
+      const nouveauNom = interaction.fields.getTextInputValue("nouveau_nom");
+      if (interaction.channel && interaction.channel.isThread && interaction.channel.isThread()) {
+        await interaction.channel.setName(nouveauNom.slice(0, 100)).catch(() => {});
+      }
+      return interaction.reply({ content: `✅ Ticket renommé en **${nouveauNom}**.`, flags: 64 });
+    }
+
+    // ========================================
+    // BOUTON GIVEAWAY
+    // ========================================
     if (interaction.isButton() && interaction.customId.startsWith("giveaway_")) {
       const id = interaction.customId.replace("giveaway_", "");
       const g = giveaways[id];
@@ -2044,73 +2105,9 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: "✅ Tu participes au giveaway !", flags: 64 });
     }
 
-    // ---- MODAL RAPPORT ----
-    if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
-      const patient = interaction.fields.getTextInputValue("patient");
-      const situation = interaction.fields.getTextInputValue("situation");
-
-      // ✅ Vérifier si le membre est en service
-      const serviceStatus = getServiceStatus(interaction.user.id);
-      if (!serviceStatus) {
-        return interaction.reply({ 
-          content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-          flags: 64 
-        });
-      }
-
-      const rapport = trouverSituation(situation);
-
-      const maintenant = new Date();
-      const dateStr = maintenant.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-      const heureStr = maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-
-      const diagnosticTexte = rapport.diagnostic.map((d) => `• ${d}`).join("\n");
-      const soinsTexte = rapport.prise_en_charge.map((s) => `• ${s}`).join("\n");
-
-      const embed = new EmbedBuilder()
-        .setColor(COULEUR_EMBED)
-        .setTitle(`📋 Rapport Médical - ${NOM_SERVEUR}`)
-        .addFields(
-          { name: "👤 Patient", value: patient, inline: true },
-          { name: "🩺 Intervenant", value: `<@${interaction.user.id}>`, inline: true },
-          { name: "🕒 Date et heure", value: `${dateStr} - ${heureStr}`, inline: false },
-          { name: "📌 Motif de prise en charge", value: situation, inline: false },
-          { name: "🔍 Examen réalisé", value: rapport.examen, inline: false },
-          { name: "🩹 Diagnostic", value: diagnosticTexte, inline: false },
-          { name: "💉 Prise en charge", value: soinsTexte, inline: false },
-          { name: "📝 Observations", value: rapport.observations, inline: false }
-        )
-        .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
-        .setTimestamp();
-
-      const xpGain = gradesConfig.settings.xpPerRapport || 50;
-      await addXp(interaction.user.id, xpGain, "rapport", `Rapport médical pour ${patient}`);
-
-      if (config.rapportChannelId && config.rapportMessageId) {
-        const channel = await client.channels.fetch(config.rapportChannelId).catch(() => null);
-        if (channel) {
-          const msg = await channel.messages.fetch(config.rapportMessageId).catch(() => null);
-          if (msg) {
-            const newEmbed = await construireEmbedRapport();
-            await msg.edit({ embeds: [newEmbed] }).catch(() => {});
-          }
-        }
-      }
-
-      await interaction.reply({ embeds: [embed] });
-      return;
-    }
-
-    // ---- MODAL TICKET RENAME ----
-    if (interaction.isModalSubmit() && interaction.customId === "ticket_rename_modal") {
-      const nouveauNom = interaction.fields.getTextInputValue("nouveau_nom");
-      if (interaction.channel && interaction.channel.isThread && interaction.channel.isThread()) {
-        await interaction.channel.setName(nouveauNom.slice(0, 100)).catch(() => {});
-      }
-      return interaction.reply({ content: `✅ Ticket renommé en **${nouveauNom}**.`, flags: 64 });
-    }
-
-    // ---- COMMANDES SLASH ----
+    // ========================================
+    // COMMANDES SLASH
+    // ========================================
     if (interaction.isChatInputCommand()) {
       const commandName = interaction.commandName;
       
@@ -2444,111 +2441,6 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // ---- /intervention (slash) ----
-      if (commandName === "intervention") {
-        // ✅ Vérifier si le membre est en service
-        const serviceStatus = getServiceStatus(interaction.user.id);
-        if (!serviceStatus) {
-          return interaction.reply({ 
-            content: "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-            flags: 64 
-          });
-        }
-
-        const type = interaction.options.getString("type");
-        const gravite = interaction.options.getString("gravite");
-        const patient = interaction.options.getString("patient") || null;
-
-        const entree = {
-          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          type,
-          gravite,
-          patient,
-          staffId: interaction.user.id,
-          staffTag: interaction.user.tag,
-          date: new Date().toISOString(),
-        };
-        interventions.push(entree);
-        sauverInterventions();
-
-        const xpGain = gradesConfig.settings.xpPerIntervention || 50;
-        await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
-
-        if (config.interventionsChannelId) {
-          const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
-          if (salon) {
-            await salon.send({
-              embeds: [
-                new EmbedBuilder()
-                  .setColor(COULEUR_EMBED)
-                  .setTitle("🚑 Intervention loggée")
-                  .addFields(
-                    { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
-                    { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
-                    { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true },
-                    { name: "Patient", value: patient || "Non précisé", inline: false }
-                  )
-                  .setTimestamp(),
-              ],
-            }).catch(() => {});
-          }
-        }
-
-        if (config.interventionChannelId && config.interventionMessageId) {
-          const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
-          if (channel) {
-            const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
-            if (msg) {
-              const newEmbed = await construireEmbedIntervention();
-              await msg.edit({ embeds: [newEmbed] }).catch(() => {});
-            }
-          }
-        }
-
-        return interaction.reply({
-          content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]})${patient ? ` — patient : ${patient}` : ""}`,
-          flags: 64,
-        });
-      }
-
-      // ---- /rapport (slash) ----
-      if (commandName === "rapport") {
-        // ✅ Vérifier si le membre est en service
-        const serviceStatus = getServiceStatus(interaction.user.id);
-        if (!serviceStatus) {
-          return interaction.reply({ 
-            content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-            flags: 64 
-          });
-        }
-
-        const modal = new ModalBuilder()
-          .setCustomId("rapportModal")
-          .setTitle("Rapport d'intervention médicale");
-
-        const patientInput = new TextInputBuilder()
-          .setCustomId("patient")
-          .setLabel("Nom et prénom du patient")
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder("Ex: Angel Santiago")
-          .setRequired(true);
-
-        const situationInput = new TextInputBuilder()
-          .setCustomId("situation")
-          .setLabel("Ce qui s'est passé")
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder("Ex: Accident de moto, jambe cassée...")
-          .setRequired(true);
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(patientInput),
-          new ActionRowBuilder().addComponents(situationInput)
-        );
-
-        await interaction.showModal(modal);
-        return;
-      }
-
       // ---- /service ----
       if (commandName === "service") {
         const sub = interaction.options.getSubcommand();
@@ -2792,17 +2684,15 @@ client.on("interactionCreate", async (interaction) => {
 // VOICE STATE UPDATE (XP vocal)
 // ==============================
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  // ✅ XP vocal uniquement si en service
   const userId = newState.member?.id || oldState.member?.id;
   if (!userId) return;
   
   const serviceStatus = getServiceStatus(userId);
-  if (!serviceStatus) return; // Pas d'XP si pas en service
+  if (!serviceStatus) return;
   
   const oldChannel = oldState.channel;
   const newChannel = newState.channel;
   
-  // Si le membre rejoint un salon vocal
   if (!oldChannel && newChannel) {
     if (!xpData[userId]) {
       xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
@@ -2811,14 +2701,13 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     sauverXp();
   }
   
-  // Si le membre quitte un salon vocal
   if (oldChannel && !newChannel) {
     const joinTime = xpData[userId]?.voiceJoinTime;
     if (joinTime) {
-      const duration = Math.floor((Date.now() - joinTime) / 60); // en minutes
+      const duration = Math.floor((Date.now() - joinTime) / 60);
       const cooldown = gradesConfig.settings.cooldowns?.voice || 300;
       
-      if (duration > 0 && duration < 60) { // Max 1 heure pour éviter les abus
+      if (duration > 0 && duration < 60) {
         const boost = (new Date().getDay() === 0 || new Date().getDay() === 6) 
           ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
         const xpGain = Math.round((gradesConfig.settings.xpPerVoiceMinute || 2) * duration * boost);
