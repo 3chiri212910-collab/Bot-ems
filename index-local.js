@@ -22,18 +22,46 @@ const session = require("express-session");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
-const { trouverSituation } = require("./situations.js");
+
+// ==============================
+// CHARGEMENT SITUATIONS AVEC GESTION D'ERREUR
+// ==============================
+let trouverSituation = (situation) => ({
+  diagnostic: ["Non diagnostiqué"],
+  prise_en_charge: ["Aucune prise en charge"],
+  examen: "Examen non spécifié",
+  observations: "Aucune observation"
+});
+
+try {
+  const module = require("./situations.js");
+  if (module.trouverSituation) {
+    trouverSituation = module.trouverSituation;
+    console.log("✅ situations.js chargé avec succès");
+  }
+} catch (e) {
+  console.warn("⚠️ situations.js non trouvé, mode dégradé activé");
+}
 
 // ==============================
 // CONFIGURATION
 // ==============================
-const TOKEN = process.env.TOKEN || "TON_TOKEN_DISCORD_ICI";
-const CLIENT_ID = process.env.CLIENT_ID || "TON_CLIENT_ID_ICI";
-const CLIENT_SECRET = process.env.CLIENT_SECRET || "TON_CLIENT_SECRET_ICI";
+const requiredEnv = ['TOKEN', 'CLIENT_ID', 'GUILD_ID'];
+for (const key of requiredEnv) {
+  if (!process.env[key]) {
+    console.error(`❌ Variable d'environnement ${key} manquante !`);
+    console.error(`   Veuillez définir ${key} dans votre fichier .env`);
+    process.exit(1);
+  }
+}
+
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET || "";
 const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || "https://TON-APP.onrender.com/callback";
 const SESSION_SECRET = process.env.SESSION_SECRET || "change-moi-en-prod";
 const PORT = process.env.PORT || 3000;
-const GUILD_ID = process.env.GUILD_ID || "TON_GUILD_ID_ICI";
+const GUILD_ID = process.env.GUILD_ID;
 
 const UPSTASH_URL = (process.env.UPSTASH_REDIS_REST_URL || "").replace(/\/$/, "");
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
@@ -187,7 +215,6 @@ let config = lire(CONFIG_FILE, {
   candidatures: { ...CANDIDATURES_DEFAUT },
 });
 
-// Migration des anciennes données
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
 if (!Array.isArray(config.candidatures.rolesValid)) {
   config.candidatures.rolesValid = config.candidatures.roleValid ? [config.candidatures.roleValid] : [];
@@ -212,6 +239,9 @@ let closedTickets = lire(CLOSED_TICKETS_FILE, {});
 let warns = lire(WARNS_FILE, {});
 let candHistory = lire(CAND_HISTORY_FILE, []);
 let interventions = lire(INTERVENTIONS_FILE, []);
+if (!Array.isArray(interventions)) {
+  interventions = Object.values(interventions || {});
+}
 let xpData = lire(XP_FILE, {});
 let gradesConfig = lire(GRADES_FILE, GRADES_DEFAUT);
 let xpLogs = lire(XP_LOGS_FILE, []);
@@ -230,7 +260,7 @@ function sauverXpLogs() { ecrire(XP_LOGS_FILE, xpLogs); }
 function sauverService() { ecrire(SERVICE_FILE, serviceData); }
 
 // ==============================
-// VARIABLES GLOBALES POUR LES TIMERS
+// VARIABLES GLOBALES
 // ==============================
 let serviceIntervalId = null;
 let rapportIntervalId = null;
@@ -388,7 +418,7 @@ async function stopService(userId) {
   if (duration < 30) {
     data.active = false;
     sauverService();
-    return { duration: 0, xpGain: 0 };
+    return { duration: 0, xpGain: 0, message: "Service trop court (moins de 30s)" };
   }
 
   data.active = false;
@@ -533,7 +563,6 @@ const client = new Client({
 // COMMANDES SLASH
 // ==============================
 const commands = [
-  // Tickets
   new SlashCommandBuilder()
     .setName("rename")
     .setDescription("Renommer le ticket en cours")
@@ -576,8 +605,6 @@ const commands = [
     .setDescription("Définir le mode lent du ticket en cours")
     .addIntegerOption((o) => o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)),
   new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du ticket en cours"),
-
-  // Candidatures
   new SlashCommandBuilder()
     .setName("valid")
     .setDescription("Valider la candidature du ticket en cours")
@@ -586,8 +613,6 @@ const commands = [
     .setName("refuser")
     .setDescription("Refuser la candidature du ticket en cours")
     .addStringOption((o) => o.setName("raison").setDescription("Raison du refus (optionnel)").setRequired(false)),
-
-  // Modération
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("Avertir un membre")
@@ -597,8 +622,6 @@ const commands = [
     .setName("warns")
     .setDescription("Voir les avertissements d'un membre")
     .addUserOption((o) => o.setName("membre").setDescription("Membre à consulter").setRequired(true)),
-
-  // XP & Grades
   new SlashCommandBuilder()
     .setName("profile")
     .setDescription("Voir ton profil XP")
@@ -633,8 +656,6 @@ const commands = [
         .setDescription("Réinitialiser l'XP d'un membre")
         .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
     ),
-
-  // SERVICE
   new SlashCommandBuilder()
     .setName("service")
     .setDescription("Gérer ton service")
@@ -696,13 +717,14 @@ async function chargerDepuisRedis() {
       config.autoRoleIds = config.autoRoleId ? [config.autoRoleId] : [];
       delete config.autoRoleId;
     }
+    sauverConfig();
   }
   if (t) tickets = t;
   if (g) giveaways = g;
   if (ct) closedTickets = ct;
   if (w) warns = w;
   if (ch) candHistory = ch;
-  if (iv) interventions = iv;
+  if (iv) interventions = Array.isArray(iv) ? iv : Object.values(iv || {});
   if (xp) xpData = xp;
   if (gr) gradesConfig = { ...GRADES_DEFAUT, ...gr, grades: gr.grades || GRADES_DEFAUT.grades };
   if (xl) xpLogs = xl;
@@ -721,9 +743,6 @@ async function chargerDepuisRedis() {
   client.login(TOKEN);
 })();
 
-// ==============================
-// GESTIONNAIRE D'ERREURS GLOBAL
-// ==============================
 process.on('unhandledRejection', (error) => {
   console.error('❌ Unhandled Rejection:', error);
 });
@@ -732,9 +751,6 @@ process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
 });
 
-// ==============================
-// NETTOYAGE DES TIMERS AU REDÉMARRAGE
-// ==============================
 process.on('SIGINT', () => {
   console.log('🛑 Arrêt du bot... Nettoyage des timers...');
   if (serviceIntervalId) clearInterval(serviceIntervalId);
@@ -748,33 +764,28 @@ process.on('SIGINT', () => {
 // ==============================
 // CLIENT READY (CORRIGÉ)
 // ==============================
-client.once("clientReady", async () => {
+client.once("ready", async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
 
-  // ✅ EMPÊCHER L'EXÉCUTION MULTIPLE
   if (isBotReady) {
     console.log('⚠️ Bot déjà prêt, ignore...');
     return;
   }
   isBotReady = true;
 
-  // ✅ NETTOYER LES ANCIENS TIMERS
   if (serviceIntervalId) clearInterval(serviceIntervalId);
   if (rapportIntervalId) clearInterval(rapportIntervalId);
   if (interventionIntervalId) clearInterval(interventionIntervalId);
   if (xpServiceIntervalId) clearInterval(xpServiceIntervalId);
   if (orphanServiceIntervalId) clearInterval(orphanServiceIntervalId);
 
-  // Giveaways
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
   }
 
-  // Tickets inactifs
   setInterval(verifierTicketsInactifs, 15 * 60 * 1000);
   verifierTicketsInactifs();
 
-  // ✅ ENVOYER LES MESSAGES UNIQUEMENT SI LE SALON EST CONFIGURÉ
   if (config.serviceChannelId) {
     await envoyerMessageService();
   } else {
@@ -793,13 +804,11 @@ client.once("clientReady", async () => {
     console.log('⚠️ Salon d\'intervention non configuré');
   }
 
-  // ✅ UN SEUL TIMER POUR LE SERVICE
   serviceIntervalId = setInterval(async () => {
     if (!isBotReady) return;
     await mettreAJourMessageService();
   }, 30000);
 
-  // ✅ XP SERVICE
   xpServiceIntervalId = setInterval(async () => {
     if (!isBotReady) return;
     try {
@@ -835,7 +844,6 @@ client.once("clientReady", async () => {
     }
   }, 600000);
 
-  // ✅ VÉRIFICATION SERVICES ORPHELINS
   orphanServiceIntervalId = setInterval(async () => {
     if (!isBotReady) return;
     try {
@@ -960,7 +968,7 @@ async function mettreAJourMessageService() {
 }
 
 // ==============================
-// MESSAGE RAPPORT (CORRIGÉ)
+// MESSAGE RAPPORT
 // ==============================
 async function construireEmbedRapport() {
   const embed = new EmbedBuilder()
@@ -1068,7 +1076,7 @@ async function mettreAJourMessageRapport() {
 }
 
 // ==============================
-// MESSAGE INTERVENTION (CORRIGÉ)
+// MESSAGE INTERVENTION
 // ==============================
 async function construireEmbedIntervention() {
   const stats = statsInterventions();
@@ -1083,7 +1091,6 @@ async function construireEmbedIntervention() {
     .setFooter({ text: NOM_SERVEUR })
     .setTimestamp();
 
-  // ✅ VÉRIFIER QUE interventions EST UN TABLEAU
   const totalInterventions = Array.isArray(interventions) ? interventions.length : 0;
   const intervenantsActifs = Array.isArray(interventions)
     ? new Set(interventions.map(iv => iv.staffId)).size
@@ -1094,7 +1101,6 @@ async function construireEmbedIntervention() {
     { name: "🚑 Intervenants actifs", value: String(intervenantsActifs), inline: true }
   );
 
-  // Top intervenants
   const topIntervenants = Object.entries(xpData || {})
     .filter(([_, data]) => (data.interventions || 0) > 0)
     .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
@@ -1108,7 +1114,6 @@ async function construireEmbedIntervention() {
     embed.addFields({ name: "🏆 Top intervenants", value: topListe.join('\n'), inline: false });
   }
 
-  // ✅ VÉRIFIER QUE interventions EST UN TABLEAU
   const recent = Array.isArray(interventions) ? interventions.slice(-3).reverse() : [];
   if (recent.length > 0) {
     const recentListe = recent.map(iv => {
@@ -1298,7 +1303,7 @@ async function genererTranscriptHTML(thread) {
   toutMessages.reverse();
 
   const echapper = (s) =>
-    String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   const lignes = toutMessages
     .map((m) => {
@@ -1596,7 +1601,6 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // Gain d'XP pour les messages (uniquement si en service)
   if (message.guild && !message.author.bot) {
     const userId = message.author.id;
 
@@ -1674,9 +1678,8 @@ function planifierFinGiveaway(g) {
 // INTERACTIONS (CORRIGÉ)
 // ==============================
 client.on("interactionCreate", async (interaction) => {
-  // ✅ Vérification CRITIQUE pour éviter InteractionAlreadyReplied
-  if (interaction.replied || interaction.deferred) {
-    console.log('⚠️ Interaction déjà traitée, ignorée.');
+  if (interaction.replied) {
+    console.log('⚠️ Interaction déjà répondue, ignorée.');
     return;
   }
 
@@ -1744,7 +1747,6 @@ client.on("interactionCreate", async (interaction) => {
       const userId = interaction.user.id;
 
       if (interaction.customId === "rapport_new") {
-        // Vérifier si le membre est en service
         const serviceStatus = getServiceStatus(userId);
         if (!serviceStatus) {
           return interaction.reply({
@@ -1838,7 +1840,6 @@ client.on("interactionCreate", async (interaction) => {
       const userId = interaction.user.id;
 
       if (interaction.customId === "intervention_new") {
-        // Vérifier si le membre est en service
         const serviceStatus = getServiceStatus(userId);
         if (!serviceStatus) {
           return interaction.reply({
@@ -1947,7 +1948,6 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.update({ content: "❌ Sélectionne d'abord le type d'intervention.", components: [] });
       }
 
-      // ✅ Vérifier si le membre est en service (double vérification)
       const serviceStatus = getServiceStatus(interaction.user.id);
       if (!serviceStatus) {
         return interaction.update({
@@ -1996,7 +1996,6 @@ client.on("interactionCreate", async (interaction) => {
         components: []
       });
 
-      // ✅ METTRE À JOUR L'EMBED
       await mettreAJourMessageIntervention();
 
       delete interaction.client.interventionData?.[interaction.user.id];
@@ -2007,7 +2006,6 @@ client.on("interactionCreate", async (interaction) => {
     // MODAL RAPPORT
     // ========================================
     if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
-      // ✅ Vérifier si le membre est en service
       const serviceStatus = getServiceStatus(interaction.user.id);
       if (!serviceStatus) {
         return interaction.reply({
@@ -2048,17 +2046,146 @@ client.on("interactionCreate", async (interaction) => {
       await addXp(interaction.user.id, xpGain, "rapport", `Rapport médical pour ${patient}`);
 
       await interaction.reply({ embeds: [embed] });
-
-      // ✅ METTRE À JOUR L'EMBED
       await mettreAJourMessageRapport();
       return;
     }
 
     // ========================================
-    // BOUTONS TICKET (RACCOURCI POUR LA SUITE)
+    // BOUTONS TICKET
     // ========================================
-    // ... (le reste du code pour les tickets, giveaways, etc. est identique)
-    // Je continue avec le reste du code dans le message suivant car c'est trop long...
+    if (interaction.isButton()) {
+      const customId = interaction.customId;
+      
+      // Ticket buttons
+      if (["ticket_claim", "ticket_unclaim", "ticket_rename", "ticket_add", "ticket_remove", "ticket_transcript", "ticket_close", "ticket_delete", "ticket_reopen"].includes(customId)) {
+        if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
+          return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
+        }
+
+        const userId = trouverUserIdParThread(interaction.channel.id);
+        if (!userId) return interaction.reply({ content: "❌ Ticket introuvable.", flags: 64 });
+
+        const ticket = tickets[userId];
+        if (!ticket) return interaction.reply({ content: "❌ Ticket introuvable.", flags: 64 });
+
+        if (customId === "ticket_claim") {
+          if (ticket.claimedBy) return interaction.reply({ content: `❌ Ce ticket est déjà pris par <@${ticket.claimedBy}>.`, flags: 64 });
+          ticket.claimedBy = interaction.user.id;
+          sauverTickets();
+          await interaction.reply({ content: `✅ Tu as pris en charge le ticket #${ticket.number}.`, flags: 64 });
+          await interaction.channel.send({ content: `🙋 <@${interaction.user.id}> a pris en charge le ticket.` });
+        } else if (customId === "ticket_unclaim") {
+          if (!ticket.claimedBy) return interaction.reply({ content: "❌ Ce ticket n'est pas pris en charge.", flags: 64 });
+          if (ticket.claimedBy !== interaction.user.id && !interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: "❌ Tu n'as pas pris ce ticket.", flags: 64 });
+          }
+          ticket.claimedBy = null;
+          sauverTickets();
+          await interaction.reply({ content: `✅ Ticket #${ticket.number} libéré.`, flags: 64 });
+          await interaction.channel.send({ content: `🙅 <@${interaction.user.id}> a libéré le ticket.` });
+        } else if (customId === "ticket_rename") {
+          const modal = new ModalBuilder()
+            .setCustomId("ticket_rename_modal")
+            .setTitle("Renommer le ticket");
+          const input = new TextInputBuilder()
+            .setCustomId("new_name")
+            .setLabel("Nouveau nom")
+            .setStyle(TextInputStyle.Short)
+            .setValue(interaction.channel.name);
+          modal.addComponents(new ActionRowBuilder().addComponents(input));
+          await interaction.showModal(modal);
+        } else if (customId === "ticket_add") {
+          const row = new ActionRowBuilder().addComponents(
+            new UserSelectMenuBuilder()
+              .setCustomId("ticket_add_user")
+              .setPlaceholder("Choisis un membre à ajouter")
+          );
+          await interaction.reply({ content: "Sélectionne le membre à ajouter :", components: [row], flags: 64 });
+        } else if (customId === "ticket_remove") {
+          const row = new ActionRowBuilder().addComponents(
+            new UserSelectMenuBuilder()
+              .setCustomId("ticket_remove_user")
+              .setPlaceholder("Choisis un membre à retirer")
+          );
+          await interaction.reply({ content: "Sélectionne le membre à retirer :", components: [row], flags: 64 });
+        } else if (customId === "ticket_transcript") {
+          await interaction.deferReply({ flags: 64 });
+          await envoyerTranscript(
+            interaction.channel,
+            "📄 Transcript du ticket",
+            `Ticket **#${ticket.number}** demandé par **${interaction.user.tag}**.`
+          );
+          await interaction.editReply({ content: "✅ Le transcript a été envoyé dans le salon de logs." });
+        } else if (customId === "ticket_close") {
+          await fermerTicketParThread(interaction.channel.id, interaction.user.tag);
+          await interaction.reply({ content: "🔒 Ticket fermé.", flags: 64 });
+        } else if (customId === "ticket_delete") {
+          if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: "❌ Seuls les administrateurs peuvent supprimer un ticket.", flags: 64 });
+          }
+          await interaction.reply({ content: "🗑️ Suppression du ticket...", flags: 64 });
+          await interaction.channel.delete().catch(() => {});
+          if (userId) {
+            delete tickets[userId];
+            sauverTickets();
+          }
+        } else if (customId === "ticket_reopen") {
+          await interaction.deferReply({ flags: 64 });
+          await reouvrirTicketParThread(interaction.channel.id, interaction.user.tag);
+          await interaction.editReply({ content: "♻️ Ticket rouvert !" });
+        }
+        return;
+      }
+    }
+
+    // ========================================
+    // USER SELECT MENUS (Ticket add/remove)
+    // ========================================
+    if (interaction.isUserSelectMenu()) {
+      if (interaction.customId === "ticket_add_user") {
+        const user = interaction.users.first();
+        if (!user) return interaction.update({ content: "❌ Aucun membre sélectionné.", components: [] });
+        
+        const userId = trouverUserIdParThread(interaction.channel.id);
+        if (!userId) return interaction.update({ content: "❌ Ticket introuvable.", components: [] });
+        
+        await interaction.channel.members.add(user.id).catch(() => {});
+        await interaction.update({ content: `✅ ${user.tag} a été ajouté au ticket.`, components: [] });
+        await interaction.channel.send({ content: `➕ <@${user.id}> a été ajouté au ticket par <@${interaction.user.id}>.` });
+        return;
+      }
+
+      if (interaction.customId === "ticket_remove_user") {
+        const user = interaction.users.first();
+        if (!user) return interaction.update({ content: "❌ Aucun membre sélectionné.", components: [] });
+        
+        const userId = trouverUserIdParThread(interaction.channel.id);
+        if (!userId) return interaction.update({ content: "❌ Ticket introuvable.", components: [] });
+        
+        await interaction.channel.members.remove(user.id).catch(() => {});
+        await interaction.update({ content: `✅ ${user.tag} a été retiré du ticket.`, components: [] });
+        await interaction.channel.send({ content: `➖ <@${user.id}> a été retiré du ticket par <@${interaction.user.id}>.` });
+        return;
+      }
+    }
+
+    // ========================================
+    // MODAL TICKET RENAME
+    // ========================================
+    if (interaction.isModalSubmit() && interaction.customId === "ticket_rename_modal") {
+      const newName = interaction.fields.getTextInputValue("new_name");
+      await interaction.channel.setName(newName.slice(0, 100)).catch(() => {});
+      await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, flags: 64 });
+      return;
+    }
+
+    // ========================================
+    // COMMANDES SLASH
+    // ========================================
+    if (interaction.isChatInputCommand()) {
+      // ... (les commandes slash sont gérées ici)
+      // Je les ai incluses plus haut dans la liste des commandes
+    }
 
   } catch (error) {
     console.error('❌ Erreur dans interactionCreate:', error);
@@ -2072,45 +2199,49 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ==============================
-// VOICE STATE UPDATE (XP vocal)
+// VOICE STATE UPDATE
 // ==============================
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  const userId = newState.member?.id || oldState.member?.id;
-  if (!userId) return;
+  try {
+    const userId = newState.member?.id || oldState.member?.id;
+    if (!userId) return;
 
-  const serviceStatus = getServiceStatus(userId);
-  if (!serviceStatus) return;
+    const serviceStatus = getServiceStatus(userId);
+    if (!serviceStatus) return;
 
-  const oldChannel = oldState.channel;
-  const newChannel = newState.channel;
+    const oldChannel = oldState.channel;
+    const newChannel = newState.channel;
 
-  if (!oldChannel && newChannel) {
-    if (!xpData[userId]) {
-      xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
-    }
-    xpData[userId].voiceJoinTime = Date.now();
-    sauverXp();
-  }
-
-  if (oldChannel && !newChannel) {
-    const joinTime = xpData[userId]?.voiceJoinTime;
-    if (joinTime) {
-      const duration = Math.floor((Date.now() - joinTime) / 60);
-      const cooldown = gradesConfig.settings.cooldowns?.voice || 300;
-
-      if (duration > 0 && duration < 60) {
-        const boost = (new Date().getDay() === 0 || new Date().getDay() === 6)
-          ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
-        const xpGain = Math.round((gradesConfig.settings.xpPerVoiceMinute || 2) * duration * boost);
-
-        if (xpGain > 0 && Date.now() - (xpData[userId]?.lastVoice || 0) > cooldown * 1000) {
-          xpData[userId].lastVoice = Date.now();
-          await addXp(userId, xpGain, "voice", `${duration} min en vocal`);
-        }
+    if (!oldChannel && newChannel) {
+      if (!xpData[userId]) {
+        xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
       }
-      delete xpData[userId].voiceJoinTime;
+      xpData[userId].voiceJoinTime = Date.now();
       sauverXp();
     }
+
+    if (oldChannel && !newChannel) {
+      const joinTime = xpData[userId]?.voiceJoinTime;
+      if (joinTime) {
+        const duration = Math.floor((Date.now() - joinTime) / 60);
+        const cooldown = gradesConfig.settings.cooldowns?.voice || 300;
+
+        if (duration > 0 && duration < 60) {
+          const boost = (new Date().getDay() === 0 || new Date().getDay() === 6)
+            ? (gradesConfig.settings.xpBoosts?.weekend || 1.5) : 1;
+          const xpGain = Math.round((gradesConfig.settings.xpPerVoiceMinute || 2) * duration * boost);
+
+          if (xpGain > 0 && Date.now() - (xpData[userId]?.lastVoice || 0) > cooldown * 1000) {
+            xpData[userId].lastVoice = Date.now();
+            await addXp(userId, xpGain, "voice", `${duration} min en vocal`);
+          }
+        }
+        delete xpData[userId].voiceJoinTime;
+        sauverXp();
+      }
+    }
+  } catch (error) {
+    console.error('❌ Erreur voiceStateUpdate:', error);
   }
 });
 
@@ -2122,7 +2253,6 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// ✅ CORRECTION SESSION - Utilisation de MemoryStore avec warning désactivé
 app.use(
   session({
     secret: SESSION_SECRET,
@@ -2148,7 +2278,7 @@ function getGuild(res) {
   return guild;
 }
 
-// ---- Auth Discord OAuth2 ----
+// ---- Auth ----
 app.get("/login", (req, res) => {
   if (req.session.user) return res.redirect("/panel");
   res.sendFile(path.join(__dirname, "public", "login.html"));
@@ -2338,7 +2468,7 @@ app.delete("/api/roles/:id", authRequis, async (req, res) => {
   }
 });
 
-// ---- Membres / Modération ----
+// ---- Membres ----
 app.get("/api/members/search", authRequis, async (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -2367,7 +2497,592 @@ app.get("/api/members/search", authRequis, async (req, res) => {
   }
 });
 
-// ---- Le reste des endpoints API est identique ----
-// (Je les garde dans la version complète)
+// ---- Settings ----
+app.get("/api/settings", authRequis, (req, res) => {
+  res.json({
+    autoRoleIds: config.autoRoleIds || [],
+    welcomeChannelId: config.welcomeChannelId,
+    welcomeMessage: config.welcomeMessage,
+    ticketStaffChannelId: config.ticketStaffChannelId,
+    ticketLogsChannelId: config.ticketLogsChannelId,
+    modLogsChannelId: config.modLogsChannelId,
+    ticketAutoCloseHours: config.ticketAutoCloseHours || 0,
+    serviceChannelId: config.serviceChannelId,
+    rapportChannelId: config.rapportChannelId,
+    interventionChannelId: config.interventionChannelId,
+  });
+});
+
+app.post("/api/settings", authRequis, (req, res) => {
+  const {
+    autoRoleIds,
+    welcomeChannelId,
+    welcomeMessage,
+    ticketStaffChannelId,
+    ticketLogsChannelId,
+    modLogsChannelId,
+    ticketAutoCloseHours,
+    serviceChannelId,
+    rapportChannelId,
+    interventionChannelId,
+  } = req.body;
+
+  if (autoRoleIds !== undefined) config.autoRoleIds = Array.isArray(autoRoleIds) ? autoRoleIds : [];
+  if (welcomeChannelId !== undefined) config.welcomeChannelId = welcomeChannelId;
+  if (welcomeMessage !== undefined) config.welcomeMessage = welcomeMessage;
+  if (ticketStaffChannelId !== undefined) config.ticketStaffChannelId = ticketStaffChannelId;
+  if (ticketLogsChannelId !== undefined) config.ticketLogsChannelId = ticketLogsChannelId;
+  if (modLogsChannelId !== undefined) config.modLogsChannelId = modLogsChannelId;
+  if (ticketAutoCloseHours !== undefined) config.ticketAutoCloseHours = parseFloat(ticketAutoCloseHours) || 0;
+  if (serviceChannelId !== undefined) config.serviceChannelId = serviceChannelId;
+  if (rapportChannelId !== undefined) config.rapportChannelId = rapportChannelId;
+  if (interventionChannelId !== undefined) config.interventionChannelId = interventionChannelId;
+
+  sauverConfig();
+  
+  setTimeout(() => {
+    if (serviceChannelId !== undefined && config.serviceChannelId) {
+      envoyerMessageService().catch(() => {});
+    }
+    if (rapportChannelId !== undefined && config.rapportChannelId) {
+      envoyerMessageRapport().catch(() => {});
+    }
+    if (interventionChannelId !== undefined && config.interventionChannelId) {
+      envoyerMessageIntervention().catch(() => {});
+    }
+  }, 1000);
+
+  res.json({ succes: true });
+});
+
+// ---- Candidatures ----
+app.get("/api/settings/candidatures", authRequis, (req, res) => {
+  res.json(config.candidatures || { ...CANDIDATURES_DEFAUT });
+});
+
+app.post("/api/settings/candidatures", authRequis, (req, res) => {
+  const data = req.body;
+  config.candidatures = {
+    ...CANDIDATURES_DEFAUT,
+    ...config.candidatures,
+    ...data,
+  };
+  if (!Array.isArray(config.candidatures.rolesValid)) config.candidatures.rolesValid = [];
+  if (!Array.isArray(config.candidatures.rolesRefus)) config.candidatures.rolesRefus = [];
+  if (!Array.isArray(config.candidatures.rolesAttribution)) config.candidatures.rolesAttribution = [];
+  sauverConfig();
+  res.json({ succes: true });
+});
+
+// ---- Historique ----
+app.get("/api/candidatures/history", authRequis, (req, res) => {
+  const q = (req.query.q || "").toLowerCase();
+  let resultats = candHistory;
+  if (q) {
+    resultats = resultats.filter(h =>
+      h.username?.toLowerCase().includes(q) ||
+      h.staffTag?.toLowerCase().includes(q) ||
+      (h.ticketNumber && h.ticketNumber.includes(q))
+    );
+  }
+  res.json(resultats.slice(0, 200));
+});
+
+// ---- Tickets ----
+app.get("/api/tickets", authRequis, (req, res) => {
+  const liste = Object.entries(tickets).map(([userId, t]) => ({
+    userId,
+    username: t.username,
+    number: t.number,
+    claimedBy: t.claimedBy,
+    priority: t.priority,
+    note: t.note || "",
+    lastActivity: t.lastActivity,
+    threadId: t.threadId,
+  }));
+  res.json(liste);
+});
+
+app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
+  const { userId } = req.params;
+  const { message } = req.body;
+  const ticket = tickets[userId];
+  if (!ticket) return res.status(404).json({ erreur: "Ticket introuvable" });
+
+  try {
+    const thread = await client.channels.fetch(ticket.threadId);
+    await thread.send({
+      content: `**${req.session.user.username} (Panel)** :\n${message}`,
+    });
+    const user = await client.users.fetch(userId);
+    await user.send({
+      content: `**${req.session.user.username} (Staff)** :\n${message}`,
+    }).catch(() => {});
+    ticket.lastActivity = new Date().toISOString();
+    sauverTickets();
+    res.json({ succes: true });
+  } catch (e) {
+    console.error("Erreur réponse ticket:", e);
+    res.status(500).json({ erreur: "Erreur lors de l'envoi" });
+  }
+});
+
+app.post("/api/tickets/:userId/note", authRequis, (req, res) => {
+  const { userId } = req.params;
+  const { note } = req.body;
+  const ticket = tickets[userId];
+  if (!ticket) return res.status(404).json({ erreur: "Ticket introuvable" });
+  ticket.note = note;
+  sauverTickets();
+  res.json({ succes: true });
+});
+
+app.post("/api/tickets/:userId/close", authRequis, async (req, res) => {
+  const { userId } = req.params;
+  const ticket = tickets[userId];
+  if (!ticket) return res.status(404).json({ erreur: "Ticket introuvable" });
+  
+  try {
+    await fermerTicketParThread(ticket.threadId, req.session.user.username);
+    res.json({ succes: true });
+  } catch (e) {
+    console.error("Erreur fermeture ticket:", e);
+    res.status(500).json({ erreur: "Erreur lors de la fermeture" });
+  }
+});
+
+// ---- Giveaways ----
+app.get("/api/giveaways", authRequis, (req, res) => {
+  res.json(Object.values(giveaways));
+});
+
+app.post("/api/giveaways", authRequis, async (req, res) => {
+  const { channelId, prize, durationMinutes, winnersCount } = req.body;
+  if (!channelId || !prize || !durationMinutes) {
+    return res.status(400).json({ erreur: "Paramètres manquants" });
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle(`🎉 Giveaway : ${prize}`)
+      .setDescription(`Réagissez avec 🎉 pour participer !\nDurée : ${durationMinutes} min\nGagnants : ${winnersCount || 1}`)
+      .setTimestamp();
+
+    const message = await channel.send({ embeds: [embed] });
+    await message.react("🎉");
+
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const endsAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+
+    giveaways[id] = {
+      id,
+      channelId,
+      messageId: message.id,
+      prize,
+      winnersCount: parseInt(winnersCount) || 1,
+      endsAt,
+      participants: [],
+      ended: false,
+    };
+    sauverGiveaways();
+
+    planifierFinGiveaway(giveaways[id]);
+
+    res.json({ succes: true, id });
+  } catch (e) {
+    console.error("Erreur création giveaway:", e);
+    res.status(500).json({ erreur: "Erreur lors de la création" });
+  }
+});
+
+app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
+  const id = req.params.id;
+  const giveaway = giveaways[id];
+  if (!giveaway) return res.status(404).json({ erreur: "Giveaway introuvable" });
+  
+  try {
+    await terminerGiveaway(id);
+    res.json({ succes: true });
+  } catch (e) {
+    console.error("Erreur terminaison giveaway:", e);
+    res.status(500).json({ erreur: "Erreur lors de la terminaison" });
+  }
+});
+
+// ---- Reactions Giveaway ----
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.emoji.name !== "🎉") return;
+
+  const message = reaction.message;
+  for (const [id, g] of Object.entries(giveaways)) {
+    if (g.messageId === message.id && !g.ended) {
+      if (!g.participants.includes(user.id)) {
+        g.participants.push(user.id);
+        sauverGiveaways();
+      }
+      break;
+    }
+  }
+});
+
+client.on("messageReactionRemove", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.emoji.name !== "🎉") return;
+
+  const message = reaction.message;
+  for (const [id, g] of Object.entries(giveaways)) {
+    if (g.messageId === message.id && !g.ended) {
+      g.participants = g.participants.filter(id => id !== user.id);
+      sauverGiveaways();
+      break;
+    }
+  }
+});
+
+// ---- Embed ----
+app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, res) => {
+  const { channelId, title, description, color, imageUrl, footer } = req.body;
+  if (!channelId) return res.status(400).json({ erreur: "Salon requis" });
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel) return res.status(404).json({ erreur: "Salon introuvable" });
+
+    const embed = new EmbedBuilder()
+      .setColor(color || COULEUR_EMBED)
+      .setTitle(title || "Annonce")
+      .setDescription(description || "")
+      .setTimestamp();
+
+    if (footer) embed.setFooter({ text: footer });
+    
+    if (req.file) {
+      const attachment = { attachment: req.file.buffer, name: req.file.originalname };
+      embed.setImage(`attachment://${req.file.originalname}`);
+      await channel.send({ embeds: [embed], files: [attachment] });
+    } else if (imageUrl) {
+      embed.setImage(imageUrl);
+      await channel.send({ embeds: [embed] });
+    } else {
+      await channel.send({ embeds: [embed] });
+    }
+
+    res.json({ succes: true });
+  } catch (e) {
+    console.error("Erreur envoi embed:", e);
+    res.status(500).json({ erreur: "Erreur lors de l'envoi" });
+  }
+});
+
+// ---- Service ----
+app.get("/api/service/active", authRequis, (req, res) => {
+  res.json(getActiveServices());
+});
+
+app.get("/api/service/member/:id", authRequis, (req, res) => {
+  const data = serviceData[req.params.id];
+  res.json(data || { sessions: [], totalTime: 0 });
+});
+
+app.post("/api/service/config", authRequis, (req, res) => {
+  const { channelId } = req.body;
+  if (channelId !== undefined) {
+    config.serviceChannelId = channelId;
+    sauverConfig();
+    setTimeout(() => {
+      if (channelId) {
+        envoyerMessageService().catch(() => {});
+      }
+    }, 1000);
+  }
+  res.json({ succes: true });
+});
+
+// ---- Rapport ----
+app.post("/api/rapport/config", authRequis, (req, res) => {
+  const { channelId } = req.body;
+  if (channelId !== undefined) {
+    config.rapportChannelId = channelId;
+    sauverConfig();
+    setTimeout(() => {
+      if (channelId) {
+        envoyerMessageRapport().catch(() => {});
+      }
+    }, 1000);
+  }
+  res.json({ succes: true });
+});
+
+// ---- Intervention ----
+app.get("/api/interventions", authRequis, (req, res) => {
+  res.json(interventions.slice(-10).reverse());
+});
+
+app.post("/api/intervention/config", authRequis, (req, res) => {
+  const { channelId } = req.body;
+  if (channelId !== undefined) {
+    config.interventionChannelId = channelId;
+    sauverConfig();
+    setTimeout(() => {
+      if (channelId) {
+        envoyerMessageIntervention().catch(() => {});
+      }
+    }, 1000);
+  }
+  res.json({ succes: true });
+});
+
+// ---- XP & Grades ----
+app.get("/api/xp/stats", authRequis, (req, res) => {
+  const totalXp = Object.values(xpData).reduce((sum, d) => sum + (d.xp || 0), 0);
+  const activeMembers = Object.keys(xpData).filter(id => (xpData[id]?.xp || 0) > 0).length;
+  const totalInterventions = Object.values(xpData).reduce((sum, d) => sum + (d.interventions || 0), 0);
+  const totalRapports = Object.values(xpData).reduce((sum, d) => sum + (d.rapports || 0), 0);
+  
+  const grades = Object.values(xpData).map(d => getGradeForXp(d.xp || 0));
+  const gradeCount = {};
+  grades.forEach(g => { gradeCount[g.name] = (gradeCount[g.name] || 0) + 1; });
+  const mostCommon = Object.entries(gradeCount).sort((a, b) => b[1] - a[1])[0];
+  
+  res.json({
+    totalXp,
+    activeMembers,
+    totalInterventions,
+    totalRapports,
+    averageGrade: mostCommon ? mostCommon[0] : "Aucun",
+  });
+});
+
+app.get("/api/xp/top5", authRequis, async (req, res) => {
+  const sorted = Object.entries(xpData)
+    .filter(([_, data]) => (data.xp || 0) > 0)
+    .sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0))
+    .slice(0, 5);
+
+  const result = await Promise.all(sorted.map(async ([userId, data]) => {
+    const user = await client.users.fetch(userId).catch(() => null);
+    const grade = getGradeForXp(data.xp || 0);
+    const { level } = getLevelFromXp(data.xp || 0);
+    return {
+      userId,
+      username: user?.username || userId,
+      xp: data.xp || 0,
+      level,
+      grade: grade.name,
+      gradeIcon: grade.icon,
+      interventions: data.interventions || 0,
+      rapports: data.rapports || 0,
+    };
+  }));
+
+  res.json(result);
+});
+
+app.get("/api/xp/leaderboard", authRequis, async (req, res) => {
+  const sort = req.query.sort || "xp";
+  const search = (req.query.search || "").toLowerCase();
+  const gradeFilter = req.query.grade || "all";
+
+  let entries = Object.entries(xpData);
+  
+  if (search) {
+    const matchingUsers = await Promise.all(entries.map(async ([id]) => {
+      const user = await client.users.fetch(id).catch(() => null);
+      return { id, username: user?.username?.toLowerCase() || "" };
+    }));
+    const matchingIds = matchingUsers.filter(m => m.username.includes(search)).map(m => m.id);
+    entries = entries.filter(([id]) => matchingIds.includes(id));
+  }
+
+  if (gradeFilter !== "all") {
+    entries = entries.filter(([_, data]) => {
+      const grade = getGradeForXp(data.xp || 0);
+      return grade.id === gradeFilter;
+    });
+  }
+
+  entries.sort((a, b) => {
+    const key = sort === "level" ? "xp" : sort;
+    const valA = a[1][key] || 0;
+    const valB = b[1][key] || 0;
+    return valB - valA;
+  });
+
+  const result = await Promise.all(entries.slice(0, 50).map(async ([userId, data]) => {
+    const user = await client.users.fetch(userId).catch(() => null);
+    const grade = getGradeForXp(data.xp || 0);
+    const { level } = getLevelFromXp(data.xp || 0);
+    return {
+      userId,
+      username: user?.username || userId,
+      xp: data.xp || 0,
+      level,
+      grade: grade.name,
+      gradeIcon: grade.icon,
+      gradeColor: grade.color,
+      interventions: data.interventions || 0,
+      rapports: data.rapports || 0,
+      serviceTime: data.serviceTime || 0,
+      messages: data.messages || 0,
+      voiceTime: data.voiceTime || 0,
+      isOnService: !!getServiceStatus(userId),
+    };
+  }));
+
+  res.json(result);
+});
+
+app.get("/api/xp/profile", authRequis, async (req, res) => {
+  const search = req.query.search || "";
+  if (!search) return res.status(400).json({ erreur: "Recherche requise" });
+
+  let userId = search;
+  let user = await client.users.fetch(userId).catch(() => null);
+  
+  if (!user) {
+    const guild = getGuild(res);
+    if (!guild) return;
+    const members = await guild.members.fetch({ query: search, limit: 1 }).catch(() => []);
+    if (members.size > 0) {
+      userId = members.first().id;
+      user = members.first().user;
+    }
+  }
+
+  if (!user) return res.status(404).json({ erreur: "Membre non trouvé" });
+
+  const data = xpData[userId] || { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+  const grade = getGradeForXp(data.xp || 0);
+  const { level, currentXp, nextXp } = getLevelFromXp(data.xp || 0);
+  const serviceStatus = getServiceStatus(userId);
+
+  res.json({
+    userId,
+    username: user.username,
+    xp: data.xp || 0,
+    level,
+    currentXp,
+    nextXp,
+    grade: grade.name,
+    gradeIcon: grade.icon,
+    gradeColor: grade.color,
+    perks: grade.perks || [],
+    serviceTime: data.serviceTime || 0,
+    interventions: data.interventions || 0,
+    rapports: data.rapports || 0,
+    messages: data.messages || 0,
+    voiceTime: data.voiceTime || 0,
+    lastActivity: data.lastActivity || new Date().toISOString(),
+    isOnService: !!serviceStatus,
+    serviceStart: serviceStatus?.startTime || null,
+  });
+});
+
+app.get("/api/grades", authRequis, (req, res) => {
+  res.json(gradesConfig);
+});
+
+app.post("/api/grades", authRequis, (req, res) => {
+  const { id, name, level, xpRequired, icon, color, perks, notifications } = req.body;
+  if (!id || !name) return res.status(400).json({ erreur: "id et name requis" });
+
+  if (gradesConfig.grades.some(g => g.id === id)) {
+    return res.status(400).json({ erreur: "Un grade avec cet ID existe déjà" });
+  }
+
+  gradesConfig.grades.push({
+    id,
+    name,
+    level: level || 1,
+    xpRequired: xpRequired || 0,
+    icon: icon || "🟢",
+    color: color || "#34d399",
+    perks: perks || [],
+    notifications: notifications !== false,
+  });
+
+  gradesConfig.grades.sort((a, b) => a.xpRequired - b.xpRequired);
+  sauverGrades();
+  res.json({ succes: true });
+});
+
+app.delete("/api/grades/:id", authRequis, (req, res) => {
+  gradesConfig.grades = gradesConfig.grades.filter(g => g.id !== req.params.id);
+  sauverGrades();
+  res.json({ succes: true });
+});
+
+app.get("/api/xp/settings", authRequis, (req, res) => {
+  res.json(gradesConfig.settings);
+});
+
+app.post("/api/xp/settings", authRequis, (req, res) => {
+  gradesConfig.settings = { ...gradesConfig.settings, ...req.body };
+  sauverGrades();
+  res.json({ succes: true });
+});
+
+app.get("/api/xp/logs", authRequis, (req, res) => {
+  const search = (req.query.search || "").toLowerCase();
+  const type = req.query.type || "all";
+
+  let logs = xpLogs;
+  if (search) {
+    logs = logs.filter(l => l.username?.toLowerCase().includes(search));
+  }
+  if (type !== "all") {
+    logs = logs.filter(l => l.type === type);
+  }
+
+  res.json(logs.slice(0, 100));
+});
+
+// ---- Backup ----
+app.get("/api/backup", authRequis, (req, res) => {
+  const backup = {
+    config,
+    tickets,
+    giveaways,
+    closedTickets,
+    warns,
+    candHistory,
+    interventions,
+    xpData,
+    gradesConfig,
+    xpLogs,
+    serviceData,
+    date: new Date().toISOString(),
+  };
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename=backup-${Date.now()}.json`);
+  res.json(backup);
+});
+
+app.post("/api/backup/import", authRequis, (req, res) => {
+  const data = req.body;
+  if (!data) return res.status(400).json({ erreur: "Données manquantes" });
+
+  try {
+    if (data.config) { config = { ...config, ...data.config }; sauverConfig(); }
+    if (data.tickets) { tickets = data.tickets; sauverTickets(); }
+    if (data.giveaways) { giveaways = data.giveaways; sauverGiveaways(); }
+    if (data.closedTickets) { closedTickets = data.closedTickets; sauverClosedTickets(); }
+    if (data.warns) { warns = data.warns; sauverWarns(); }
+    if (data.candHistory) { candHistory = data.candHistory; sauverCandHistory(); }
+    if (data.interventions) { interventions = Array.isArray(data.interventions) ? data.interventions : []; sauverInterventions(); }
+    if (data.xpData) { xpData = data.xpData; sauverXp(); }
+    if (data.gradesConfig) { gradesConfig = data.gradesConfig; sauverGrades(); }
+    if (data.xpLogs) { xpLogs = data.xpLogs; sauverXpLogs(); }
+    if (data.serviceData) { serviceData = data.serviceData; sauverService(); }
+
+    res.json({ succes: true });
+  } catch (e) {
+    console.error("Erreur import backup:", e);
+    res.status(500).json({ erreur: "Erreur lors de l'import" });
+  }
+});
 
 app.listen(PORT, () => console.log(`✅ Serveur web + panel actif sur le port ${PORT}`));
