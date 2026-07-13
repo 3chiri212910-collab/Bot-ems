@@ -161,6 +161,10 @@ let config = lire(CONFIG_FILE, {
   ticketCounter: 0,
   serviceChannelId: null,
   serviceMessageId: null,
+  rapportChannelId: null,
+  rapportMessageId: null,
+  interventionChannelId: null,
+  interventionMessageId: null,
   candidatures: { ...CANDIDATURES_DEFAUT },
 });
 
@@ -170,6 +174,10 @@ if (config.ticketAutoCloseHours === undefined) config.ticketAutoCloseHours = 0;
 if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
 if (config.serviceChannelId === undefined) config.serviceChannelId = null;
 if (config.serviceMessageId === undefined) config.serviceMessageId = null;
+if (config.rapportChannelId === undefined) config.rapportChannelId = null;
+if (config.rapportMessageId === undefined) config.rapportMessageId = null;
+if (config.interventionChannelId === undefined) config.interventionChannelId = null;
+if (config.interventionMessageId === undefined) config.interventionMessageId = null;
 
 let tickets = lire(TICKETS_FILE, {});
 let giveaways = lire(GIVEAWAYS_FILE, {});
@@ -236,6 +244,7 @@ async function addXp(userId, amount, source, reason) {
       xp: 0,
       serviceTime: 0,
       interventions: 0,
+      rapports: 0,
       messages: 0,
       voiceTime: 0,
       lastActivity: new Date().toISOString()
@@ -247,6 +256,7 @@ async function addXp(userId, amount, source, reason) {
   xpData[userId].lastActivity = new Date().toISOString();
   
   if (source === 'intervention') xpData[userId].interventions = (xpData[userId].interventions || 0) + 1;
+  if (source === 'rapport') xpData[userId].rapports = (xpData[userId].rapports || 0) + 1;
   if (source === 'message') xpData[userId].messages = (xpData[userId].messages || 0) + 1;
   if (source === 'voice') xpData[userId].voiceTime = (xpData[userId].voiceTime || 0) + Math.abs(amount) / 2;
   if (source === 'service') xpData[userId].serviceTime = (xpData[userId].serviceTime || 0) + Math.abs(amount);
@@ -358,6 +368,189 @@ function getServiceDuration(userId) {
   if (!data || !data.active) return null;
   const start = new Date(data.startTime);
   return Math.floor((Date.now() - start) / 1000);
+}
+
+// ==============================
+// FONCTIONS RAPPORT & INTERVENTION (EMBEDS)
+// ==============================
+
+// Construire l'embed de rapport
+async function construireEmbedRapport() {
+  const embed = new EmbedBuilder()
+    .setColor(COULEUR_EMBED)
+    .setTitle("📋 Système de rapports médicaux")
+    .setDescription("Utilise les boutons ci-dessous pour gérer tes rapports médicaux.\n\n" +
+      "• **📝 Nouveau rapport** : Créer un rapport médical détaillé\n" +
+      "• **📊 Mes rapports** : Voir le nombre de rapports que tu as faits\n" +
+      "• **🏆 Classement** : Voir le classement des rapporteurs")
+    .setFooter({ text: NOM_SERVEUR })
+    .setTimestamp();
+
+  // Stats globales
+  const totalRapports = Object.values(xpData).reduce((sum, d) => sum + (d.rapports || 0), 0);
+  const rapporteurs = Object.keys(xpData).filter(id => (xpData[id]?.rapports || 0) > 0).length;
+  
+  embed.addFields(
+    { name: "📊 Total rapports", value: String(totalRapports), inline: true },
+    { name: "👨‍⚕️ Rapporteurs actifs", value: String(rapporteurs), inline: true }
+  );
+
+  // Top 3 rapporteurs
+  const topRapporteurs = Object.entries(xpData)
+    .filter(([_, data]) => (data.rapports || 0) > 0)
+    .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
+    .slice(0, 3);
+
+  if (topRapporteurs.length > 0) {
+    const topListe = await Promise.all(topRapporteurs.map(async ([userId, data], i) => {
+      const user = await client.users.fetch(userId).catch(() => null);
+      return `**${i+1}.** ${user?.username || userId} — ${data.rapports} rapport(s)`;
+    }));
+    embed.addFields({ name: "🏆 Top rapporteurs", value: topListe.join('\n'), inline: false });
+  }
+
+  return embed;
+}
+
+// Construire l'embed d'intervention
+async function construireEmbedIntervention() {
+  const stats = statsInterventions();
+  
+  const embed = new EmbedBuilder()
+    .setColor(COULEUR_EMBED)
+    .setTitle("🚑 Système d'interventions")
+    .setDescription("Utilise les boutons ci-dessous pour gérer tes interventions.\n\n" +
+      "• **📝 Nouvelle intervention** : Logger une intervention rapide\n" +
+      "• **📊 Mes interventions** : Voir le nombre d'interventions que tu as faites\n" +
+      "• **🏆 Classement** : Voir le classement des intervenants")
+    .setFooter({ text: NOM_SERVEUR })
+    .setTimestamp();
+
+  embed.addFields(
+    { name: "📊 Total interventions", value: String(stats.total), inline: true },
+    { name: "🚑 Intervenants actifs", value: String(Object.keys(xpData).filter(id => (xpData[id]?.interventions || 0) > 0).length), inline: true }
+  );
+
+  // Top 3 intervenants
+  const topIntervenants = Object.entries(xpData)
+    .filter(([_, data]) => (data.interventions || 0) > 0)
+    .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
+    .slice(0, 3);
+
+  if (topIntervenants.length > 0) {
+    const topListe = await Promise.all(topIntervenants.map(async ([userId, data], i) => {
+      const user = await client.users.fetch(userId).catch(() => null);
+      return `**${i+1}.** ${user?.username || userId} — ${data.interventions} intervention(s)`;
+    }));
+    embed.addFields({ name: "🏆 Top intervenants", value: topListe.join('\n'), inline: false });
+  }
+
+  // Dernières interventions
+  const recent = interventions.slice(-3).reverse();
+  if (recent.length > 0) {
+    const recentListe = recent.map(iv => {
+      const type = LABELS_TYPE_INTERVENTION[iv.type] || iv.type;
+      const gravite = LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite;
+      return `• ${type} (${gravite}) — ${iv.patient || 'Patient inconnu'}`;
+    });
+    embed.addFields({ name: "📋 Dernières interventions", value: recentListe.join('\n'), inline: false });
+  }
+
+  return embed;
+}
+
+// Envoyer le message de rapport
+async function envoyerMessageRapport() {
+  if (!config.rapportChannelId) return;
+  
+  try {
+    const channel = await client.channels.fetch(config.rapportChannelId);
+    if (!channel || !channel.isTextBased()) return;
+    
+    if (config.rapportMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.rapportMessageId);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
+    }
+    
+    const embed = await construireEmbedRapport();
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("rapport_new")
+        .setLabel("📝 Nouveau rapport")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("rapport_mes_stats")
+        .setLabel("📊 Mes rapports")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("rapport_top")
+        .setLabel("🏆 Classement")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    config.rapportMessageId = message.id;
+    sauverConfig();
+    
+    // Mettre à jour toutes les 2 minutes
+    setInterval(async () => {
+      const newEmbed = await construireEmbedRapport();
+      await message.edit({ embeds: [newEmbed] }).catch(() => {});
+    }, 120000);
+    
+  } catch (e) {
+    console.error("Erreur envoi message rapport:", e);
+  }
+}
+
+// Envoyer le message d'intervention
+async function envoyerMessageIntervention() {
+  if (!config.interventionChannelId) return;
+  
+  try {
+    const channel = await client.channels.fetch(config.interventionChannelId);
+    if (!channel || !channel.isTextBased()) return;
+    
+    if (config.interventionMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.interventionMessageId);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
+    }
+    
+    const embed = await construireEmbedIntervention();
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("intervention_new")
+        .setLabel("📝 Nouvelle intervention")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("intervention_mes_stats")
+        .setLabel("📊 Mes interventions")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId("intervention_top")
+        .setLabel("🏆 Classement")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    config.interventionMessageId = message.id;
+    sauverConfig();
+    
+    // Mettre à jour toutes les 2 minutes
+    setInterval(async () => {
+      const newEmbed = await construireEmbedIntervention();
+      await message.edit({ embeds: [newEmbed] }).catch(() => {});
+    }, 120000);
+    
+  } catch (e) {
+    console.error("Erreur envoi message intervention:", e);
+  }
 }
 
 // ==============================
@@ -596,7 +789,7 @@ const commands = [
         .addUserOption((o) => o.setName("membre").setDescription("Membre").setRequired(true))
     ),
 
-  // SERVICE - Commandes
+  // SERVICE
   new SlashCommandBuilder()
     .setName("service")
     .setDescription("Gérer ton service")
@@ -647,6 +840,10 @@ async function chargerDepuisRedis() {
     if (config.interventionsChannelId === undefined) config.interventionsChannelId = null;
     if (config.serviceChannelId === undefined) config.serviceChannelId = null;
     if (config.serviceMessageId === undefined) config.serviceMessageId = null;
+    if (config.rapportChannelId === undefined) config.rapportChannelId = null;
+    if (config.rapportMessageId === undefined) config.rapportMessageId = null;
+    if (config.interventionChannelId === undefined) config.interventionChannelId = null;
+    if (config.interventionMessageId === undefined) config.interventionMessageId = null;
   }
   if (t) tickets = t;
   if (g) giveaways = g;
@@ -687,8 +884,10 @@ client.once("ready", async () => {
   setInterval(verifierTicketsInactifs, 15 * 60 * 1000);
   verifierTicketsInactifs();
 
-  // Envoyer le message de service si configuré
+  // Envoyer les messages
   await envoyerMessageService();
+  await envoyerMessageRapport();
+  await envoyerMessageIntervention();
 
   // XP temps de service (toutes les minutes)
   setInterval(async () => {
@@ -725,7 +924,7 @@ client.once("ready", async () => {
         if (!member || member.presence?.status === 'offline') {
           console.log(`🛑 Service arrêté automatiquement pour ${member?.user?.username || service.userId} (offline)`);
           await stopService(service.userId);
-          await mettreAJourMessageService(service.userId);
+          await mettreAJourMessageService();
         }
       }
     } catch (e) {
@@ -772,7 +971,7 @@ async function envoyerMessageService() {
     config.serviceMessageId = message.id;
     sauverConfig();
     
-    // Mettre à jour le message périodiquement
+    // Mettre à jour toutes les 30s
     setInterval(async () => {
       const newEmbed = await construireEmbedService();
       await message.edit({ embeds: [newEmbed] }).catch(() => {});
@@ -790,9 +989,9 @@ async function construireEmbedService() {
     .setColor(COULEUR_EMBED)
     .setTitle("🟢 Système de service")
     .setDescription("Utilise les boutons ci-dessous pour gérer ton service.\n\n" +
-      "• **Prendre mon service** : Débute ta garde\n" +
-      "• **Arrêter mon service** : Termine ta garde\n" +
-      "• **Voir mon temps** : Affiche ta durée en service")
+      "• **🟢 Prendre mon service** : Débute ta garde\n" +
+      "• **🔴 Arrêter mon service** : Termine ta garde\n" +
+      "• **⏱️ Voir mon temps** : Affiche ta durée en service")
     .setFooter({ text: NOM_SERVEUR })
     .setTimestamp();
 
@@ -813,7 +1012,7 @@ async function construireEmbedService() {
   return embed;
 }
 
-async function mettreAJourMessageService(userId) {
+async function mettreAJourMessageService() {
   if (!config.serviceMessageId || !config.serviceChannelId) return;
   
   try {
@@ -828,6 +1027,14 @@ async function mettreAJourMessageService(userId) {
     console.error("Erreur mise à jour message service:", e);
   }
 }
+
+// ==============================
+// MESSAGE RAPPORT (fonctions déjà définies plus haut)
+// ==============================
+
+// ==============================
+// MESSAGE INTERVENTION (fonctions déjà définies plus haut)
+// ==============================
 
 // ==============================
 // AUTO-FERMETURE TICKETS
@@ -885,7 +1092,7 @@ client.on("guildMemberAdd", async (member) => {
 });
 
 // ==============================
-// SYSTEME DE TICKETS
+// SYSTEME DE TICKETS (fonctions existantes)
 // ==============================
 function boutonsTicket() {
   const ligne1 = new ActionRowBuilder().addComponents(
@@ -1237,7 +1444,7 @@ client.on("messageCreate", async (message) => {
       
       if (xpGain > 0) {
         if (!xpData[userId]) {
-          xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+          xpData[userId] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
         }
         xpData[userId].lastMessage = Date.now();
         await addXp(userId, xpGain, "message", "Message envoyé");
@@ -1310,7 +1517,7 @@ client.on("interactionCreate", async (interaction) => {
       }
       await startService(userId);
       await interaction.editReply({ content: "✅ Tu as pris ton service ! 🟢" });
-      await mettreAJourMessageService(userId);
+      await mettreAJourMessageService();
     }
 
     else if (interaction.customId === "service_stop") {
@@ -1323,7 +1530,7 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply({ 
         content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`
       });
-      await mettreAJourMessageService(userId);
+      await mettreAJourMessageService();
     }
 
     else if (interaction.customId === "service_status") {
@@ -1356,6 +1563,251 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
+  // ---- BOUTONS RAPPORT ----
+  if (interaction.isButton() && ["rapport_new", "rapport_mes_stats", "rapport_top"].includes(interaction.customId)) {
+    await interaction.deferReply({ ephemeral: true });
+    const userId = interaction.user.id;
+
+    if (interaction.customId === "rapport_new") {
+      // Ouvrir le modal de rapport
+      const modal = new ModalBuilder()
+        .setCustomId("rapportModal")
+        .setTitle("Rapport d'intervention médicale");
+
+      const patientInput = new TextInputBuilder()
+        .setCustomId("patient")
+        .setLabel("Nom et prénom du patient")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("Ex: Angel Santiago")
+        .setRequired(true);
+
+      const situationInput = new TextInputBuilder()
+        .setCustomId("situation")
+        .setLabel("Ce qui s'est passé")
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder("Ex: Accident de moto, jambe cassée...")
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(patientInput),
+        new ActionRowBuilder().addComponents(situationInput)
+      );
+
+      return interaction.showModal(modal);
+    }
+
+    else if (interaction.customId === "rapport_mes_stats") {
+      const data = xpData[userId];
+      const rapports = data?.rapports || 0;
+      const grade = getGradeForXp(data?.xp || 0);
+      
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle("📊 Mes rapports")
+        .setDescription(`Tu as rédigé **${rapports}** rapport(s) médical(aux).`)
+        .addFields(
+          { name: "Grade", value: `${grade.icon} ${grade.name}`, inline: true },
+          { name: "XP total", value: String(data?.xp || 0), inline: true }
+        )
+        .setTimestamp();
+      
+      await interaction.editReply({ embeds: [embed] });
+    }
+
+    else if (interaction.customId === "rapport_top") {
+      const topRapporteurs = Object.entries(xpData)
+        .filter(([_, data]) => (data.rapports || 0) > 0)
+        .sort((a, b) => (b[1].rapports || 0) - (a[1].rapports || 0))
+        .slice(0, 10);
+
+      if (topRapporteurs.length === 0) {
+        return interaction.editReply({ content: "Aucun rapport n'a encore été rédigé." });
+      }
+
+      const liste = await Promise.all(topRapporteurs.map(async ([userId, data], i) => {
+        const user = await client.users.fetch(userId).catch(() => null);
+        const grade = getGradeForXp(data.xp || 0);
+        return `**${i+1}.** ${user?.username || userId} — ${data.rapports} rapport(s) (${grade.icon} ${grade.name})`;
+      }));
+
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle("🏆 Classement des rapporteurs")
+        .setDescription(liste.join('\n'))
+        .setTimestamp();
+      
+      await interaction.editReply({ embeds: [embed] });
+    }
+    return;
+  }
+
+  // ---- BOUTONS INTERVENTION ----
+  if (interaction.isButton() && ["intervention_new", "intervention_mes_stats", "intervention_top"].includes(interaction.customId)) {
+    await interaction.deferReply({ ephemeral: true });
+    const userId = interaction.user.id;
+
+    if (interaction.customId === "intervention_new") {
+      // Créer un select menu pour le type et la gravité
+      const row1 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("intervention_type_select")
+          .setPlaceholder("Choisis le type d'intervention")
+          .addOptions(
+            { label: "🚗 Accident de circulation", value: "accident_circulation" },
+            { label: "🔫 Arme à feu / arme blanche", value: "arme" },
+            { label: "🥊 Bagarre / agression", value: "agression" },
+            { label: "💊 Overdose / intoxication", value: "overdose" },
+            { label: "🌊 Noyade", value: "noyade" },
+            { label: "🤕 Chute", value: "chute" },
+            { label: "😵 Malaise", value: "malaise" },
+            { label: "❓ Autre", value: "autre" }
+          )
+      );
+
+      const row2 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("intervention_gravite_select")
+          .setPlaceholder("Choisis la gravité")
+          .addOptions(
+            { label: "🟢 Légère", value: "legere" },
+            { label: "🟡 Moyenne", value: "moyenne" },
+            { label: "🟠 Critique", value: "critique" },
+            { label: "⚫ Décès", value: "deces" }
+          )
+      );
+
+      return interaction.reply({
+        content: "Sélectionne le type et la gravité de l'intervention :",
+        components: [row1, row2],
+        ephemeral: true
+      });
+    }
+
+    else if (interaction.customId === "intervention_mes_stats") {
+      const data = xpData[userId];
+      const interventionsCount = data?.interventions || 0;
+      const grade = getGradeForXp(data?.xp || 0);
+      
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle("📊 Mes interventions")
+        .setDescription(`Tu as participé à **${interventionsCount}** intervention(s).`)
+        .addFields(
+          { name: "Grade", value: `${grade.icon} ${grade.name}`, inline: true },
+          { name: "XP total", value: String(data?.xp || 0), inline: true }
+        )
+        .setTimestamp();
+      
+      await interaction.editReply({ embeds: [embed] });
+    }
+
+    else if (interaction.customId === "intervention_top") {
+      const topIntervenants = Object.entries(xpData)
+        .filter(([_, data]) => (data.interventions || 0) > 0)
+        .sort((a, b) => (b[1].interventions || 0) - (a[1].interventions || 0))
+        .slice(0, 10);
+
+      if (topIntervenants.length === 0) {
+        return interaction.editReply({ content: "Aucune intervention n'a encore été loggée." });
+      }
+
+      const liste = await Promise.all(topIntervenants.map(async ([userId, data], i) => {
+        const user = await client.users.fetch(userId).catch(() => null);
+        const grade = getGradeForXp(data.xp || 0);
+        return `**${i+1}.** ${user?.username || userId} — ${data.interventions} intervention(s) (${grade.icon} ${grade.name})`;
+      }));
+
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle("🏆 Classement des intervenants")
+        .setDescription(liste.join('\n'))
+        .setTimestamp();
+      
+      await interaction.editReply({ embeds: [embed] });
+    }
+    return;
+  }
+
+  // ---- INTERVENTION SELECT MENUS ----
+  if (interaction.isStringSelectMenu() && interaction.customId === "intervention_type_select") {
+    const type = interaction.values[0];
+    // Stocker temporairement
+    if (!interaction.client.interventionData) interaction.client.interventionData = {};
+    interaction.client.interventionData[interaction.user.id] = { type };
+    await interaction.update({ content: `✅ Type sélectionné : ${LABELS_TYPE_INTERVENTION[type] || type}`, components: [] });
+    return;
+  }
+
+  if (interaction.isStringSelectMenu() && interaction.customId === "intervention_gravite_select") {
+    const gravite = interaction.values[0];
+    const data = interaction.client.interventionData?.[interaction.user.id];
+    const type = data?.type;
+    
+    if (!type) {
+      return interaction.update({ content: "❌ Sélectionne d'abord le type d'intervention.", components: [] });
+    }
+
+    // Créer l'intervention
+    const entree = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      type: type,
+      gravite: gravite,
+      patient: null,
+      staffId: interaction.user.id,
+      staffTag: interaction.user.tag,
+      date: new Date().toISOString(),
+    };
+    interventions.push(entree);
+    sauverInterventions();
+
+    const xpGain = gradesConfig.settings.xpPerIntervention || 50;
+    await addXp(interaction.user.id, xpGain, "intervention", `Intervention ${LABELS_TYPE_INTERVENTION[type]}`);
+
+    // Log dans le salon d'interventions si configuré
+    if (config.interventionsChannelId) {
+      const salon = await client.channels.fetch(config.interventionsChannelId).catch(() => null);
+      if (salon) {
+        await salon.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(COULEUR_EMBED)
+              .setTitle("🚑 Intervention loggée")
+              .addFields(
+                { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
+                { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
+                { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true }
+              )
+              .setTimestamp(),
+          ],
+        }).catch(() => {});
+      }
+    }
+
+    await interaction.update({ 
+      content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]}) — +${xpGain} XP`,
+      components: [] 
+    });
+
+    // Mettre à jour l'embed d'intervention
+    if (config.interventionChannelId && config.interventionMessageId) {
+      const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
+      if (channel) {
+        const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
+        if (msg) {
+          const newEmbed = await construireEmbedIntervention();
+          await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+        }
+      }
+    }
+
+    delete interaction.client.interventionData?.[interaction.user.id];
+    return;
+  }
+
+  // ---- Suite du code (tickets, giveaways, etc.) ----
+  // ... (le reste du code est identique à votre version existante)
+  // Je continue avec les boutons ticket, giveaways, etc.
+  
   // ---- Boutons ticket ----
   if (interaction.isButton() && interaction.customId === "ticket_claim") {
     if (!estStaffTicket(interaction)) {
@@ -1511,6 +1963,10 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "✅ Tu participes au giveaway !", ephemeral: true });
   }
 
+  // ---- COMMANDES SLASH ----
+  // (le reste des commandes slash est identique à votre version)
+  // Je continue avec les commandes principales...
+  
   // ---- Commandes slash "générales" ----
   const commandesGenerales = ["rename", "transcript", "clear", "lock", "unlock", "slowmode", "nuke"];
   if (interaction.isChatInputCommand() && commandesGenerales.includes(interaction.commandName)) {
@@ -1846,7 +2302,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // ---- Commande /intervention ----
+  // ---- Commande /intervention (slash) ----
   if (interaction.isChatInputCommand() && interaction.commandName === "intervention") {
     const type = interaction.options.getString("type");
     const gravite = interaction.options.getString("gravite");
@@ -1887,13 +2343,25 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+    // Mettre à jour l'embed d'intervention
+    if (config.interventionChannelId && config.interventionMessageId) {
+      const channel = await client.channels.fetch(config.interventionChannelId).catch(() => null);
+      if (channel) {
+        const msg = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
+        if (msg) {
+          const newEmbed = await construireEmbedIntervention();
+          await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+        }
+      }
+    }
+
     return interaction.reply({
       content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]})${patient ? ` — patient : ${patient}` : ""}`,
       ephemeral: true,
     });
   }
 
-  // ---- Commande /rapport ----
+  // ---- Commande /rapport (slash) ----
   if (interaction.isChatInputCommand() && interaction.commandName === "rapport") {
     const modal = new ModalBuilder()
       .setCustomId("rapportModal")
@@ -1921,6 +2389,7 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.showModal(modal);
   }
 
+  // ---- MODAL RAPPORT ----
   if (interaction.isModalSubmit() && interaction.customId === "rapportModal") {
     const patient = interaction.fields.getTextInputValue("patient");
     const situation = interaction.fields.getTextInputValue("situation");
@@ -1950,6 +2419,22 @@ client.on("interactionCreate", async (interaction) => {
       .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
       .setTimestamp();
 
+    // Ajouter l'XP pour le rapport
+    const xpGain = gradesConfig.settings.xpPerIntervention || 50; // On utilise le même que intervention
+    await addXp(interaction.user.id, xpGain, "rapport", `Rapport médical pour ${patient}`);
+
+    // Mettre à jour l'embed de rapport
+    if (config.rapportChannelId && config.rapportMessageId) {
+      const channel = await client.channels.fetch(config.rapportChannelId).catch(() => null);
+      if (channel) {
+        const msg = await channel.messages.fetch(config.rapportMessageId).catch(() => null);
+        if (msg) {
+          const newEmbed = await construireEmbedRapport();
+          await msg.edit({ embeds: [newEmbed] }).catch(() => {});
+        }
+      }
+    }
+
     await interaction.reply({ embeds: [embed] });
   }
 
@@ -1965,7 +2450,7 @@ client.on("interactionCreate", async (interaction) => {
       }
       await startService(userId);
       await interaction.reply({ content: "✅ Tu as pris ton service ! 🟢", ephemeral: true });
-      await mettreAJourMessageService(userId);
+      await mettreAJourMessageService();
     }
 
     else if (sub === "stop") {
@@ -1979,7 +2464,7 @@ client.on("interactionCreate", async (interaction) => {
         content: `✅ Tu as déposé ton service après **${duration} minutes** ! (+${result.xpGain} XP)`,
         ephemeral: true 
       });
-      await mettreAJourMessageService(userId);
+      await mettreAJourMessageService();
     }
 
     else if (sub === "status") {
@@ -2076,8 +2561,8 @@ client.on("interactionCreate", async (interaction) => {
         { name: "🏆 XP total", value: String(data.xp), inline: true },
         { name: "🎯 Progression", value: nextXp ? `${progress}% (${currentXp}/${nextXp})` : "🏆 Max", inline: true },
         { name: "🚑 Interventions", value: String(data.interventions || 0), inline: true },
+        { name: "📋 Rapports", value: String(data.rapports || 0), inline: true },
         { name: "⏱️ Temps de service", value: `${Math.floor((data.serviceTime || 0) / 3600)}h`, inline: true },
-        { name: "📝 Messages", value: String(data.messages || 0), inline: true },
         { name: "🟢 Statut", value: serviceStatus ? "En service" : "Hors service", inline: true }
       )
       .setTimestamp();
@@ -2147,7 +2632,7 @@ client.on("interactionCreate", async (interaction) => {
       }
       
       if (!xpData[membre.id]) {
-        xpData[membre.id] = { xp: 0, serviceTime: 0, interventions: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
+        xpData[membre.id] = { xp: 0, serviceTime: 0, interventions: 0, rapports: 0, messages: 0, voiceTime: 0, lastActivity: new Date().toISOString() };
       }
       
       xpData[membre.id].xp = grade.xpRequired;
@@ -2351,7 +2836,7 @@ app.delete("/api/channels/:id", authRequis, async (req, res) => {
   }
 });
 
-// ---- Rôles ----
+// ---- Rôles (synchronisés avec Discord) ----
 app.get("/api/roles", authRequis, (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -2416,6 +2901,8 @@ app.get("/api/members/search", authRequis, async (req, res) => {
         joinedAt: m.joinedAt,
         warnCount: (warns[m.id] || []).length,
         isOnService: !!getServiceStatus(m.id),
+        interventions: xpData[m.id]?.interventions || 0,
+        rapports: xpData[m.id]?.rapports || 0,
       }))
     );
   } catch (e) {
@@ -2609,6 +3096,8 @@ app.post("/api/settings", authRequis, (req, res) => {
     interventionsChannelId,
     ticketAutoCloseHours,
     serviceChannelId,
+    rapportChannelId,
+    interventionChannelId,
   } = req.body;
   config.autoRoleId = autoRoleId || null;
   config.welcomeChannelId = welcomeChannelId || null;
@@ -2619,12 +3108,14 @@ app.post("/api/settings", authRequis, (req, res) => {
   config.interventionsChannelId = interventionsChannelId || null;
   config.ticketAutoCloseHours = Math.max(0, parseFloat(ticketAutoCloseHours) || 0);
   config.serviceChannelId = serviceChannelId || null;
+  config.rapportChannelId = rapportChannelId || null;
+  config.interventionChannelId = interventionChannelId || null;
   sauverConfig();
   
-  // Réenvoyer le message de service si le salon a changé
-  if (config.serviceChannelId) {
-    envoyerMessageService();
-  }
+  // Réenvoyer les messages si les salons ont changé
+  if (config.serviceChannelId) envoyerMessageService();
+  if (config.rapportChannelId) envoyerMessageRapport();
+  if (config.interventionChannelId) envoyerMessageIntervention();
   
   res.json({ succes: true });
 });
@@ -2871,6 +3362,7 @@ app.get('/api/xp/stats', authRequis, (req, res) => {
   const totalXp = Object.values(xpData).reduce((sum, d) => sum + (d.xp || 0), 0);
   const activeMembers = Object.keys(xpData).length;
   const totalInterventions = Object.values(xpData).reduce((sum, d) => sum + (d.interventions || 0), 0);
+  const totalRapports = Object.values(xpData).reduce((sum, d) => sum + (d.rapports || 0), 0);
   
   const grades = Object.values(xpData).map(d => getGradeForXp(d.xp || 0).name);
   const gradeCounts = {};
@@ -2881,7 +3373,7 @@ app.get('/api/xp/stats', authRequis, (req, res) => {
     averageGrade = sorted[0][0];
   }
   
-  res.json({ totalXp, activeMembers, totalInterventions, averageGrade });
+  res.json({ totalXp, activeMembers, totalInterventions, totalRapports, averageGrade });
 });
 
 app.get('/api/xp/top5', authRequis, (req, res) => {
@@ -2897,7 +3389,8 @@ app.get('/api/xp/top5', authRequis, (req, res) => {
         xp: data.xp || 0,
         level: getLevelFromXp(data.xp || 0).level,
         grade: grade.name,
-        interventions: data.interventions || 0
+        interventions: data.interventions || 0,
+        rapports: data.rapports || 0
       };
     });
   res.json(sorted);
@@ -2956,6 +3449,7 @@ app.get('/api/xp/leaderboard', authRequis, (req, res) => {
         gradeIcon: grade.icon,
         gradeColor: grade.color,
         interventions: data.interventions || 0,
+        rapports: data.rapports || 0,
         serviceTime: data.serviceTime || 0,
         messages: data.messages || 0,
         voiceTime: data.voiceTime || 0
@@ -3006,6 +3500,7 @@ app.get('/api/xp/profile', authRequis, (req, res) => {
     gradeColor: grade.color,
     perks: grade.perks || [],
     interventions: data.interventions || 0,
+    rapports: data.rapports || 0,
     serviceTime: data.serviceTime || 0,
     messages: data.messages || 0,
     voiceTime: data.voiceTime || 0,
@@ -3051,6 +3546,32 @@ app.post('/api/service/config', authRequis, (req, res) => {
   
   if (config.serviceChannelId) {
     envoyerMessageService();
+  }
+  
+  res.json({ succes: true });
+});
+
+// ---- RAPPORT API ----
+app.post('/api/rapport/config', authRequis, (req, res) => {
+  const { channelId } = req.body;
+  config.rapportChannelId = channelId || null;
+  sauverConfig();
+  
+  if (config.rapportChannelId) {
+    envoyerMessageRapport();
+  }
+  
+  res.json({ succes: true });
+});
+
+// ---- INTERVENTION API ----
+app.post('/api/intervention/config', authRequis, (req, res) => {
+  const { channelId } = req.body;
+  config.interventionChannelId = channelId || null;
+  sauverConfig();
+  
+  if (config.interventionChannelId) {
+    envoyerMessageIntervention();
   }
   
   res.json({ succes: true });
