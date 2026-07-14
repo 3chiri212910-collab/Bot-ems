@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* === MÊME CSS QUE TON ORIGINAL AVEC AJOUT DE .checkbox-grid === */
   :root {
     --bg: #07080d;
     --bg-alt: rgba(15,17,26,0.6);
@@ -180,7 +179,7 @@
     color: white;
   }
 
-  /* === NOUVEAU : GRILLE DE CASES À COCHER === */
+  /* === GRILLE DE CASES À COCHER === */
   .checkbox-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -568,8 +567,16 @@
         <button class="tab-stats" data-service-tab="weekly">📅 Classement semaine</button>
         <button class="tab-stats" data-service-tab="member">👤 Profil membre</button>
       </div>
-      <div id="service-top" class="stats-content"><div id="service-top-liste"></div></div>
-      <div id="service-weekly" class="stats-content hidden"><div id="service-weekly-liste"></div></div>
+      <!-- CORRECTION : div dédiée pour la liste des services actifs -->
+      <div id="service-actifs" class="stats-content">
+        <div id="service-actifs-liste"></div>
+      </div>
+      <div id="service-top" class="stats-content">
+        <div id="service-top-liste"></div>
+      </div>
+      <div id="service-weekly" class="stats-content hidden">
+        <div id="service-weekly-liste"></div>
+      </div>
       <div id="service-member" class="stats-content hidden">
         <div class="search-bar">
           <input id="service-search" placeholder="ID ou pseudo du membre..." />
@@ -656,7 +663,6 @@
   <section id="vue-bienvenue" class="hidden">
     <h2>👋 Bienvenue & Auto-rôle</h2>
     <label>Rôle(s) attribué(s) automatiquement à l'arrivée</label>
-    <!-- === NOUVEAU : CASES À COCHER DYNAMIQUES === -->
     <div id="auto-role-checkboxes" class="checkbox-grid">
       <span style="color:var(--text-dim);font-size:13px;">Chargement des rôles...</span>
     </div>
@@ -708,27 +714,43 @@
   <section id="vue-candidatures" class="hidden">
     <h2>✅ Gestion des candidatures</h2>
     <div class="case-ligne"><input type="checkbox" id="cand-actif" /><label for="cand-actif">Activer le système de validation</label></div>
+
     <div class="sous-titre">Salons de résultat</div>
     <div class="deux-col">
       <div><label>Salon des validations</label><select id="cand-salon-validation"><option value="">Aucun</option></select></div>
       <div><label>Salon des refus</label><select id="cand-salon-refus"><option value="">Utiliser le même</option></select></div>
     </div>
+
+    <!-- CORRECTION : Cases à cocher pour les rôles de validation -->
     <label>Rôle(s) autorisé(s) à valider</label>
-    <select id="cand-roles-valid" multiple><option value="">Administrateurs</option></select>
+    <div id="cand-roles-valid-container" class="checkbox-grid">
+      <span style="color:var(--text-dim);font-size:13px;">Chargement...</span>
+    </div>
+
+    <!-- CORRECTION : Cases à cocher pour les rôles de refus -->
     <label>Rôle(s) autorisé(s) à refuser</label>
-    <select id="cand-roles-refus" multiple><option value="">Administrateurs</option></select>
+    <div id="cand-roles-refus-container" class="checkbox-grid">
+      <span style="color:var(--text-dim);font-size:13px;">Chargement...</span>
+    </div>
+
+    <!-- CORRECTION : Cases à cocher pour les rôles attribués -->
     <label>Rôle(s) attribué(s) lors d'une validation</label>
-    <select id="cand-roles-attribution" multiple><option value="">Aucun</option></select>
+    <div id="cand-roles-attribution-container" class="checkbox-grid">
+      <span style="color:var(--text-dim);font-size:13px;">Chargement...</span>
+    </div>
+
     <div class="case-ligne"><input type="checkbox" id="cand-mp-actif" /><label for="cand-mp-actif">Envoyer un MP</label></div>
     <div class="case-ligne"><input type="checkbox" id="cand-mention-user" /><label for="cand-mention-user">Mentionner le candidat</label></div>
     <div class="case-ligne"><input type="checkbox" id="cand-fermeture-auto" /><label for="cand-fermeture-auto">Fermer le ticket automatiquement</label></div>
     <label>Délai avant fermeture (secondes)</label>
     <input id="cand-fermeture-delai" type="number" min="0" value="10" />
+
     <div class="sous-titre">Messages</div>
     <label>Message de validation</label><textarea id="cand-msg-validation"></textarea>
     <label>Message de refus</label><textarea id="cand-msg-refus"></textarea>
     <label>MP de validation</label><textarea id="cand-mp-validation"></textarea>
     <label>MP de refus</label><textarea id="cand-mp-refus"></textarea>
+
     <button onclick="sauverCandidatures()">Enregistrer</button>
     <div id="cand-statut"></div>
   </section>
@@ -793,6 +815,51 @@
 
 <script>
 // ==========================================
+// ÉCHAPPEMENT HTML (XSS)
+// ==========================================
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ==========================================
+// GESTION DE LA TOUCHE ENTRÉE
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.search-bar input').forEach(input => {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const btn = input.parentElement.querySelector('button');
+        if (btn) btn.click();
+      }
+    });
+  });
+});
+
+// ==========================================
+// SON DE CONFIRMATION
+// ==========================================
+let audioCtx = null;
+function jouerSon() {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.2);
+  } catch(e) { /* Silencieux */ }
+}
+
+// ==========================================
 // NAVIGATION
 // ==========================================
 const tabs = document.querySelectorAll('.tab');
@@ -831,28 +898,9 @@ document.querySelectorAll('[data-service-tab]').forEach(tab => {
 });
 
 // ==========================================
-// SON DE CONFIRMATION
+// RÉINITIALISATION RÉELLE DES SALONS
 // ==========================================
-function jouerSon() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.2);
-  } catch(e) { /* Silencieux */ }
-}
-
-// ==========================================
-// RÉINITIALISATION DES SALONS
-// ==========================================
-function reinitialiserSalon(type) {
+async function reinitialiserSalon(type) {
   const map = {
     service: 'param-salon-service',
     rapport: 'param-salon-rapport',
@@ -860,12 +908,13 @@ function reinitialiserSalon(type) {
   };
   const id = map[type];
   if (!id) return;
+  
+  // Mettre à jour la valeur localement
   document.getElementById(id).value = '';
   jouerSon();
-  const statut = document.getElementById('param-statut');
-  statut.textContent = '✅ Salon réinitialisé';
-  statut.className = 'msg-ok';
-  setTimeout(() => { statut.textContent = ''; statut.className = ''; }, 3000);
+  
+  // Appeler la sauvegarde pour persister le changement
+  await sauverParametres();
 }
 
 // ==========================================
@@ -877,7 +926,7 @@ async function chargerCompte() {
     if (!res.ok) { window.location.href = '/login'; return; }
     const user = await res.json();
     document.getElementById('compte').innerHTML =
-      (user.avatar ? `<img src="${user.avatar}" />` : '') + `<span>${user.username}</span>`;
+      (user.avatar ? `<img src="${user.avatar}" />` : '') + `<span>${escapeHTML(user.username)}</span>`;
   } catch (e) {
     console.error('Erreur chargement compte:', e);
   }
@@ -930,25 +979,54 @@ async function chargerStats() {
 }
 
 // ==========================================
+// CACHE DES STATUTS DE SERVICE
+// ==========================================
+let cachedServiceData = {};
+
+async function loadServiceStatuses() {
+  try {
+    const res = await fetch('/api/service/stats');
+    cachedServiceData = await res.json();
+  } catch (e) {
+    console.error('Erreur chargement statuts service:', e);
+  }
+}
+
+function getServiceStatus(userId) {
+  return cachedServiceData[userId]?.active || false;
+}
+
+// ==========================================
 // SERVICE
 // ==========================================
 async function chargerService() {
+  await loadServiceStatuses(); // Charge les statuts pour les badges
+  
   try {
     const res = await fetch('/api/service/active');
     const active = await res.json();
-    const container = document.getElementById('service-top-liste');
+    // Écrit dans le conteneur dédié
+    const container = document.getElementById('service-actifs-liste');
+    if (!container) return;
+    
     if (active.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
     } else {
-      let html = '<div style="margin-bottom:12px;font-weight:600;color:var(--ok);">🟢 En service actuellement</div>';
-      for (const s of active) {
+      // Optimisation : Promise.all pour les requêtes utilisateurs
+      const users = await Promise.all(active.map(async (s) => {
         const user = await fetchUser(s.userId);
+        return { ...s, user };
+      }));
+      
+      let html = '<div style="margin-bottom:12px;font-weight:600;color:var(--ok);">🟢 En service actuellement</div>';
+      for (const s of users) {
+        const displayName = s.user?.username || s.userId;
         const start = new Date(s.startTime);
         const duration = Math.floor((Date.now() - start) / 1000);
         html += `
           <div class="rank-item" style="border-left-color:var(--ok);">
             <div class="info">
-              <span class="nom">${user?.username || s.userId}</span>
+              <span class="nom">${escapeHTML(displayName)}</span>
               <span class="details">Depuis ${start.toLocaleTimeString('fr-FR')}</span>
             </div>
             <div class="value" style="color:var(--ok);">${formatTime(duration)}</div>
@@ -967,21 +1045,29 @@ async function chargerServiceTop() {
     const res = await fetch('/api/service/top');
     const data = await res.json();
     const container = document.getElementById('service-top-liste');
+    if (!container) return;
+    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service.</p>';
       return;
     }
-    let html = '<div style="margin-bottom:12px;font-weight:600;">🏆 Classement selon le temps de service total</div>';
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
+    
+    const items = await Promise.all(data.map(async (item) => {
       const user = await fetchUser(item.userId);
+      return { ...item, user };
+    }));
+
+    let html = '<div style="margin-bottom:12px;font-weight:600;">🏆 Classement selon le temps de service total</div>';
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const displayName = item.user?.username || item.userId;
       const isActive = getServiceStatus(item.userId);
       html += `
         <div class="rank-item" style="border-left-color:${isActive ? 'var(--ok)' : 'var(--border-hover)'};">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
             <span class="rank-num">#${i+1}</span>
             <div class="info">
-              <span class="nom">${user?.username || item.userId} ${isActive ? '<span class="service-badge" style="font-size:10px;padding:2px 8px;">🟢</span>' : ''}</span>
+              <span class="nom">${escapeHTML(displayName)} ${isActive ? '<span class="service-badge" style="font-size:10px;padding:2px 8px;">🟢</span>' : ''}</span>
               <span class="details">${item.sessions ? item.sessions.length + ' session(s)' : ''}</span>
             </div>
           </div>
@@ -1000,20 +1086,28 @@ async function chargerServiceWeekly() {
     const res = await fetch('/api/service/top/weekly');
     const data = await res.json();
     const container = document.getElementById('service-weekly-liste');
+    if (!container) return;
+    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service cette semaine.</p>';
       return;
     }
-    let html = '<div style="margin-bottom:12px;font-weight:600;">📅 Classement selon le temps de service de la semaine</div>';
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
+    
+    const items = await Promise.all(data.map(async (item) => {
       const user = await fetchUser(item.userId);
+      return { ...item, user };
+    }));
+
+    let html = '<div style="margin-bottom:12px;font-weight:600;">📅 Classement selon le temps de service de la semaine</div>';
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const displayName = item.user?.username || item.userId;
       html += `
         <div class="rank-item">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
             <span class="rank-num">#${i+1}</span>
             <div class="info">
-              <span class="nom">${user?.username || item.userId}</span>
+              <span class="nom">${escapeHTML(displayName)}</span>
             </div>
           </div>
           <div class="value">${formatTime(item.weeklyTime || 0)}</div>
@@ -1042,7 +1136,7 @@ async function chargerServiceMembre() {
     if (!stats || stats.totalTime === 0) {
       document.getElementById('service-member-content').innerHTML = `
         <div class="carte" style="text-align:center;color:var(--text-dim);">
-          ${user?.username || userId} n'a pas encore de temps de service enregistré.
+          ${escapeHTML(user?.username || userId)} n'a pas encore de temps de service enregistré.
         </div>
       `;
       return;
@@ -1055,7 +1149,7 @@ async function chargerServiceMembre() {
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
-            <div style="font-size:20px;font-weight:700;">${user?.username || userId}</div>
+            <div style="font-size:20px;font-weight:700;">${escapeHTML(user?.username || userId)}</div>
             ${isActive ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
           </div>
           <div style="text-align:right;">
@@ -1117,20 +1211,28 @@ async function chargerInterventionsTop() {
     const res = await fetch('/api/interventions/top');
     const data = await res.json();
     const container = document.getElementById('intervention-top-liste');
+    if (!container) return;
+    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention enregistrée.</p>';
       return;
     }
-    let html = '';
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
+    
+    const items = await Promise.all(data.map(async (item) => {
       const user = await fetchUser(item.userId);
+      return { ...item, user };
+    }));
+
+    let html = '';
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const displayName = item.user?.username || item.userId;
       html += `
         <div class="rank-item">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
             <span class="rank-num">#${i+1}</span>
             <div class="info">
-              <span class="nom">${user?.username || item.userId}</span>
+              <span class="nom">${escapeHTML(displayName)}</span>
             </div>
           </div>
           <div class="value">${item.count} intervention(s)</div>
@@ -1158,7 +1260,7 @@ async function chargerInterventionsMembre() {
     const user = await fetchUser(userId);
     if (!data || data.length === 0) {
       document.getElementById('intervention-member-content').innerHTML = 
-        `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore d'intervention.</div>`;
+        `<div style="color:var(--text-dim);text-align:center;">${escapeHTML(user?.username || userId)} n'a pas encore d'intervention.</div>`;
       return;
     }
     const types = {};
@@ -1166,7 +1268,7 @@ async function chargerInterventionsMembre() {
     document.getElementById('intervention-member-content').innerHTML = `
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-          <div style="font-size:18px;font-weight:700;">${user?.username || userId}</div>
+          <div style="font-size:18px;font-weight:700;">${escapeHTML(user?.username || userId)}</div>
           <div style="font-size:20px;font-weight:700;color:var(--accent);">${data.length} intervention(s)</div>
         </div>
         ${Object.keys(types).length > 0 ? `
@@ -1180,7 +1282,7 @@ async function chargerInterventionsMembre() {
           ${data.slice(-10).reverse().map(iv => `
             <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">
               <span>${LABELS_TYPE_INTERVENTION[iv.type] || iv.type} (${LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite})</span>
-              <span style="color:var(--text-dim);">${iv.patient || 'Patient inconnu'} — ${new Date(iv.date).toLocaleDateString('fr-FR')}</span>
+              <span style="color:var(--text-dim);">${escapeHTML(iv.patient || 'Patient inconnu')} — ${new Date(iv.date).toLocaleDateString('fr-FR')}</span>
             </div>
           `).join('')}
         </div>
@@ -1212,20 +1314,28 @@ async function chargerRapportsTop() {
     const res = await fetch('/api/rapports/top');
     const data = await res.json();
     const container = document.getElementById('rapport-top-liste');
+    if (!container) return;
+    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucun rapport enregistré.</p>';
       return;
     }
-    let html = '';
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
+    
+    const items = await Promise.all(data.map(async (item) => {
       const user = await fetchUser(item.userId);
+      return { ...item, user };
+    }));
+
+    let html = '';
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const displayName = item.user?.username || item.userId;
       html += `
         <div class="rank-item">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
             <span class="rank-num">#${i+1}</span>
             <div class="info">
-              <span class="nom">${user?.username || item.userId}</span>
+              <span class="nom">${escapeHTML(displayName)}</span>
             </div>
           </div>
           <div class="value">${item.count} rapport(s)</div>
@@ -1253,23 +1363,23 @@ async function chargerRapportsMembre() {
     const user = await fetchUser(userId);
     if (!data || data.length === 0) {
       document.getElementById('rapport-member-content').innerHTML = 
-        `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore de rapport.</div>`;
+        `<div style="color:var(--text-dim);text-align:center;">${escapeHTML(user?.username || userId)} n'a pas encore de rapport.</div>`;
       return;
     }
     document.getElementById('rapport-member-content').innerHTML = `
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-          <div style="font-size:18px;font-weight:700;">${user?.username || userId}</div>
+          <div style="font-size:18px;font-weight:700;">${escapeHTML(user?.username || userId)}</div>
           <div style="font-size:20px;font-weight:700;color:var(--accent);">${data.length} rapport(s)</div>
         </div>
         <div style="margin-top:12px;max-height:400px;overflow-y:auto;">
           ${data.slice(-10).reverse().map(r => `
             <div style="padding:10px;border-bottom:1px solid var(--border);">
               <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
-                <span style="font-weight:600;">${r.patient}</span>
+                <span style="font-weight:600;">${escapeHTML(r.patient)}</span>
                 <span style="color:var(--text-dim);font-size:12px;">${new Date(r.date).toLocaleString('fr-FR')}</span>
               </div>
-              <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">${r.situation.substring(0, 100)}${r.situation.length > 100 ? '...' : ''}</div>
+              <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">${escapeHTML(r.situation.substring(0, 100))}${r.situation.length > 100 ? '...' : ''}</div>
             </div>
           `).join('')}
         </div>
@@ -1287,7 +1397,6 @@ async function chargerRapportsMembre() {
 // ==========================================
 let rechercheTimeout;
 let cachedInterventions = [];
-let cachedServiceData = {};
 
 async function fetchUser(userId) {
   try {
@@ -1307,10 +1416,6 @@ async function resolveUser(search) {
   } catch { return null; }
 }
 
-function getServiceStatus(userId) {
-  return cachedServiceData[userId]?.active || false;
-}
-
 function rechercherMembres(q) {
   clearTimeout(rechercheTimeout);
   rechercheTimeout = setTimeout(async () => {
@@ -1319,15 +1424,16 @@ function rechercherMembres(q) {
       const res = await fetch('/api/members/search?q=' + encodeURIComponent(q));
       const membres = await res.json();
       const roles = await (await fetch('/api/roles')).json();
-      const optionsRoles = roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+      const optionsRoles = roles.map(r => `<option value="${r.id}">${escapeHTML(r.name)}</option>`).join('');
 
+      // Cache data for service status
       const serviceRes = await fetch('/api/service/stats');
       cachedServiceData = await serviceRes.json();
 
       document.getElementById('mod-resultats').innerHTML = membres.map(m => `
         <div class="carte">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${m.tag}</div>
+            <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${escapeHTML(m.tag)}</div>
             <div>
               ${m.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
               <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
@@ -1337,7 +1443,7 @@ function rechercherMembres(q) {
             </div>
           </div>
           <div style="margin-top:8px;">
-            ${m.roles.map(r => `<span class="role-badge">${r.name}</span>`).join('')}
+            ${m.roles.map(r => `<span class="role-badge">${escapeHTML(r.name)}</span>`).join('')}
           </div>
           <div id="warn-liste-${m.id}" class="warn-liste" style="margin-top:8px;display:none;"></div>
           <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
@@ -1366,8 +1472,8 @@ async function toggleWarns(userId) {
       ? liste.map(w => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
           <div>
-            <div>${w.reason}</div>
-            <div style="color:var(--text-faint);font-size:11px;">Par ${w.staffTag} — ${new Date(w.date).toLocaleString('fr-FR')}</div>
+            <div>${escapeHTML(w.reason)}</div>
+            <div style="color:var(--text-faint);font-size:11px;">Par ${escapeHTML(w.staffTag)} — ${new Date(w.date).toLocaleString('fr-FR')}</div>
           </div>
           <button class="petit danger" style="margin:0;padding:2px 8px;font-size:11px;" onclick="supprimerWarn('${userId}','${w.id}')">×</button>
         </div>
@@ -1458,7 +1564,7 @@ async function chargerSalonsListe() {
     const salons = await res.json();
     document.getElementById('liste-salons').innerHTML = salons.map(c => `
       <div class="carte" style="display:flex;justify-content:space-between;align-items:center;">
-        <span>#${c.name}</span>
+        <span>#${escapeHTML(c.name)}</span>
         <button class="petit danger" onclick="supprimerSalon('${c.id}')">Supprimer</button>
       </div>
     `).join('');
@@ -1503,7 +1609,7 @@ async function chargerRolesListe() {
     const roles = await res.json();
     document.getElementById('liste-roles').innerHTML = roles.map(r => `
       <div class="carte" style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="color:${r.color !== '#000000' ? r.color : 'var(--text)'};">${r.name}</span>
+        <span style="color:${r.color !== '#000000' ? r.color : 'var(--text)'};">${escapeHTML(r.name)}</span>
         <button class="petit danger" onclick="supprimerRole('${r.id}')">Supprimer</button>
       </div>
     `).join('');
@@ -1550,9 +1656,8 @@ async function chargerParametres() {
       (await fetch('/api/roles')).json(),
     ]);
 
-    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
 
-    // Remplir les selects
     const selects = ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-service', 'param-salon-rapport', 'param-salon-intervention'];
     selects.forEach(id => {
       document.getElementById(id).innerHTML = optionsSalons;
@@ -1568,7 +1673,6 @@ async function chargerParametres() {
     document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
     document.getElementById('param-salon-intervention').value = params.interventionChannelId || '';
 
-    // === GÉNÉRER LES CASES À COCHER POUR LES RÔLES ===
     const container = document.getElementById('auto-role-checkboxes');
     const selected = params.autoRoleIds || [];
     if (roles.length === 0) {
@@ -1578,7 +1682,7 @@ async function chargerParametres() {
         <label>
           <input type="checkbox" value="${r.id}" ${selected.includes(r.id) ? 'checked' : ''} />
           <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
-          ${r.name}
+          ${escapeHTML(r.name)}
         </label>
       `).join('');
     }
@@ -1591,7 +1695,6 @@ async function chargerParametres() {
 async function sauverParametres() {
   const statut = document.getElementById('param-statut');
   
-  // Récupérer les IDs des rôles cochés
   const checkboxes = document.querySelectorAll('#auto-role-checkboxes input[type="checkbox"]:checked');
   const autoRoleIds = Array.from(checkboxes).map(cb => cb.value);
 
@@ -1611,7 +1714,7 @@ async function sauverParametres() {
         interventionChannelId: document.getElementById('param-salon-intervention').value,
       })
     });
-    jouerSon(); // 🔔 BIP
+    jouerSon();
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1622,8 +1725,31 @@ async function sauverParametres() {
 }
 
 // ==========================================
-// CANDIDATURES
+// CANDIDATURES (CASES À COCHER)
 // ==========================================
+function genererCheckboxes(containerId, selectedIds, roles) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!roles || roles.length === 0) {
+    container.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+    return;
+  }
+  container.innerHTML = roles.map(r => `
+    <label>
+      <input type="checkbox" value="${r.id}" ${selectedIds.includes(r.id) ? 'checked' : ''} />
+      <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
+      ${escapeHTML(r.name)}
+    </label>
+  `).join('');
+}
+
+function getChecked(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return [];
+  const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+  return Array.from(checkboxes).map(cb => cb.value);
+}
+
 async function chargerCandidatures() {
   try {
     const [salons, roles, cfg] = await Promise.all([
@@ -1632,37 +1758,15 @@ async function chargerCandidatures() {
       (await fetch('/api/settings/candidatures')).json(),
     ]);
 
-    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-    const optionsSalonRefus = '<option value="">Utiliser le même</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-    const optionsRoles = '<option value="">Administrateurs</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
-    const optionsRolesAttr = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    const optionsSalonRefus = '<option value="">Utiliser le même</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
 
     document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
     document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
-    
-    const rolesValidSelect = document.getElementById('cand-roles-valid');
-    rolesValidSelect.innerHTML = optionsRoles;
-    if (cfg.rolesValid && Array.isArray(cfg.rolesValid)) {
-      Array.from(rolesValidSelect.options).forEach(opt => {
-        opt.selected = cfg.rolesValid.includes(opt.value);
-      });
-    }
 
-    const rolesRefusSelect = document.getElementById('cand-roles-refus');
-    rolesRefusSelect.innerHTML = optionsRoles;
-    if (cfg.rolesRefus && Array.isArray(cfg.rolesRefus)) {
-      Array.from(rolesRefusSelect.options).forEach(opt => {
-        opt.selected = cfg.rolesRefus.includes(opt.value);
-      });
-    }
-
-    const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
-    rolesAttributionSelect.innerHTML = optionsRolesAttr;
-    if (cfg.rolesAttribution && Array.isArray(cfg.rolesAttribution)) {
-      Array.from(rolesAttributionSelect.options).forEach(opt => {
-        opt.selected = cfg.rolesAttribution.includes(opt.value);
-      });
-    }
+    genererCheckboxes('cand-roles-valid-container', cfg.rolesValid || [], roles);
+    genererCheckboxes('cand-roles-refus-container', cfg.rolesRefus || [], roles);
+    genererCheckboxes('cand-roles-attribution-container', cfg.rolesAttribution || [], roles);
 
     document.getElementById('cand-actif').checked = !!cfg.actif;
     document.getElementById('cand-salon-validation').value = cfg.salonValidation || '';
@@ -1682,10 +1786,11 @@ async function chargerCandidatures() {
 
 async function sauverCandidatures() {
   const statut = document.getElementById('cand-statut');
-  const rolesValidSelect = document.getElementById('cand-roles-valid');
-  const rolesRefusSelect = document.getElementById('cand-roles-refus');
-  const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
-  
+
+  const rolesValid = getChecked('cand-roles-valid-container');
+  const rolesRefus = getChecked('cand-roles-refus-container');
+  const rolesAttribution = getChecked('cand-roles-attribution-container');
+
   try {
     const res = await fetch('/api/settings/candidatures', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1693,9 +1798,9 @@ async function sauverCandidatures() {
         actif: document.getElementById('cand-actif').checked,
         salonValidation: document.getElementById('cand-salon-validation').value,
         salonRefus: document.getElementById('cand-salon-refus').value,
-        rolesValid: Array.from(rolesValidSelect.selectedOptions).map(opt => opt.value).filter(v => v),
-        rolesRefus: Array.from(rolesRefusSelect.selectedOptions).map(opt => opt.value).filter(v => v),
-        rolesAttribution: Array.from(rolesAttributionSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        rolesValid: rolesValid,
+        rolesRefus: rolesRefus,
+        rolesAttribution: rolesAttribution,
         mpActif: document.getElementById('cand-mp-actif').checked,
         mentionUser: document.getElementById('cand-mention-user').checked,
         fermetureAuto: document.getElementById('cand-fermeture-auto').checked,
@@ -1706,7 +1811,7 @@ async function sauverCandidatures() {
         mpRefus: document.getElementById('cand-mp-refus').value,
       })
     });
-    jouerSon(); // 🔔
+    jouerSon();
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1731,9 +1836,9 @@ function chargerHistorique() {
         <div class="carte">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <div>
-              <div style="font-weight:600;">${h.username} ${h.ticketNumber ? '— ticket #' + h.ticketNumber : ''}</div>
-              <div style="color:var(--text-dim);font-size:12.5px;margin-top:3px;">Par ${h.staffTag} — ${new Date(h.date).toLocaleString('fr-FR')}</div>
-              ${h.raison ? `<div style="margin-top:6px;font-size:12.5px;">💬 ${h.raison}</div>` : ''}
+              <div style="font-weight:600;">${escapeHTML(h.username)} ${h.ticketNumber ? '— ticket #' + escapeHTML(h.ticketNumber) : ''}</div>
+              <div style="color:var(--text-dim);font-size:12.5px;margin-top:3px;">Par ${escapeHTML(h.staffTag)} — ${new Date(h.date).toLocaleString('fr-FR')}</div>
+              ${h.raison ? `<div style="margin-top:6px;font-size:12.5px;">💬 ${escapeHTML(h.raison)}</div>` : ''}
             </div>
             <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;${h.result === 'validee' ? 'background:rgba(52,211,153,0.12);color:var(--ok);border:1px solid rgba(52,211,153,0.25);' : 'background:rgba(251,113,133,0.12);color:var(--err);border:1px solid rgba(251,113,133,0.25);'}">${h.result === 'validee' ? '✅ Validée' : '❌ Refusée'}</span>
           </div>
@@ -1752,7 +1857,7 @@ async function chargerSalons() {
   try {
     const res = await fetch('/api/channels');
     const salons = await res.json();
-    const html = salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
+    const html = salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
     document.getElementById('embed-salon').innerHTML = html;
     document.getElementById('giveaway-salon').innerHTML = html;
   } catch (e) {
@@ -1776,7 +1881,7 @@ async function envoyerEmbed() {
   try {
     const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
     const data = await res.json();
-    jouerSon(); // 🔔
+    jouerSon();
     statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1797,7 +1902,7 @@ async function chargerTickets() {
     if (tickets.length === 0) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
     liste.innerHTML = tickets.map(t => `
       <div class="carte">
-        <div style="font-weight:600;margin-bottom:2px;">#${t.number || '?'} — ${t.username}</div>
+        <div style="font-weight:600;margin-bottom:2px;">#${escapeHTML(t.number || '?')} — ${escapeHTML(t.username)}</div>
         ${t.lastActivity ? `<div style="color:var(--text-faint);font-size:11.5px;margin-bottom:8px;">Dernière activité : ${new Date(t.lastActivity).toLocaleString('fr-FR')}</div>` : ''}
         <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
         <button onclick="repondreTicket('${t.userId}')">Répondre</button>
@@ -1805,7 +1910,7 @@ async function chargerTickets() {
         <div id="statut-${t.userId}"></div>
         <div style="margin-top:10px;">
           <label style="font-size:12px;color:var(--text-dim);">📝 Note interne</label>
-          <textarea id="note-${t.userId}" placeholder="Note staff..." style="min-height:40px;font-size:12px;">${t.note || ''}</textarea>
+          <textarea id="note-${t.userId}" placeholder="Note staff..." style="min-height:40px;font-size:12px;">${escapeHTML(t.note || '')}</textarea>
           <button class="petit secondaire" onclick="sauverNoteTicket('${t.userId}')">Enregistrer la note</button>
           <span id="note-statut-${t.userId}" style="margin-left:8px;font-size:12px;"></span>
         </div>
@@ -1824,7 +1929,7 @@ async function repondreTicket(userId) {
     const res = await fetch(`/api/tickets/${userId}/reply`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
     });
-    jouerSon(); // 🔔
+    jouerSon();
     statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     if (res.ok) document.getElementById('reply-' + userId).value = '';
@@ -1842,7 +1947,7 @@ async function sauverNoteTicket(userId) {
     const res = await fetch(`/api/tickets/${userId}/note`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
     });
-    jouerSon(); // 🔔
+    jouerSon();
     statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     setTimeout(() => { statut.textContent = ''; }, 2500);
@@ -1872,7 +1977,7 @@ async function chargerGiveaways() {
     const gs = await res.json();
     document.getElementById('liste-giveaways').innerHTML = gs.map(g => `
       <div class="carte">
-        <div style="font-weight:600;">${g.prize} — ${g.participants.length} participant(s)</div>
+        <div style="font-weight:600;">${escapeHTML(g.prize)} — ${g.participants.length} participant(s)</div>
         <div style="color:var(--text-dim);font-size:13px;">${g.ended ? 'Terminé' : 'En cours'}</div>
         ${!g.ended ? `<button class="petit secondaire" onclick="terminerGiveawayPanel('${g.id}')">Terminer maintenant</button>` : ''}
       </div>
@@ -1884,17 +1989,31 @@ async function chargerGiveaways() {
 
 async function creerGiveaway() {
   const statut = document.getElementById('giveaway-statut');
+  const duree = parseInt(document.getElementById('giveaway-duree').value);
+  const gagnants = parseInt(document.getElementById('giveaway-gagnants').value);
+
+  if (isNaN(duree) || duree <= 0) {
+    statut.textContent = '❌ Durée invalide (doit être > 0)';
+    statut.className = 'msg-err';
+    return;
+  }
+  if (isNaN(gagnants) || gagnants <= 0) {
+    statut.textContent = '❌ Nombre de gagnants invalide (doit être > 0)';
+    statut.className = 'msg-err';
+    return;
+  }
+
   try {
     const res = await fetch('/api/giveaways', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
         channelId: document.getElementById('giveaway-salon').value,
         prize: document.getElementById('giveaway-prize').value,
-        durationMinutes: document.getElementById('giveaway-duree').value,
-        winnersCount: document.getElementById('giveaway-gagnants').value,
+        durationMinutes: duree,
+        winnersCount: gagnants,
       })
     });
-    jouerSon(); // 🔔
+    jouerSon();
     statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     if (res.ok) chargerGiveaways();
@@ -1933,7 +2052,7 @@ async function importerBackup() {
     const res = await fetch('/api/backup/import', {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
     });
-    jouerSon(); // 🔔
+    jouerSon();
     statut.textContent = res.ok ? '✅ Sauvegarde importée' : "❌ Échec de l'import";
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
