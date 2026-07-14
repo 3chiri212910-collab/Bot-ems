@@ -180,6 +180,23 @@
     color: white;
   }
 
+  /* === CLASSE AJOUTÉE POUR LES CASES À COCHER === */
+  .case-ligne {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .case-ligne input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+  }
+  .case-ligne label {
+    margin: 0;
+    cursor: pointer;
+  }
+
   button {
     margin-top: 20px;
     background: var(--accent-grad);
