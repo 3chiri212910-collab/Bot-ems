@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* === MÊME CSS QUE TON ORIGINAL AVEC AJOUT DE .checkbox-grid === */
   :root {
     --bg: #07080d;
     --bg-alt: rgba(15,17,26,0.6);
@@ -58,7 +59,6 @@
     0%   { background-position: 0% 0%, 0% 0%, 0% 0%; }
     100% { background-position: 3% 5%, -3% -3%, 2% -2%; }
   }
-
   @media (prefers-reduced-motion: reduce) {
     *, body::before { animation: none !important; transition: none !important; }
   }
@@ -180,7 +180,7 @@
     color: white;
   }
 
-  /* === CASES À COCHER POUR RÔLES === */
+  /* === NOUVEAU : GRILLE DE CASES À COCHER === */
   .checkbox-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -656,8 +656,9 @@
   <section id="vue-bienvenue" class="hidden">
     <h2>👋 Bienvenue & Auto-rôle</h2>
     <label>Rôle(s) attribué(s) automatiquement à l'arrivée</label>
+    <!-- === NOUVEAU : CASES À COCHER DYNAMIQUES === -->
     <div id="auto-role-checkboxes" class="checkbox-grid">
-      <!-- Généré par JavaScript -->
+      <span style="color:var(--text-dim);font-size:13px;">Chargement des rôles...</span>
     </div>
 
     <label>Salon de bienvenue</label>
@@ -1539,7 +1540,7 @@ async function supprimerRole(id) {
 }
 
 // ==========================================
-// BIENVENUE / PARAMETRES (avec checkboxes)
+// BIENVENUE / PARAMETRES (avec CASES À COCHER)
 // ==========================================
 async function chargerParametres() {
   try {
@@ -1570,13 +1571,17 @@ async function chargerParametres() {
     // === GÉNÉRER LES CASES À COCHER POUR LES RÔLES ===
     const container = document.getElementById('auto-role-checkboxes');
     const selected = params.autoRoleIds || [];
-    container.innerHTML = roles.map(r => `
-      <label>
-        <input type="checkbox" value="${r.id}" ${selected.includes(r.id) ? 'checked' : ''} />
-        <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
-        ${r.name}
-      </label>
-    `).join('') || '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+    if (roles.length === 0) {
+      container.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+    } else {
+      container.innerHTML = roles.map(r => `
+        <label>
+          <input type="checkbox" value="${r.id}" ${selected.includes(r.id) ? 'checked' : ''} />
+          <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
+          ${r.name}
+        </label>
+      `).join('');
+    }
 
   } catch (e) {
     console.error('Erreur chargement paramètres:', e);
@@ -1606,7 +1611,7 @@ async function sauverParametres() {
         interventionChannelId: document.getElementById('param-salon-intervention').value,
       })
     });
-    jouerSon(); // 🔔 BIP DE CONFIRMATION
+    jouerSon(); // 🔔 BIP
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1701,7 +1706,7 @@ async function sauverCandidatures() {
         mpRefus: document.getElementById('cand-mp-refus').value,
       })
     });
-    jouerSon(); // 🔔 BIP DE CONFIRMATION
+    jouerSon(); // 🔔
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1771,7 +1776,7 @@ async function envoyerEmbed() {
   try {
     const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
     const data = await res.json();
-    jouerSon(); // 🔔 BIP DE CONFIRMATION
+    jouerSon(); // 🔔
     statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
