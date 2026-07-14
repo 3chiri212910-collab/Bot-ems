@@ -180,7 +180,42 @@
     color: white;
   }
 
-  /* === CLASSE AJOUTÉE POUR LES CASES À COCHER === */
+  /* === CASES À COCHER POUR RÔLES === */
+  .checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px 12px;
+    background: var(--bg-card-solid);
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    margin-top: 6px;
+  }
+  .checkbox-grid label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .checkbox-grid input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--accent);
+  }
+  .checkbox-grid .role-color {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
   .case-ligne {
     display: flex;
     align-items: center;
@@ -524,35 +559,24 @@
   <!-- SERVICE -->
   <section id="vue-service" class="hidden">
     <h2>🟢 Statistiques de service</h2>
-    
     <div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">
       Temps de service total, par semaine et par jour pour chaque membre.
     </div>
-
     <div class="carte">
       <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
         <button class="tab-stats actif" data-service-tab="top">🏆 Classement total</button>
         <button class="tab-stats" data-service-tab="weekly">📅 Classement semaine</button>
         <button class="tab-stats" data-service-tab="member">👤 Profil membre</button>
       </div>
-
-      <div id="service-top" class="stats-content">
-        <div id="service-top-liste"></div>
-      </div>
-
-      <div id="service-weekly" class="stats-content hidden">
-        <div id="service-weekly-liste"></div>
-      </div>
-
+      <div id="service-top" class="stats-content"><div id="service-top-liste"></div></div>
+      <div id="service-weekly" class="stats-content hidden"><div id="service-weekly-liste"></div></div>
       <div id="service-member" class="stats-content hidden">
         <div class="search-bar">
           <input id="service-search" placeholder="ID ou pseudo du membre..." />
           <button onclick="chargerServiceMembre()" style="margin:0;">Rechercher</button>
         </div>
         <div id="service-member-content">
-          <div class="carte" style="text-align:center;color:var(--text-dim);">
-            Entrez un ID ou un pseudo pour voir les stats de service
-          </div>
+          <div class="carte" style="text-align:center;color:var(--text-dim);">Entrez un ID ou un pseudo pour voir les stats de service</div>
         </div>
       </div>
     </div>
@@ -561,72 +585,34 @@
   <!-- INTERVENTIONS -->
   <section id="vue-interventions" class="hidden">
     <h2>🚑 Statistiques d'interventions</h2>
-    
     <div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">
       Nombre total d'interventions par membre, avec classement complet.
     </div>
-
     <div class="stats-grille" id="intervention-stats-cards">
-      <div class="stat-carte">
-        <div class="valeur" id="intervention-total">0</div>
-        <div class="label">Total interventions</div>
-      </div>
-      <div class="stat-carte">
-        <div class="valeur" id="intervention-intervenants">0</div>
-        <div class="label">Intervenants uniques</div>
-      </div>
+      <div class="stat-carte"><div class="valeur" id="intervention-total">0</div><div class="label">Total interventions</div></div>
+      <div class="stat-carte"><div class="valeur" id="intervention-intervenants">0</div><div class="label">Intervenants uniques</div></div>
     </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;font-size:16px;">🏆 Classement des intervenants</h3>
-      <div id="intervention-top-liste"></div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;font-size:16px;">👤 Interventions d'un membre</h3>
-      <div class="search-bar">
-        <input id="intervention-search" placeholder="ID ou pseudo du membre..." />
-        <button onclick="chargerInterventionsMembre()" style="margin:0;">Rechercher</button>
-      </div>
-      <div id="intervention-member-content">
-        <div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses interventions</div>
-      </div>
+    <div class="carte"><h3 style="margin-top:0;font-size:16px;">🏆 Classement des intervenants</h3><div id="intervention-top-liste"></div></div>
+    <div class="carte"><h3 style="margin-top:0;font-size:16px;">👤 Interventions d'un membre</h3>
+      <div class="search-bar"><input id="intervention-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerInterventionsMembre()" style="margin:0;">Rechercher</button></div>
+      <div id="intervention-member-content"><div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses interventions</div></div>
     </div>
   </section>
 
   <!-- RAPPORTS -->
   <section id="vue-rapports" class="hidden">
     <h2>📋 Statistiques de rapports médicaux</h2>
-    
     <div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">
       Nombre total de rapports médicaux par membre, avec classement complet.
     </div>
-
     <div class="stats-grille" id="rapport-stats-cards">
-      <div class="stat-carte">
-        <div class="valeur" id="rapport-total">0</div>
-        <div class="label">Total rapports</div>
-      </div>
-      <div class="stat-carte">
-        <div class="valeur" id="rapport-auteurs">0</div>
-        <div class="label">Rapporteurs uniques</div>
-      </div>
+      <div class="stat-carte"><div class="valeur" id="rapport-total">0</div><div class="label">Total rapports</div></div>
+      <div class="stat-carte"><div class="valeur" id="rapport-auteurs">0</div><div class="label">Rapporteurs uniques</div></div>
     </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;font-size:16px;">🏆 Classement des rapporteurs</h3>
-      <div id="rapport-top-liste"></div>
-    </div>
-
-    <div class="carte">
-      <h3 style="margin-top:0;font-size:16px;">👤 Rapports d'un membre</h3>
-      <div class="search-bar">
-        <input id="rapport-search" placeholder="ID ou pseudo du membre..." />
-        <button onclick="chargerRapportsMembre()" style="margin:0;">Rechercher</button>
-      </div>
-      <div id="rapport-member-content">
-        <div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses rapports</div>
-      </div>
+    <div class="carte"><h3 style="margin-top:0;font-size:16px;">🏆 Classement des rapporteurs</h3><div id="rapport-top-liste"></div></div>
+    <div class="carte"><h3 style="margin-top:0;font-size:16px;">👤 Rapports d'un membre</h3>
+      <div class="search-bar"><input id="rapport-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerRapportsMembre()" style="margin:0;">Rechercher</button></div>
+      <div id="rapport-member-content"><div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses rapports</div></div>
     </div>
   </section>
 
@@ -645,10 +631,7 @@
       <label>Nouveau salon</label>
       <input id="salon-nom" placeholder="nom-du-salon" />
       <label>Type</label>
-      <select id="salon-type">
-        <option value="text">Texte</option>
-        <option value="voice">Vocal</option>
-      </select>
+      <select id="salon-type"><option value="text">Texte</option><option value="voice">Vocal</option></select>
       <button onclick="creerSalon()">Créer</button>
       <div id="salon-statut"></div>
     </div>
@@ -673,7 +656,9 @@
   <section id="vue-bienvenue" class="hidden">
     <h2>👋 Bienvenue & Auto-rôle</h2>
     <label>Rôle(s) attribué(s) automatiquement à l'arrivée</label>
-    <select id="param-autorole" multiple><option value="">Aucun</option></select>
+    <div id="auto-role-checkboxes" class="checkbox-grid">
+      <!-- Généré par JavaScript -->
+    </div>
 
     <label>Salon de bienvenue</label>
     <select id="param-salon-bienvenue"><option value="">Aucun</option></select>
@@ -684,10 +669,8 @@
     <div class="sous-titre">Tickets</div>
     <label>Salon staff pour les tickets</label>
     <select id="param-salon-tickets"><option value="">Aucun</option></select>
-
     <label>Salon des logs de tickets</label>
     <select id="param-salon-logs-tickets"><option value="">Aucun</option></select>
-
     <label>Auto-fermeture des tickets (heures)</label>
     <input id="param-autoclose-heures" type="number" min="0" step="0.5" value="0" />
 
@@ -696,16 +679,25 @@
     <select id="param-salon-modlogs"><option value="">Aucun</option></select>
 
     <div class="sous-titre">Service</div>
-    <label>Salon du message de prise de service</label>
-    <select id="param-salon-service"><option value="">Aucun</option></select>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <label style="margin:0;">Salon du message de prise de service</label>
+      <select id="param-salon-service" style="flex:1;"><option value="">Aucun</option></select>
+      <button class="petit secondaire" onclick="reinitialiserSalon('service')" style="margin:0;">🔄 Réinitialiser</button>
+    </div>
 
     <div class="sous-titre">Rapports médicaux</div>
-    <label>Salon du message de rapport</label>
-    <select id="param-salon-rapport"><option value="">Aucun</option></select>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <label style="margin:0;">Salon du message de rapport</label>
+      <select id="param-salon-rapport" style="flex:1;"><option value="">Aucun</option></select>
+      <button class="petit secondaire" onclick="reinitialiserSalon('rapport')" style="margin:0;">🔄 Réinitialiser</button>
+    </div>
 
     <div class="sous-titre">Interventions</div>
-    <label>Salon du message d'intervention</label>
-    <select id="param-salon-intervention"><option value="">Aucun</option></select>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <label style="margin:0;">Salon du message d'intervention</label>
+      <select id="param-salon-intervention" style="flex:1;"><option value="">Aucun</option></select>
+      <button class="petit secondaire" onclick="reinitialiserSalon('intervention')" style="margin:0;">🔄 Réinitialiser</button>
+    </div>
 
     <button onclick="sauverParametres()">Enregistrer</button>
     <div id="param-statut"></div>
@@ -714,21 +706,11 @@
   <!-- CANDIDATURES -->
   <section id="vue-candidatures" class="hidden">
     <h2>✅ Gestion des candidatures</h2>
-    <!-- Contenu identique à avant -->
-    <div class="case-ligne">
-      <input type="checkbox" id="cand-actif" />
-      <label for="cand-actif">Activer le système de validation</label>
-    </div>
+    <div class="case-ligne"><input type="checkbox" id="cand-actif" /><label for="cand-actif">Activer le système de validation</label></div>
     <div class="sous-titre">Salons de résultat</div>
     <div class="deux-col">
-      <div>
-        <label>Salon des validations</label>
-        <select id="cand-salon-validation"><option value="">Aucun</option></select>
-      </div>
-      <div>
-        <label>Salon des refus</label>
-        <select id="cand-salon-refus"><option value="">Utiliser le même</option></select>
-      </div>
+      <div><label>Salon des validations</label><select id="cand-salon-validation"><option value="">Aucun</option></select></div>
+      <div><label>Salon des refus</label><select id="cand-salon-refus"><option value="">Utiliser le même</option></select></div>
     </div>
     <label>Rôle(s) autorisé(s) à valider</label>
     <select id="cand-roles-valid" multiple><option value="">Administrateurs</option></select>
@@ -736,29 +718,16 @@
     <select id="cand-roles-refus" multiple><option value="">Administrateurs</option></select>
     <label>Rôle(s) attribué(s) lors d'une validation</label>
     <select id="cand-roles-attribution" multiple><option value="">Aucun</option></select>
-    <div class="case-ligne">
-      <input type="checkbox" id="cand-mp-actif" />
-      <label for="cand-mp-actif">Envoyer un MP</label>
-    </div>
-    <div class="case-ligne">
-      <input type="checkbox" id="cand-mention-user" />
-      <label for="cand-mention-user">Mentionner le candidat</label>
-    </div>
-    <div class="case-ligne">
-      <input type="checkbox" id="cand-fermeture-auto" />
-      <label for="cand-fermeture-auto">Fermer le ticket automatiquement</label>
-    </div>
+    <div class="case-ligne"><input type="checkbox" id="cand-mp-actif" /><label for="cand-mp-actif">Envoyer un MP</label></div>
+    <div class="case-ligne"><input type="checkbox" id="cand-mention-user" /><label for="cand-mention-user">Mentionner le candidat</label></div>
+    <div class="case-ligne"><input type="checkbox" id="cand-fermeture-auto" /><label for="cand-fermeture-auto">Fermer le ticket automatiquement</label></div>
     <label>Délai avant fermeture (secondes)</label>
     <input id="cand-fermeture-delai" type="number" min="0" value="10" />
     <div class="sous-titre">Messages</div>
-    <label>Message de validation</label>
-    <textarea id="cand-msg-validation"></textarea>
-    <label>Message de refus</label>
-    <textarea id="cand-msg-refus"></textarea>
-    <label>MP de validation</label>
-    <textarea id="cand-mp-validation"></textarea>
-    <label>MP de refus</label>
-    <textarea id="cand-mp-refus"></textarea>
+    <label>Message de validation</label><textarea id="cand-msg-validation"></textarea>
+    <label>Message de refus</label><textarea id="cand-msg-refus"></textarea>
+    <label>MP de validation</label><textarea id="cand-mp-validation"></textarea>
+    <label>MP de refus</label><textarea id="cand-mp-refus"></textarea>
     <button onclick="sauverCandidatures()">Enregistrer</button>
     <div id="cand-statut"></div>
   </section>
@@ -776,18 +745,12 @@
     <h2>📢 Envoyer une annonce</h2>
     <label>Salon</label>
     <select id="embed-salon"></select>
-    <label>Titre</label>
-    <input id="embed-titre" placeholder="Titre de l'annonce" />
-    <label>Description</label>
-    <textarea id="embed-description" placeholder="Contenu..."></textarea>
-    <label>Couleur (hex)</label>
-    <input id="embed-couleur" value="#ff2d78" />
-    <label>Image (fichier)</label>
-    <input id="embed-image-fichier" type="file" accept="image/*" />
-    <label>OU Image (URL)</label>
-    <input id="embed-image" placeholder="https://..." />
-    <label>Footer</label>
-    <input id="embed-footer" placeholder="Footer..." />
+    <label>Titre</label><input id="embed-titre" placeholder="Titre de l'annonce" />
+    <label>Description</label><textarea id="embed-description" placeholder="Contenu..."></textarea>
+    <label>Couleur (hex)</label><input id="embed-couleur" value="#ff2d78" />
+    <label>Image (fichier)</label><input id="embed-image-fichier" type="file" accept="image/*" />
+    <label>OU Image (URL)</label><input id="embed-image" placeholder="https://..." />
+    <label>Footer</label><input id="embed-footer" placeholder="Footer..." />
     <button onclick="envoyerEmbed()">Envoyer</button>
     <div id="embed-statut"></div>
   </section>
@@ -803,14 +766,10 @@
   <section id="vue-giveaways" class="hidden">
     <h2>🎉 Giveaways</h2>
     <div class="carte">
-      <label>Salon</label>
-      <select id="giveaway-salon"></select>
-      <label>Lot</label>
-      <input id="giveaway-prize" placeholder="Ex: Grade VIP" />
-      <label>Durée (minutes)</label>
-      <input id="giveaway-duree" type="number" value="60" />
-      <label>Nombre de gagnants</label>
-      <input id="giveaway-gagnants" type="number" value="1" />
+      <label>Salon</label><select id="giveaway-salon"></select>
+      <label>Lot</label><input id="giveaway-prize" placeholder="Ex: Grade VIP" />
+      <label>Durée (minutes)</label><input id="giveaway-duree" type="number" value="60" />
+      <label>Nombre de gagnants</label><input id="giveaway-gagnants" type="number" value="1" />
       <button onclick="creerGiveaway()">Lancer</button>
       <div id="giveaway-statut"></div>
     </div>
@@ -820,9 +779,7 @@
   <!-- BACKUP -->
   <section id="vue-backup" class="hidden">
     <h2>💾 Sauvegarde</h2>
-    <div class="carte">
-      <button onclick="exporterBackup()">📤 Télécharger la sauvegarde</button>
-    </div>
+    <div class="carte"><button onclick="exporterBackup()">📤 Télécharger la sauvegarde</button></div>
     <div class="carte">
       <label>📥 Importer une sauvegarde</label>
       <input id="backup-fichier" type="file" accept="application/json" />
@@ -863,9 +820,6 @@ tabs.forEach(tab => tab.addEventListener('click', () => {
   if (vues[tab.dataset.tab]) vues[tab.dataset.tab]();
 }));
 
-// ==========================================
-// SERVICE TABS
-// ==========================================
 document.querySelectorAll('[data-service-tab]').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('[data-service-tab]').forEach(t => t.classList.remove('actif'));
@@ -874,6 +828,44 @@ document.querySelectorAll('[data-service-tab]').forEach(tab => {
     document.getElementById('service-' + tab.dataset.serviceTab).classList.remove('hidden');
   });
 });
+
+// ==========================================
+// SON DE CONFIRMATION
+// ==========================================
+function jouerSon() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.2);
+  } catch(e) { /* Silencieux */ }
+}
+
+// ==========================================
+// RÉINITIALISATION DES SALONS
+// ==========================================
+function reinitialiserSalon(type) {
+  const map = {
+    service: 'param-salon-service',
+    rapport: 'param-salon-rapport',
+    intervention: 'param-salon-intervention'
+  };
+  const id = map[type];
+  if (!id) return;
+  document.getElementById(id).value = '';
+  jouerSon();
+  const statut = document.getElementById('param-statut');
+  statut.textContent = '✅ Salon réinitialisé';
+  statut.className = 'msg-ok';
+  setTimeout(() => { statut.textContent = ''; statut.className = ''; }, 3000);
+}
 
 // ==========================================
 // COMPTE
@@ -944,7 +936,6 @@ async function chargerService() {
     const res = await fetch('/api/service/active');
     const active = await res.json();
     const container = document.getElementById('service-top-liste');
-    
     if (active.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
     } else {
@@ -975,12 +966,10 @@ async function chargerServiceTop() {
     const res = await fetch('/api/service/top');
     const data = await res.json();
     const container = document.getElementById('service-top-liste');
-    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service.</p>';
       return;
     }
-
     let html = '<div style="margin-bottom:12px;font-weight:600;">🏆 Classement selon le temps de service total</div>';
     for (let i = 0; i < data.length; i++) {
       const item = data[i];
@@ -1010,12 +999,10 @@ async function chargerServiceWeekly() {
     const res = await fetch('/api/service/top/weekly');
     const data = await res.json();
     const container = document.getElementById('service-weekly-liste');
-    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service cette semaine.</p>';
       return;
     }
-
     let html = '<div style="margin-bottom:12px;font-weight:600;">📅 Classement selon le temps de service de la semaine</div>';
     for (let i = 0; i < data.length; i++) {
       const item = data[i];
@@ -1041,7 +1028,6 @@ async function chargerServiceWeekly() {
 async function chargerServiceMembre() {
   const search = document.getElementById('service-search').value.trim();
   if (!search) return;
-  
   try {
     const userId = await resolveUser(search);
     if (!userId) {
@@ -1049,11 +1035,9 @@ async function chargerServiceMembre() {
         '<div class="carte" style="text-align:center;color:var(--err);">❌ Membre non trouvé</div>';
       return;
     }
-
     const res = await fetch(`/api/service/member/${userId}`);
     const stats = await res.json();
     const user = await fetchUser(userId);
-    
     if (!stats || stats.totalTime === 0) {
       document.getElementById('service-member-content').innerHTML = `
         <div class="carte" style="text-align:center;color:var(--text-dim);">
@@ -1062,12 +1046,10 @@ async function chargerServiceMembre() {
       `;
       return;
     }
-
     const isActive = stats.active || false;
     const daily = stats.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
     const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
     const maxDaily = Math.max(...Object.values(daily));
-
     document.getElementById('service-member-content').innerHTML = `
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -1080,18 +1062,10 @@ async function chargerServiceMembre() {
             <div style="color:var(--text-dim);font-size:13px;">Total cumulé</div>
           </div>
         </div>
-
         <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div class="stat-carte" style="text-align:center;">
-            <div class="valeur ok">${formatTime(stats.weeklyTime || 0)}</div>
-            <div class="label">Cette semaine</div>
-          </div>
-          <div class="stat-carte" style="text-align:center;">
-            <div class="valeur">${stats.sessions ? stats.sessions.length : 0}</div>
-            <div class="label">Sessions</div>
-          </div>
+          <div class="stat-carte" style="text-align:center;"><div class="valeur ok">${formatTime(stats.weeklyTime || 0)}</div><div class="label">Cette semaine</div></div>
+          <div class="stat-carte" style="text-align:center;"><div class="valeur">${stats.sessions ? stats.sessions.length : 0}</div><div class="label">Sessions</div></div>
         </div>
-
         <div style="margin-top:16px;">
           <div style="font-weight:600;margin-bottom:8px;">📅 Temps par jour</div>
           <div class="daily-grid">
@@ -1103,7 +1077,6 @@ async function chargerServiceMembre() {
             `).join('')}
           </div>
         </div>
-
         ${stats.sessions && stats.sessions.length > 0 ? `
           <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
             <div style="font-weight:600;margin-bottom:8px;">📋 Dernières sessions</div>
@@ -1143,12 +1116,10 @@ async function chargerInterventionsTop() {
     const res = await fetch('/api/interventions/top');
     const data = await res.json();
     const container = document.getElementById('intervention-top-liste');
-    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention enregistrée.</p>';
       return;
     }
-
     let html = '';
     for (let i = 0; i < data.length; i++) {
       const item = data[i];
@@ -1174,7 +1145,6 @@ async function chargerInterventionsTop() {
 async function chargerInterventionsMembre() {
   const search = document.getElementById('intervention-search').value.trim();
   if (!search) return;
-  
   try {
     const userId = await resolveUser(search);
     if (!userId) {
@@ -1182,22 +1152,16 @@ async function chargerInterventionsMembre() {
         '<div style="color:var(--err);text-align:center;">❌ Membre non trouvé</div>';
       return;
     }
-
     const res = await fetch(`/api/interventions/user/${userId}`);
     const data = await res.json();
     const user = await fetchUser(userId);
-    
     if (!data || data.length === 0) {
       document.getElementById('intervention-member-content').innerHTML = 
         `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore d'intervention.</div>`;
       return;
     }
-
     const types = {};
-    data.forEach(iv => {
-      types[iv.type] = (types[iv.type] || 0) + 1;
-    });
-
+    data.forEach(iv => { types[iv.type] = (types[iv.type] || 0) + 1; });
     document.getElementById('intervention-member-content').innerHTML = `
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -1247,12 +1211,10 @@ async function chargerRapportsTop() {
     const res = await fetch('/api/rapports/top');
     const data = await res.json();
     const container = document.getElementById('rapport-top-liste');
-    
     if (!data || data.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucun rapport enregistré.</p>';
       return;
     }
-
     let html = '';
     for (let i = 0; i < data.length; i++) {
       const item = data[i];
@@ -1278,7 +1240,6 @@ async function chargerRapportsTop() {
 async function chargerRapportsMembre() {
   const search = document.getElementById('rapport-search').value.trim();
   if (!search) return;
-  
   try {
     const userId = await resolveUser(search);
     if (!userId) {
@@ -1286,17 +1247,14 @@ async function chargerRapportsMembre() {
         '<div style="color:var(--err);text-align:center;">❌ Membre non trouvé</div>';
       return;
     }
-
     const res = await fetch(`/api/rapports/user/${userId}`);
     const data = await res.json();
     const user = await fetchUser(userId);
-    
     if (!data || data.length === 0) {
       document.getElementById('rapport-member-content').innerHTML = 
         `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore de rapport.</div>`;
       return;
     }
-
     document.getElementById('rapport-member-content').innerHTML = `
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -1362,7 +1320,6 @@ function rechercherMembres(q) {
       const roles = await (await fetch('/api/roles')).json();
       const optionsRoles = roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
 
-      // Cache data for service status
       const serviceRes = await fetch('/api/service/stats');
       cachedServiceData = await serviceRes.json();
 
@@ -1582,34 +1539,23 @@ async function supprimerRole(id) {
 }
 
 // ==========================================
-// BIENVENUE / PARAMETRES
+// BIENVENUE / PARAMETRES (avec checkboxes)
 // ==========================================
 async function chargerParametres() {
   try {
-    const [salons, params] = await Promise.all([
+    const [salons, params, roles] = await Promise.all([
       (await fetch('/api/channels')).json(),
       (await fetch('/api/settings')).json(),
+      (await fetch('/api/roles')).json(),
     ]);
-    const roles = await (await fetch('/api/roles')).json();
 
     const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-    const optionsRoles = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
 
-    const autoRoleSelect = document.getElementById('param-autorole');
-    autoRoleSelect.innerHTML = optionsRoles;
-    if (params.autoRoleIds && Array.isArray(params.autoRoleIds)) {
-      Array.from(autoRoleSelect.options).forEach(opt => {
-        opt.selected = params.autoRoleIds.includes(opt.value);
-      });
-    }
-
-    document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
-    document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
-    document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${s.name}</option>`).join('');
-    document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
-    document.getElementById('param-salon-service').innerHTML = optionsSalons;
-    document.getElementById('param-salon-rapport').innerHTML = optionsSalons;
-    document.getElementById('param-salon-intervention').innerHTML = optionsSalons;
+    // Remplir les selects
+    const selects = ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-service', 'param-salon-rapport', 'param-salon-intervention'];
+    selects.forEach(id => {
+      document.getElementById(id).innerHTML = optionsSalons;
+    });
 
     document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
     document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
@@ -1620,6 +1566,18 @@ async function chargerParametres() {
     document.getElementById('param-salon-service').value = params.serviceChannelId || '';
     document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
     document.getElementById('param-salon-intervention').value = params.interventionChannelId || '';
+
+    // === GÉNÉRER LES CASES À COCHER POUR LES RÔLES ===
+    const container = document.getElementById('auto-role-checkboxes');
+    const selected = params.autoRoleIds || [];
+    container.innerHTML = roles.map(r => `
+      <label>
+        <input type="checkbox" value="${r.id}" ${selected.includes(r.id) ? 'checked' : ''} />
+        <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
+        ${r.name}
+      </label>
+    `).join('') || '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+
   } catch (e) {
     console.error('Erreur chargement paramètres:', e);
   }
@@ -1627,9 +1585,11 @@ async function chargerParametres() {
 
 async function sauverParametres() {
   const statut = document.getElementById('param-statut');
-  const autoRoleSelect = document.getElementById('param-autorole');
-  const autoRoleIds = Array.from(autoRoleSelect.selectedOptions).map(opt => opt.value).filter(v => v);
   
+  // Récupérer les IDs des rôles cochés
+  const checkboxes = document.querySelectorAll('#auto-role-checkboxes input[type="checkbox"]:checked');
+  const autoRoleIds = Array.from(checkboxes).map(cb => cb.value);
+
   try {
     const res = await fetch('/api/settings', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1646,6 +1606,7 @@ async function sauverParametres() {
         interventionChannelId: document.getElementById('param-salon-intervention').value,
       })
     });
+    jouerSon(); // 🔔 BIP DE CONFIRMATION
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1740,6 +1701,7 @@ async function sauverCandidatures() {
         mpRefus: document.getElementById('cand-mp-refus').value,
       })
     });
+    jouerSon(); // 🔔 BIP DE CONFIRMATION
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1809,6 +1771,7 @@ async function envoyerEmbed() {
   try {
     const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
     const data = await res.json();
+    jouerSon(); // 🔔 BIP DE CONFIRMATION
     statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
@@ -1856,6 +1819,7 @@ async function repondreTicket(userId) {
     const res = await fetch(`/api/tickets/${userId}/reply`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
     });
+    jouerSon(); // 🔔
     statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     if (res.ok) document.getElementById('reply-' + userId).value = '';
@@ -1873,6 +1837,7 @@ async function sauverNoteTicket(userId) {
     const res = await fetch(`/api/tickets/${userId}/note`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
     });
+    jouerSon(); // 🔔
     statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     setTimeout(() => { statut.textContent = ''; }, 2500);
@@ -1924,6 +1889,7 @@ async function creerGiveaway() {
         winnersCount: document.getElementById('giveaway-gagnants').value,
       })
     });
+    jouerSon(); // 🔔
     statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     if (res.ok) chargerGiveaways();
@@ -1962,6 +1928,7 @@ async function importerBackup() {
     const res = await fetch('/api/backup/import', {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
     });
+    jouerSon(); // 🔔
     statut.textContent = res.ok ? '✅ Sauvegarde importée' : "❌ Échec de l'import";
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
   } catch (e) {
