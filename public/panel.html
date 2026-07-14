@@ -567,7 +567,6 @@
         <button class="tab-stats" data-service-tab="weekly">📅 Classement semaine</button>
         <button class="tab-stats" data-service-tab="member">👤 Profil membre</button>
       </div>
-      <!-- CORRECTION : div dédiée pour la liste des services actifs -->
       <div id="service-actifs" class="stats-content">
         <div id="service-actifs-liste"></div>
       </div>
@@ -721,19 +720,16 @@
       <div><label>Salon des refus</label><select id="cand-salon-refus"><option value="">Utiliser le même</option></select></div>
     </div>
 
-    <!-- CORRECTION : Cases à cocher pour les rôles de validation -->
     <label>Rôle(s) autorisé(s) à valider</label>
     <div id="cand-roles-valid-container" class="checkbox-grid">
       <span style="color:var(--text-dim);font-size:13px;">Chargement...</span>
     </div>
 
-    <!-- CORRECTION : Cases à cocher pour les rôles de refus -->
     <label>Rôle(s) autorisé(s) à refuser</label>
     <div id="cand-roles-refus-container" class="checkbox-grid">
       <span style="color:var(--text-dim);font-size:13px;">Chargement...</span>
     </div>
 
-    <!-- CORRECTION : Cases à cocher pour les rôles attribués -->
     <label>Rôle(s) attribué(s) lors d'une validation</label>
     <div id="cand-roles-attribution-container" class="checkbox-grid">
       <span style="color:var(--text-dim);font-size:13px;">Chargement...</span>
@@ -909,11 +905,8 @@ async function reinitialiserSalon(type) {
   const id = map[type];
   if (!id) return;
   
-  // Mettre à jour la valeur localement
   document.getElementById(id).value = '';
   jouerSon();
-  
-  // Appeler la sauvegarde pour persister le changement
   await sauverParametres();
 }
 
@@ -1000,19 +993,17 @@ function getServiceStatus(userId) {
 // SERVICE
 // ==========================================
 async function chargerService() {
-  await loadServiceStatuses(); // Charge les statuts pour les badges
+  await loadServiceStatuses();
   
   try {
     const res = await fetch('/api/service/active');
     const active = await res.json();
-    // Écrit dans le conteneur dédié
     const container = document.getElementById('service-actifs-liste');
     if (!container) return;
     
     if (active.length === 0) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
     } else {
-      // Optimisation : Promise.all pour les requêtes utilisateurs
       const users = await Promise.all(active.map(async (s) => {
         const user = await fetchUser(s.userId);
         return { ...s, user };
@@ -1396,7 +1387,6 @@ async function chargerRapportsMembre() {
 // MODERATION
 // ==========================================
 let rechercheTimeout;
-let cachedInterventions = [];
 
 async function fetchUser(userId) {
   try {
@@ -1426,7 +1416,6 @@ function rechercherMembres(q) {
       const roles = await (await fetch('/api/roles')).json();
       const optionsRoles = roles.map(r => `<option value="${r.id}">${escapeHTML(r.name)}</option>`).join('');
 
-      // Cache data for service status
       const serviceRes = await fetch('/api/service/stats');
       cachedServiceData = await serviceRes.json();
 
