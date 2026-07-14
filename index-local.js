@@ -58,7 +58,17 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET || "";
 const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || "https://TON-APP.onrender.com/callback";
-const SESSION_SECRET = process.env.SESSION_SECRET || require("crypto").randomBytes(32).toString("hex");
+// SESSION_SECRET stable : généré une fois et stocké dans .secret
+let SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  const secretFile = path.join(__dirname, ".secret");
+  if (fs.existsSync(secretFile)) {
+    SESSION_SECRET = fs.readFileSync(secretFile, "utf8").trim();
+  } else {
+    SESSION_SECRET = require("crypto").randomBytes(32).toString("hex");
+    fs.writeFileSync(secretFile, SESSION_SECRET);
+  }
+}
 const PORT = process.env.PORT || 3000;
 const GUILD_ID = process.env.GUILD_ID;
 
@@ -94,7 +104,7 @@ const SERVICE_FILE = path.join(DATA_DIR, "service.json");
 const RAPPORTS_FILE = path.join(DATA_DIR, "rapports.json");
 
 // ==============================
-// FONCTIONS DE LECTURE/ÉCRITURE (avec gestion d'erreur)
+// FONCTIONS DE LECTURE/ÉCRITURE
 // ==============================
 function lire(fichier, defaut) {
   try {
@@ -247,7 +257,6 @@ function getServiceStatus(userId) {
   if (!data || !data.active) return null;
   const start = new Date(data.startTime);
   if (Date.now() - start.getTime() > 24 * 60 * 60 * 1000) {
-    // Nettoyage asynchrone
     (async () => { await stopService(userId); })();
     return null;
   }
@@ -316,7 +325,6 @@ async function stopService(userId) {
   data.endTime = now.toISOString();
   data.totalTime = (data.totalTime || 0) + duration;
 
-  // Weekly time
   const debutSemaine = getDebutSemaine();
   const startDate = new Date(data.startTime);
   if (startDate >= debutSemaine) {
@@ -325,7 +333,6 @@ async function stopService(userId) {
     data.weeklyTime = duration;
   }
 
-  // Daily time
   const jour = getJourSemaine(startDate);
   data.daily = data.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
   data.daily[jour] = (data.daily[jour] || 0) + duration;
@@ -475,7 +482,8 @@ function statsInterventions() {
     const mois = iv.date.slice(0, 7);
     parMois[mois] = (parMois[mois] || 0) + 1;
   }
-  return { total: interventions.length, parType, parGravite, parMois };
+  const intervenants = new Set(interventions.map(iv => iv.userId)).size;
+  return { total: interventions.length, intervenants, parType, parGravite, parMois };
 }
 
 async function envoyerLogModeration(embed) {
@@ -509,8 +517,13 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildPresences,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions, // ✅ Bug #1
   ],
-  partials: [Partials.Channel, Partials.Message],
+  partials: [
+    Partials.Channel,
+    Partials.Message,
+    Partials.Reaction // ✅ Bug #1
+  ],
 });
 
 // ==============================
@@ -550,15 +563,15 @@ const commands = [
   new SlashCommandBuilder().setName("transcript").setDescription("Générer le transcript HTML du ticket en cours"),
   new SlashCommandBuilder()
     .setName("clear")
-    .setDescription("Supprimer des messages dans le ticket en cours")
+    .setDescription("Supprimer des messages (dans un salon ou un ticket)")
     .addIntegerOption((o) => o.setName("nombre").setDescription("Nombre de messages (1-100)").setRequired(true).setMinValue(1).setMaxValue(100)),
-  new SlashCommandBuilder().setName("lock").setDescription("Verrouiller le ticket en cours"),
-  new SlashCommandBuilder().setName("unlock").setDescription("Déverrouiller le ticket en cours"),
+  new SlashCommandBuilder().setName("lock").setDescription("Verrouiller le salon ou ticket"),
+  new SlashCommandBuilder().setName("unlock").setDescription("Déverrouiller le salon ou ticket"),
   new SlashCommandBuilder()
     .setName("slowmode")
-    .setDescription("Définir le mode lent du ticket en cours")
+    .setDescription("Définir le mode lent (salon ou ticket)")
     .addIntegerOption((o) => o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)),
-  new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du ticket en cours"),
+  new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du salon (ou ticket)"),
   new SlashCommandBuilder()
     .setName("valid")
     .setDescription("Valider la candidature du ticket en cours")
@@ -652,8 +665,9 @@ async function chargerDepuisRedis() {
 (async () => {
   await chargerDepuisRedis();
   try {
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log("Commandes slash enregistrées avec succès.");
+    // Enregistrement en guild (plus rapide)
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log("Commandes slash enregistrées avec succès (guild).");
   } catch (error) {
     console.error(error);
   }
@@ -668,12 +682,23 @@ process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
 });
 
-process.on('SIGINT', () => {
-  console.log('🛑 Arrêt du bot... Nettoyage des timers...');
+function nettoyerTimers() {
   if (serviceIntervalId) clearInterval(serviceIntervalId);
   if (rapportIntervalId) clearInterval(rapportIntervalId);
   if (interventionIntervalId) clearInterval(interventionIntervalId);
   if (orphanServiceIntervalId) clearInterval(orphanServiceIntervalId);
+}
+
+process.on('SIGINT', () => {
+  console.log('🛑 Arrêt du bot... Nettoyage des timers...');
+  nettoyerTimers();
+  process.exit(0);
+});
+
+// ✅ Ajout SIGTERM
+process.on('SIGTERM', () => {
+  console.log('🛑 Arrêt (SIGTERM)... Nettoyage...');
+  nettoyerTimers();
   process.exit(0);
 });
 
@@ -698,10 +723,7 @@ client.once("ready", async () => {
   }
   isBotReady = true;
 
-  if (serviceIntervalId) clearInterval(serviceIntervalId);
-  if (rapportIntervalId) clearInterval(rapportIntervalId);
-  if (interventionIntervalId) clearInterval(interventionIntervalId);
-  if (orphanServiceIntervalId) clearInterval(orphanServiceIntervalId);
+  nettoyerTimers();
 
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
@@ -1736,6 +1758,7 @@ client.on("interactionCreate", async (interaction) => {
             )
         );
 
+        // On stocke les deux menus dans la réponse, et on les renverra à chaque sélection
         await interaction.editReply({
           content: "Sélectionne le type et la gravité de l'intervention :",
           components: [row1, row2]
@@ -1782,9 +1805,46 @@ client.on("interactionCreate", async (interaction) => {
     // ========================================
     if (interaction.isStringSelectMenu() && interaction.customId === "intervention_type_select") {
       const type = interaction.values[0];
+      // On stocke le type dans la session de l'interaction (ou dans un cache)
       if (!interaction.client.interventionData) interaction.client.interventionData = {};
       interaction.client.interventionData[interaction.user.id] = { type };
-      await interaction.update({ content: `✅ Type sélectionné : ${LABELS_TYPE_INTERVENTION[type] || type}`, components: [] });
+
+      // On récupère le message original pour garder les composants
+      const originalMessage = interaction.message;
+      // On reconstruit les menus (on pourrait les récupérer depuis le message, mais on les recrée)
+      const row1 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("intervention_type_select")
+          .setPlaceholder("Choisis le type d'intervention")
+          .addOptions(
+            { label: "🚗 Accident de circulation", value: "accident_circulation" },
+            { label: "🔫 Arme à feu / arme blanche", value: "arme" },
+            { label: "🥊 Bagarre / agression", value: "agression" },
+            { label: "💊 Overdose / intoxication", value: "overdose" },
+            { label: "🌊 Noyade", value: "noyade" },
+            { label: "🤕 Chute", value: "chute" },
+            { label: "😵 Malaise", value: "malaise" },
+            { label: "❓ Autre", value: "autre" }
+          )
+          .setDisabled(true) // On désactive le type une fois choisi
+      );
+
+      const row2 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("intervention_gravite_select")
+          .setPlaceholder("Choisis la gravité")
+          .addOptions(
+            { label: "🟢 Légère", value: "legere" },
+            { label: "🟡 Moyenne", value: "moyenne" },
+            { label: "🟠 Critique", value: "critique" },
+            { label: "⚫ Décès", value: "deces" }
+          )
+      );
+
+      await interaction.update({
+        content: `✅ Type sélectionné : **${LABELS_TYPE_INTERVENTION[type] || type}**\nSélectionne maintenant la gravité.`,
+        components: [row1, row2]
+      });
       return;
     }
 
@@ -1868,8 +1928,8 @@ client.on("interactionCreate", async (interaction) => {
       const dateStr = maintenant.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
       const heureStr = maintenant.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
-      const diagnosticTexte = rapport.diagnostic.map((d) => `• ${d}`).join("\n");
-      const soinsTexte = rapport.prise_en_charge.map((s) => `• ${s}`).join("\n");
+      const diagnosticTexte = (rapport.diagnostic || []).map((d) => `• ${d}`).join("\n");
+      const soinsTexte = (rapport.prise_en_charge || []).map((s) => `• ${s}`).join("\n");
 
       const embed = new EmbedBuilder()
         .setColor(COULEUR_EMBED)
@@ -1879,15 +1939,14 @@ client.on("interactionCreate", async (interaction) => {
           { name: "🩺 Intervenant", value: `<@${interaction.user.id}>`, inline: true },
           { name: "🕒 Date et heure", value: `${dateStr} - ${heureStr}`, inline: false },
           { name: "📌 Motif de prise en charge", value: situation, inline: false },
-          { name: "🔍 Examen réalisé", value: rapport.examen, inline: false },
-          { name: "🩹 Diagnostic", value: diagnosticTexte, inline: false },
-          { name: "💉 Prise en charge", value: soinsTexte, inline: false },
-          { name: "📝 Observations", value: rapport.observations, inline: false }
+          { name: "🔍 Examen réalisé", value: rapport.examen || "Examen non spécifié", inline: false },
+          { name: "🩹 Diagnostic", value: diagnosticTexte || "Non diagnostiqué", inline: false },
+          { name: "💉 Prise en charge", value: soinsTexte || "Aucune prise en charge", inline: false },
+          { name: "📝 Observations", value: rapport.observations || "Aucune observation", inline: false }
         )
         .setFooter({ text: `Rapport généré par ${interaction.user.tag}` })
         .setTimestamp();
 
-      // Enregistrer le rapport
       const rapportEntry = {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         userId: interaction.user.id,
@@ -2002,9 +2061,13 @@ client.on("interactionCreate", async (interaction) => {
         const userId = trouverUserIdParThread(interaction.channel.id);
         if (!userId) return interaction.update({ content: "❌ Ticket introuvable.", components: [] });
         
-        await interaction.channel.members.add(user.id).catch(() => {});
-        await interaction.update({ content: `✅ ${user.tag} a été ajouté au ticket.`, components: [] });
-        await interaction.channel.send({ content: `➕ <@${user.id}> a été ajouté au ticket par <@${interaction.user.id}>.` });
+        try {
+          await interaction.channel.members.add(user.id);
+          await interaction.update({ content: `✅ ${user.tag} a été ajouté au ticket.`, components: [] });
+          await interaction.channel.send({ content: `➕ <@${user.id}> a été ajouté au ticket par <@${interaction.user.id}>.` });
+        } catch (e) {
+          await interaction.update({ content: `❌ Échec : ${e.message}`, components: [] });
+        }
         return;
       }
 
@@ -2015,9 +2078,13 @@ client.on("interactionCreate", async (interaction) => {
         const userId = trouverUserIdParThread(interaction.channel.id);
         if (!userId) return interaction.update({ content: "❌ Ticket introuvable.", components: [] });
         
-        await interaction.channel.members.remove(user.id).catch(() => {});
-        await interaction.update({ content: `✅ ${user.tag} a été retiré du ticket.`, components: [] });
-        await interaction.channel.send({ content: `➖ <@${user.id}> a été retiré du ticket par <@${interaction.user.id}>.` });
+        try {
+          await interaction.channel.members.remove(user.id);
+          await interaction.update({ content: `✅ ${user.tag} a été retiré du ticket.`, components: [] });
+          await interaction.channel.send({ content: `➖ <@${user.id}> a été retiré du ticket par <@${interaction.user.id}>.` });
+        } catch (e) {
+          await interaction.update({ content: `❌ Échec : ${e.message}`, components: [] });
+        }
         return;
       }
     }
@@ -2158,9 +2225,11 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // --------------------- TICKETS ---------------------
-      if (["rename", "claim", "unclaim", "add", "remove", "priority", "reopen", "transcript", "clear", "lock", "unlock", "slowmode", "nuke", "valid", "refuser"].includes(commandName)) {
-        // Vérifier qu'on est dans un ticket
+      // ========================================
+      // COMMANDES DE TICKET (avec vérification que c'est un ticket)
+      // ========================================
+      if (["rename", "claim", "unclaim", "add", "remove", "priority", "reopen", "transcript"].includes(commandName)) {
+        // Ces commandes nécessitent un ticket
         if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
           return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
         }
@@ -2169,7 +2238,6 @@ client.on("interactionCreate", async (interaction) => {
         const ticket = tickets[userId];
         if (!ticket) return interaction.reply({ content: "❌ Ticket introuvable.", flags: 64 });
 
-        // Rename
         if (commandName === "rename") {
           const nouveauNom = options.getString("nom");
           await interaction.channel.setName(nouveauNom.slice(0, 100)).catch(() => {});
@@ -2177,7 +2245,6 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        // Claim
         if (commandName === "claim") {
           if (ticket.claimedBy) return interaction.reply({ content: `❌ Ce ticket est déjà pris par <@${ticket.claimedBy}>.`, flags: 64 });
           ticket.claimedBy = interaction.user.id;
@@ -2187,7 +2254,6 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        // Unclaim
         if (commandName === "unclaim") {
           if (!ticket.claimedBy) return interaction.reply({ content: "❌ Ce ticket n'est pas pris en charge.", flags: 64 });
           if (ticket.claimedBy !== interaction.user.id && !interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -2200,25 +2266,30 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        // Add
         if (commandName === "add") {
           const membre = options.getUser("membre");
-          await interaction.channel.members.add(membre.id).catch(() => {});
-          await interaction.reply({ content: `✅ ${membre.tag} a été ajouté au ticket.`, flags: 64 });
-          await interaction.channel.send({ content: `➕ <@${membre.id}> a été ajouté au ticket par <@${interaction.user.id}>.` });
+          try {
+            await interaction.channel.members.add(membre.id);
+            await interaction.reply({ content: `✅ ${membre.tag} a été ajouté au ticket.`, flags: 64 });
+            await interaction.channel.send({ content: `➕ <@${membre.id}> a été ajouté au ticket par <@${interaction.user.id}>.` });
+          } catch (e) {
+            await interaction.reply({ content: `❌ Échec : ${e.message}`, flags: 64 });
+          }
           return;
         }
 
-        // Remove
         if (commandName === "remove") {
           const membre = options.getUser("membre");
-          await interaction.channel.members.remove(membre.id).catch(() => {});
-          await interaction.reply({ content: `✅ ${membre.tag} a été retiré du ticket.`, flags: 64 });
-          await interaction.channel.send({ content: `➖ <@${membre.id}> a été retiré du ticket par <@${interaction.user.id}>.` });
+          try {
+            await interaction.channel.members.remove(membre.id);
+            await interaction.reply({ content: `✅ ${membre.tag} a été retiré du ticket.`, flags: 64 });
+            await interaction.channel.send({ content: `➖ <@${membre.id}> a été retiré du ticket par <@${interaction.user.id}>.` });
+          } catch (e) {
+            await interaction.reply({ content: `❌ Échec : ${e.message}`, flags: 64 });
+          }
           return;
         }
 
-        // Priority
         if (commandName === "priority") {
           const niveau = options.getString("niveau");
           ticket.priority = niveau;
@@ -2227,15 +2298,18 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        // Reopen (commande slash, mais on utilise la logique déjà présente)
         if (commandName === "reopen") {
+          // Correction : utiliser closedTickets directement
           await interaction.deferReply({ flags: 64 });
+          const closedInfo = closedTickets[interaction.channel.id];
+          if (!closedInfo) {
+            return interaction.editReply({ content: "❌ Ce ticket n'est pas fermé ou n'existe pas dans les archives." });
+          }
           await reouvrirTicketParThread(interaction.channel.id, interaction.user.tag);
           await interaction.editReply({ content: "♻️ Ticket rouvert !" });
           return;
         }
 
-        // Transcript
         if (commandName === "transcript") {
           await interaction.deferReply({ flags: 64 });
           await envoyerTranscript(
@@ -2246,90 +2320,123 @@ client.on("interactionCreate", async (interaction) => {
           await interaction.editReply({ content: "✅ Le transcript a été envoyé dans le salon de logs." });
           return;
         }
+      }
 
-        // Clear
+      // ========================================
+      // COMMANDES DE MODÉRATION (clear, lock, unlock, slowmode, nuke)
+      // ========================================
+      if (["clear", "lock", "unlock", "slowmode", "nuke"].includes(commandName)) {
+        // Ces commandes fonctionnent dans n'importe quel salon (ou ticket) avec les permissions appropriées
+        const channel = interaction.channel;
+
+        // Vérifier les permissions selon la commande
         if (commandName === "clear") {
-          const nb = options.getInteger("nombre");
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de gérer les messages.", flags: 64 });
           }
-          const messages = await interaction.channel.messages.fetch({ limit: nb });
-          await interaction.channel.bulkDelete(messages, true);
+          const nb = options.getInteger("nombre");
+          const messages = await channel.messages.fetch({ limit: nb });
+          await channel.bulkDelete(messages, true);
           await interaction.reply({ content: `✅ ${messages.size} messages supprimés.`, flags: 64 });
           return;
         }
 
-        // Lock
         if (commandName === "lock") {
-          if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageThreads)) {
+          if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels) && !interaction.member.permissions.has(PermissionsBitField.Flags.ManageThreads)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de verrouiller.", flags: 64 });
           }
-          await interaction.channel.setLocked(true);
-          await interaction.reply({ content: "🔒 Ticket verrouillé.", flags: 64 });
+          if (channel.isThread()) {
+            await channel.setLocked(true);
+          } else {
+            await channel.permissionOverwrites.edit(channel.guild.roles.everyone, { SendMessages: false });
+          }
+          await interaction.reply({ content: "🔒 Salon verrouillé.", flags: 64 });
           return;
         }
 
-        // Unlock
         if (commandName === "unlock") {
-          if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageThreads)) {
+          if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels) && !interaction.member.permissions.has(PermissionsBitField.Flags.ManageThreads)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de déverrouiller.", flags: 64 });
           }
-          await interaction.channel.setLocked(false);
-          await interaction.reply({ content: "🔓 Ticket déverrouillé.", flags: 64 });
+          if (channel.isThread()) {
+            await channel.setLocked(false);
+          } else {
+            await channel.permissionOverwrites.edit(channel.guild.roles.everyone, { SendMessages: null });
+          }
+          await interaction.reply({ content: "🔓 Salon déverrouillé.", flags: 64 });
           return;
         }
 
-        // Slowmode
         if (commandName === "slowmode") {
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de gérer le mode lent.", flags: 64 });
           }
           const secondes = options.getInteger("secondes");
-          await interaction.channel.setRateLimitPerUser(secondes);
+          if (channel.isThread()) {
+            await channel.setRateLimitPerUser(secondes);
+          } else {
+            await channel.setRateLimitPerUser(secondes);
+          }
           await interaction.reply({ content: `✅ Mode lent défini sur ${secondes} secondes.`, flags: 64 });
           return;
         }
 
-        // Nuke
         if (commandName === "nuke") {
           if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de purger.", flags: 64 });
           }
-          // Récupérer tous les messages (limite 100 par fetch, on fait plusieurs appels)
+          await interaction.deferReply({ flags: 64 });
           let all = [];
           let last = undefined;
-          for (let i = 0; i < 5; i++) {
-            const batch = await interaction.channel.messages.fetch({ limit: 100, before: last });
+          let loops = 0;
+          // On supprime par lots de 100 jusqu'à 500 messages (5 lots) pour éviter de timeout
+          while (loops < 5) {
+            const batch = await channel.messages.fetch({ limit: 100, before: last });
             if (!batch.size) break;
             all.push(...batch.values());
             last = batch.last().id;
+            loops++;
           }
-          await interaction.channel.bulkDelete(all, true);
-          await interaction.reply({ content: `✅ ${all.length} messages supprimés (nuke).`, flags: 64 });
+          if (all.length === 0) {
+            return interaction.editReply({ content: "⚠️ Aucun message à supprimer." });
+          }
+          await channel.bulkDelete(all, true);
+          await interaction.editReply({ content: `✅ ${all.length} messages supprimés (nuke).` });
           return;
         }
+      }
 
-        // Valid (candidature)
+      // ========================================
+      // COMMANDES VALID / REFUSER (candidatures) - nécessitent un ticket
+      // ========================================
+      if (["valid", "refuser"].includes(commandName)) {
+        if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
+          return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
+        }
+        const userId = trouverUserIdParThread(interaction.channel.id);
+        if (!userId) return interaction.reply({ content: "❌ Ticket introuvable.", flags: 64 });
+        const ticket = tickets[userId];
+        if (!ticket) return interaction.reply({ content: "❌ Ticket introuvable.", flags: 64 });
+
+        const raison = options.getString("raison") || "Sans commentaire";
+        const cfg = config.candidatures || {};
+        if (!cfg.actif) {
+          return interaction.reply({ content: "❌ Le système de candidatures est désactivé.", flags: 64 });
+        }
+
         if (commandName === "valid") {
-          const raison = options.getString("raison") || "Sans commentaire";
-          const cfg = config.candidatures || {};
-          if (!cfg.actif) {
-            return interaction.reply({ content: "❌ Le système de candidatures est désactivé.", flags: 64 });
-          }
-          // Vérifier droits
           if (!estAutoriseCandidature(interaction, cfg.rolesValid)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de valider.", flags: 64 });
           }
-          // Attribuer les rôles
+          // Attribution des rôles - utiliser fetch pour être sûr
           if (cfg.rolesAttribution && cfg.rolesAttribution.length > 0) {
-            const member = interaction.guild.members.cache.get(userId);
+            const member = await interaction.guild.members.fetch(userId).catch(() => null);
             if (member) {
               for (const roleId of cfg.rolesAttribution) {
                 await member.roles.add(roleId).catch(() => {});
               }
             }
           }
-          // Envoyer le message de validation dans le ticket
           const vars = {
             user: `<@${userId}>`,
             mention: `<@${userId}>`,
@@ -2342,7 +2449,6 @@ client.on("interactionCreate", async (interaction) => {
           };
           const msgVal = remplacerVariables(cfg.messageValidation, vars);
           await interaction.channel.send({ content: msgVal });
-          // Envoyer dans le salon de validation si configuré
           if (cfg.salonValidation) {
             const salon = await interaction.guild.channels.fetch(cfg.salonValidation).catch(() => null);
             if (salon) {
@@ -2354,7 +2460,6 @@ client.on("interactionCreate", async (interaction) => {
               await salon.send({ embeds: [embed] });
             }
           }
-          // MP
           if (cfg.mpActif) {
             const user = await client.users.fetch(userId).catch(() => null);
             if (user) {
@@ -2362,7 +2467,6 @@ client.on("interactionCreate", async (interaction) => {
               await user.send(mpMsg).catch(() => {});
             }
           }
-          // Historique
           candHistory.push({
             userId,
             username: ticket.username,
@@ -2373,7 +2477,6 @@ client.on("interactionCreate", async (interaction) => {
             date: new Date().toISOString()
           });
           sauverCandHistory();
-          // Fermer auto
           if (cfg.fermetureAuto) {
             const delai = parseInt(cfg.fermetureDelai) || 10;
             setTimeout(async () => {
@@ -2384,13 +2487,7 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
 
-        // Refuser
         if (commandName === "refuser") {
-          const raison = options.getString("raison") || "Sans commentaire";
-          const cfg = config.candidatures || {};
-          if (!cfg.actif) {
-            return interaction.reply({ content: "❌ Le système de candidatures est désactivé.", flags: 64 });
-          }
           if (!estAutoriseCandidature(interaction, cfg.rolesRefus)) {
             return interaction.reply({ content: "❌ Tu n'as pas la permission de refuser.", flags: 64 });
           }
@@ -2478,6 +2575,10 @@ client.on("interactionCreate", async (interaction) => {
       // --------------------- WARNS ---------------------
       if (commandName === "warns") {
         const membre = options.getUser("membre");
+        // Vérifier permission modération
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+          return interaction.reply({ content: "❌ Tu n'as pas la permission de voir les avertissements.", flags: 64 });
+        }
         const liste = warns[membre.id] || [];
         if (liste.length === 0) {
           return interaction.reply({ content: `${membre.tag} n'a aucun avertissement.`, flags: 64 });
@@ -2499,7 +2600,10 @@ client.on("interactionCreate", async (interaction) => {
 
   } catch (error) {
     console.error('❌ Erreur dans interactionCreate:', error);
-    if (!interaction.replied && !interaction.deferred) {
+    // Gérer les cas où on a déjà defer/reply
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply({ content: "❌ Une erreur est survenue. Veuillez réessayer.", flags: 64 }).catch(() => {});
+    } else {
       await interaction.reply({
         content: "❌ Une erreur est survenue. Veuillez réessayer.",
         flags: 64
@@ -2509,58 +2613,14 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ==============================
-// VOICE STATE UPDATE
+// VOICE STATE UPDATE (désactivé pour éviter double comptage)
 // ==============================
+// Le temps de service est géré par les boutons, donc on désactive l'ajout automatique
+/*
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  try {
-    const userId = newState.member?.id || oldState.member?.id;
-    if (!userId) return;
-
-    const oldChannel = oldState.channel;
-    const newChannel = newState.channel;
-
-    if (!oldChannel && newChannel) {
-      if (!serviceData[userId]) {
-        serviceData[userId] = {
-          totalTime: 0,
-          weeklyTime: 0,
-          daily: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 },
-          sessions: [],
-          active: false
-        };
-      }
-      serviceData[userId].voiceJoinTime = Date.now();
-      sauverService();
-    }
-
-    if (oldChannel && !newChannel) {
-      const joinTime = serviceData[userId]?.voiceJoinTime;
-      if (joinTime) {
-        const duration = Math.floor((Date.now() - joinTime) / 1000);
-        if (duration > 60) {
-          const serviceStatus = getServiceStatus(userId);
-          if (serviceStatus) {
-            const data = serviceData[userId];
-            data.totalTime = (data.totalTime || 0) + duration;
-            const debutSemaine = getDebutSemaine();
-            const startDate = new Date(data.startTime);
-            if (startDate >= debutSemaine) {
-              data.weeklyTime = (data.weeklyTime || 0) + duration;
-            }
-            const jour = getJourSemaine(startDate);
-            data.daily = data.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
-            data.daily[jour] = (data.daily[jour] || 0) + duration;
-            sauverService();
-          }
-        }
-        delete serviceData[userId].voiceJoinTime;
-        sauverService();
-      }
-    }
-  } catch (error) {
-    console.error('❌ Erreur voiceStateUpdate:', error);
-  }
+  // ... code désactivé ...
 });
+*/
 
 // ==============================
 // PANEL WEB (Express)
@@ -2570,16 +2630,50 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+// Middleware de session
 app.use(
   session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production", maxAge: 1000 * 60 * 60 * 12 },
+    cookie: { secure: process.env.NODE_ENV === "production", maxAge: 1000 * 60 * 60 * 12, sameSite: 'lax' },
   })
 );
 
-// Routes pour servir les pages HTML (créées automatiquement)
+// Middleware de vérification de session (pour les routes API)
+function authRequis(req, res, next) {
+  if (!req.session.user) return res.status(401).json({ erreur: "Non authentifié" });
+  // Revalidation du rôle à chaque requête
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) return res.status(500).json({ erreur: "Serveur introuvable" });
+  guild.members.fetch(req.session.user.id).then(member => {
+    if (!member) {
+      req.session.destroy();
+      return res.status(401).json({ erreur: "Membre non trouvé" });
+    }
+    const estAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+    const aRoleAutorise = member.roles.cache.some((role) => ROLES_AUTORISES.includes(role.id));
+    if (!estAdmin && !aRoleAutorise) {
+      req.session.destroy();
+      return res.status(403).json({ erreur: "Rôle insuffisant" });
+    }
+    next();
+  }).catch(() => {
+    req.session.destroy();
+    res.status(401).json({ erreur: "Erreur de vérification" });
+  });
+}
+
+function getGuild(res) {
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) {
+    res.status(500).json({ erreur: "Le bot n'est pas sur le serveur configuré (GUILD_ID)" });
+    return null;
+  }
+  return guild;
+}
+
+// ---- Routes d'authentification ----
 app.get("/", (req, res) => {
   if (req.session.user) return res.redirect("/panel");
   res.redirect("/login");
@@ -2595,10 +2689,11 @@ app.get("/panel", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "panel.html"));
 });
 
-// On crée les fichiers HTML manquants au démarrage
+// Génération des fichiers HTML manquants
 function creerFichiersHTML() {
   const publicDir = path.join(__dirname, "public");
   if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir);
+  // login.html
   const loginHTML = `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><title>Connexion</title></head>
@@ -2611,36 +2706,1641 @@ function creerFichiersHTML() {
 </html>`;
   fs.writeFileSync(path.join(publicDir, "login.html"), loginHTML);
 
-  // Le panel HTML est trop long, on le génère à partir du code client (on le récupère depuis la fin du code JS)
-  // Mais on va le fournir en tant que fichier séparé. Comme il est trop long, je vais créer un fichier panel.html en utilisant le contenu HTML qui était à la fin du code.
-  // Pour simplifier, je vais placer le contenu HTML dans un fichier séparé que j'inclurai.
-  // Dans la version finale, je vais extraire le HTML du fichier original et le mettre dans public/panel.html.
-  // Mais pour l'instant, je vais utiliser le contenu déjà présent dans le code original.
-  // Je vais copier le HTML qui était dans le code original (le gros bloc après app.listen) et le sauvegarder.
-  // Comme le code original est dans la question, je vais le réutiliser.
-  // On suppose que le fichier panel.html existe déjà (l'utilisateur l'a fourni dans son code).
-  // Je vais juste m'assurer que le dossier public contient panel.html.
-  // Si le fichier panel.html n'existe pas, je vais le créer avec le contenu du client.
-  // Mais pour ne pas surcharger, je vais laisser l'utilisateur créer lui-même ce fichier, ou je vais le fournir séparément.
-  // Je vais ajouter un fallback : si panel.html n'existe pas, envoyer un message.
-  // Pour la solution complète, je vais inclure le contenu panel.html dans la réponse.
-  console.log("ℹ️ Assurez-vous que public/panel.html existe. Sinon, vous pouvez le récupérer depuis le code original.");
+  // panel.html (avec toutes les corrections CSS/JS)
+  const panelHTML = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Panel EMS - Statistiques</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ... tout le CSS corrigé avec .case-ligne ... */
+  :root {
+    --bg: #07080d;
+    --bg-alt: rgba(15,17,26,0.6);
+    --bg-card: rgba(20,23,35,0.68);
+    --bg-card-solid: #12141f;
+    --bg-input: #10121c;
+    --border: rgba(148,163,184,0.10);
+    --border-hover: rgba(255,45,120,0.35);
+    --accent: #ff2d78;
+    --accent-b: #3b82f6;
+    --accent-grad: linear-gradient(135deg, var(--accent), var(--accent-b));
+    --accent-dim: rgba(255,45,120,0.12);
+    --text: #f2f3f7;
+    --text-dim: #8890a4;
+    --text-faint: #545c72;
+    --ok: #34d399;
+    --err: #fb7185;
+    --warn: #f59e0b;
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 9px;
+    --shadow-soft: 0 10px 34px -14px rgba(0,0,0,0.6);
+    --shadow-glow: 0 0 0 1px rgba(255,45,120,0.06), 0 22px 60px -22px rgba(255,45,120,0.22);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+    position: relative;
+  }
+  h1, h2, h3 { font-family: 'Sora', sans-serif; }
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(circle at 12% 8%, rgba(255,45,120,0.14), transparent 42%),
+      radial-gradient(circle at 88% 6%, rgba(59,130,246,0.12), transparent 46%),
+      radial-gradient(circle at 50% 100%, rgba(255,45,120,0.05), transparent 40%),
+      var(--bg);
+    animation: emsDrift 24s ease-in-out infinite alternate;
+  }
+  @keyframes emsDrift {
+    0%   { background-position: 0% 0%, 0% 0%, 0% 0%; }
+    100% { background-position: 3% 5%, -3% -3%, 2% -2%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, body::before { animation: none !important; transition: none !important; }
+  }
+  nav {
+    width: 250px;
+    background: rgba(10,11,17,0.55);
+    border-right: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    padding: 20px 14px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    z-index: 2;
+  }
+  nav h1 {
+    font-size: 15.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    padding: 4px 10px 18px;
+    margin: 0 0 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  nav h1 .mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: var(--accent-grad);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; flex-shrink: 0;
+    box-shadow: 0 6px 16px -4px rgba(255,45,120,0.5);
+  }
+  nav .tab {
+    padding: 10px 12px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 13.5px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    margin-bottom: 2px;
+    transition: all .18s ease;
+    position: relative;
+  }
+  nav .tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  nav .tab.actif {
+    color: #fff;
+    font-weight: 600;
+    background: linear-gradient(90deg, rgba(255,45,120,0.16), rgba(59,130,246,0.05));
+  }
+  nav .tab.actif::before {
+    content: '';
+    position: absolute; left: -14px; top: 6px; bottom: 6px; width: 3px;
+    background: var(--accent-grad); border-radius: 0 4px 4px 0;
+  }
+  main {
+    flex: 1;
+    padding: 34px 44px 60px;
+    max-width: 1200px;
+    position: relative;
+    z-index: 1;
+  }
+  main section h2 {
+    font-size: 23px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 22px;
+  }
+  label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin: 16px 0 7px;
+    letter-spacing: 0.01em;
+  }
+  label .small-hint {
+    font-weight: 400;
+    color: var(--text-faint);
+    font-size: 11px;
+    display: block;
+    margin-top: 3px;
+  }
+  input, textarea, select {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 11px 13px;
+    border-radius: var(--radius-sm);
+    font-size: 13.5px;
+    font-family: inherit;
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(255,45,120,0.14);
+  }
+  textarea { min-height: 90px; resize: vertical; line-height: 1.55; }
+  select { cursor: pointer; }
+  select[multiple] {
+    min-height: 100px;
+    padding: 6px;
+  }
+  select[multiple] option {
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin: 2px 0;
+  }
+  select[multiple] option:checked {
+    background: var(--accent-grad);
+    color: white;
+  }
+  /* case-ligne */
+  .case-ligne {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .case-ligne input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+  }
+  .case-ligne label {
+    margin: 0;
+    cursor: pointer;
+  }
+  button {
+    margin-top: 20px;
+    background: var(--accent-grad);
+    color: white;
+    border: none;
+    padding: 11px 22px;
+    border-radius: var(--radius-sm);
+    font-size: 13.5px;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: inherit;
+    box-shadow: 0 8px 22px -8px rgba(255,45,120,0.5);
+    transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(255,45,120,0.65); }
+  button:active { transform: translateY(0); }
+  button.secondaire {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    color: var(--text);
+    box-shadow: none;
+  }
+  button.secondaire:hover { border-color: var(--border-hover); box-shadow: none; }
+  button.danger { background: linear-gradient(135deg,#fb7185,#ef4444); box-shadow: 0 8px 22px -8px rgba(239,68,68,0.5); }
+  button.avertir { background: linear-gradient(135deg,#fbbf24,#f59e0b); box-shadow: 0 8px 22px -8px rgba(245,158,11,0.5); }
+  button.petit { padding: 7px 13px; font-size: 12px; margin-top: 0; }
+  button.ok { background: linear-gradient(135deg,#34d399,#10b981); box-shadow: 0 8px 22px -8px rgba(52,211,153,0.5); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+  #compte {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 12px 10px;
+    margin-top: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  #compte img { width: 26px; height: 26px; border-radius: 50%; }
+  .carte {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-soft);
+    transition: border-color .2s ease, transform .2s ease;
+  }
+  .carte:hover { border-color: var(--border-hover); }
+  .stats-grille {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .stat-carte {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-soft);
+    transition: transform .2s ease, border-color .2s ease;
+    text-align: center;
+  }
+  .stat-carte:hover { transform: translateY(-2px); border-color: var(--border-hover); }
+  .stat-carte .valeur {
+    font-family: 'Sora', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    background: var(--accent-grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .stat-carte .valeur.ok { background: linear-gradient(135deg, #34d399, #10b981); -webkit-background-clip: text; background-clip: text; }
+  .stat-carte .label { font-size: 12px; color: var(--text-dim); margin-top: 5px; font-weight: 500; }
+  .msg-ok, .msg-err {
+    font-size: 12.5px;
+    font-weight: 600;
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    display: inline-block;
+  }
+  .msg-ok { color: var(--ok); background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.25); }
+  .msg-err { color: var(--err); background: rgba(251,113,133,0.1); border: 1px solid rgba(251,113,133,0.25); }
+  .hidden { display: none; }
+  .sous-titre {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 30px 0 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sous-titre:first-of-type { margin-top: 6px; }
+  .deux-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin: 3px 5px 3px 0;
+    border: 1px solid rgba(255,45,120,0.2);
+  }
+  .service-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(52,211,153,0.15);
+    color: var(--ok);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid rgba(52,211,153,0.3);
+    animation: pulse-service 2s ease-in-out infinite;
+  }
+  @keyframes pulse-service {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  .service-off {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(148,163,184,0.1);
+    color: var(--text-dim);
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+  }
+  .rank-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-card-solid);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    border-left: 3px solid var(--accent);
+    transition: border-color .2s ease;
+  }
+  .rank-item:hover { border-color: var(--accent); }
+  .rank-item .info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .rank-item .info .nom {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .rank-item .info .details {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .rank-item .value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .rank-item .rank-num {
+    font-weight: 700;
+    color: var(--text-faint);
+    margin-right: 12px;
+    font-size: 13px;
+    min-width: 30px;
+  }
+  .search-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .search-bar input {
+    flex: 1;
+    min-width: 200px;
+  }
+  .search-bar select {
+    width: auto;
+    min-width: 150px;
+  }
+  .tab-stats {
+    padding: 8px 16px;
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all .18s ease;
+    font-family: inherit;
+  }
+  .tab-stats:hover { border-color: var(--border-hover); color: var(--text); }
+  .tab-stats.actif {
+    background: var(--accent-grad);
+    color: white;
+    border-color: transparent;
+  }
+  .stats-content { display: block; }
+  .stats-content.hidden { display: none; }
+  .daily-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin: 10px 0;
+  }
+  .daily-item {
+    background: var(--bg-card-solid);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+  .daily-item .jour {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .daily-item .temps {
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 4px;
+    color: var(--text);
+  }
+  .daily-item .temps.high { color: var(--accent); }
+  .warn-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(245,158,11,0.12);
+    color: var(--warn);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    margin: 3px 5px 3px 0;
+    border: 1px solid rgba(245,158,11,0.25);
+    cursor: pointer;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.28); }
+  @media (max-width: 900px) {
+    body { flex-direction: column; }
+    nav { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
+    main { max-width: 100%; padding: 24px; }
+    .stats-grille { grid-template-columns: 1fr 1fr; }
+    .deux-col { grid-template-columns: 1fr; }
+    .daily-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .stats-grille { grid-template-columns: 1fr; }
+    .daily-grid { grid-template-columns: repeat(2, 1fr); }
+    .search-bar { flex-direction: column; }
+    .search-bar select { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <h1><span class="mark">🚑</span> Panel EMS</h1>
+  <div class="tab actif" data-tab="dashboard">📊 Dashboard</div>
+  <div class="tab" data-tab="service">🟢 Service</div>
+  <div class="tab" data-tab="interventions">🚑 Interventions</div>
+  <div class="tab" data-tab="rapports">📋 Rapports</div>
+  <div class="tab" data-tab="moderation">🛡️ Modération</div>
+  <div class="tab" data-tab="salons">💬 Salons</div>
+  <div class="tab" data-tab="roles">🎭 Rôles</div>
+  <div class="tab" data-tab="bienvenue">👋 Bienvenue</div>
+  <div class="tab" data-tab="candidatures">✅ Candidatures</div>
+  <div class="tab" data-tab="historique">🕘 Historique</div>
+  <div class="tab" data-tab="embed">📢 Annonces</div>
+  <div class="tab" data-tab="tickets">🎫 Tickets</div>
+  <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
+  <div class="tab" data-tab="backup">💾 Sauvegarde</div>
+  <div id="compte"></div>
+  <div style="padding: 14px 10px 0; margin-top: auto;">
+    <a href="/logout" class="discret" style="color:var(--text-faint);font-size:12.5px;text-decoration:none;">↪ Déconnexion</a>
+  </div>
+</nav>
+<main>
+  <section id="vue-dashboard"><h2>📊 Dashboard EMS</h2><div class="stats-grille" id="stats-grille"></div><button class="secondaire" onclick="chargerStats()">🔄 Rafraîchir</button></section>
+  <section id="vue-service" class="hidden"><h2>🟢 Statistiques de service</h2><div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">Temps de service total, par semaine et par jour pour chaque membre.</div><div class="carte"><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"><button class="tab-stats actif" data-service-tab="top">🏆 Classement total</button><button class="tab-stats" data-service-tab="weekly">📅 Classement semaine</button><button class="tab-stats" data-service-tab="member">👤 Profil membre</button></div><div id="service-top" class="stats-content"><div id="service-top-liste"></div></div><div id="service-weekly" class="stats-content hidden"><div id="service-weekly-liste"></div></div><div id="service-member" class="stats-content hidden"><div class="search-bar"><input id="service-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerServiceMembre()" style="margin:0;">Rechercher</button></div><div id="service-member-content"><div class="carte" style="text-align:center;color:var(--text-dim);">Entrez un ID ou un pseudo pour voir les stats de service</div></div></div></div></section>
+  <section id="vue-interventions" class="hidden"><h2>🚑 Statistiques d'interventions</h2><div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">Nombre total d'interventions par membre, avec classement complet.</div><div class="stats-grille" id="intervention-stats-cards"><div class="stat-carte"><div class="valeur" id="intervention-total">0</div><div class="label">Total interventions</div></div><div class="stat-carte"><div class="valeur" id="intervention-intervenants">0</div><div class="label">Intervenants uniques</div></div></div><div class="carte"><h3 style="margin-top:0;font-size:16px;">🏆 Classement des intervenants</h3><div id="intervention-top-liste"></div></div><div class="carte"><h3 style="margin-top:0;font-size:16px;">👤 Interventions d'un membre</h3><div class="search-bar"><input id="intervention-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerInterventionsMembre()" style="margin:0;">Rechercher</button></div><div id="intervention-member-content"><div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses interventions</div></div></div></section>
+  <section id="vue-rapports" class="hidden"><h2>📋 Statistiques de rapports médicaux</h2><div class="encart-info" style="font-size:12.5px;color:var(--text-dim);background:var(--bg-card-solid);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;line-height:1.6;margin-bottom:16px;">Nombre total de rapports médicaux par membre, avec classement complet.</div><div class="stats-grille" id="rapport-stats-cards"><div class="stat-carte"><div class="valeur" id="rapport-total">0</div><div class="label">Total rapports</div></div><div class="stat-carte"><div class="valeur" id="rapport-auteurs">0</div><div class="label">Rapporteurs uniques</div></div></div><div class="carte"><h3 style="margin-top:0;font-size:16px;">🏆 Classement des rapporteurs</h3><div id="rapport-top-liste"></div></div><div class="carte"><h3 style="margin-top:0;font-size:16px;">👤 Rapports d'un membre</h3><div class="search-bar"><input id="rapport-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerRapportsMembre()" style="margin:0;">Rechercher</button></div><div id="rapport-member-content"><div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses rapports</div></div></div></section>
+  <section id="vue-moderation" class="hidden"><h2>🛡️ Modération</h2><label>Rechercher un membre (pseudo)</label><input id="mod-recherche" placeholder="Tape un pseudo..." oninput="rechercherMembres(this.value)" /><div id="mod-resultats" style="margin-top: 16px;"></div></section>
+  <section id="vue-salons" class="hidden"><h2>💬 Salons</h2><div class="carte"><label>Nouveau salon</label><input id="salon-nom" placeholder="nom-du-salon" /><label>Type</label><select id="salon-type"><option value="text">Texte</option><option value="voice">Vocal</option></select><button onclick="creerSalon()">Créer</button><div id="salon-statut"></div></div><div id="liste-salons"></div></section>
+  <section id="vue-roles" class="hidden"><h2>🎭 Rôles</h2><div class="carte"><label>Nouveau rôle</label><input id="role-nom" placeholder="Nom du rôle" /><label>Couleur</label><input id="role-couleur" value="#ff2d78" /><button onclick="creerRole()">Créer</button><div id="role-statut"></div></div><div id="liste-roles"></div></section>
+  <section id="vue-bienvenue" class="hidden"><h2>👋 Bienvenue & Auto-rôle</h2><label>Rôle(s) attribué(s) automatiquement à l'arrivée</label><select id="param-autorole" multiple><option value="">Aucun</option></select><label>Salon de bienvenue</label><select id="param-salon-bienvenue"><option value="">Aucun</option></select><label>Message de bienvenue ({user}, {server}, {count})</label><textarea id="param-message-bienvenue"></textarea><div class="sous-titre">Tickets</div><label>Salon staff pour les tickets</label><select id="param-salon-tickets"><option value="">Aucun</option></select><label>Salon des logs de tickets</label><select id="param-salon-logs-tickets"><option value="">Aucun</option></select><label>Auto-fermeture des tickets (heures)</label><input id="param-autoclose-heures" type="number" min="0" step="0.5" value="0" /><div class="sous-titre">Modération</div><label>Salon des logs de modération</label><select id="param-salon-modlogs"><option value="">Aucun</option></select><div class="sous-titre">Service</div><label>Salon du message de prise de service</label><select id="param-salon-service"><option value="">Aucun</option></select><div class="sous-titre">Rapports médicaux</div><label>Salon du message de rapport</label><select id="param-salon-rapport"><option value="">Aucun</option></select><div class="sous-titre">Interventions</div><label>Salon du message d'intervention</label><select id="param-salon-intervention"><option value="">Aucun</option></select><button onclick="sauverParametres()">Enregistrer</button><div id="param-statut"></div></section>
+  <section id="vue-candidatures" class="hidden"><h2>✅ Gestion des candidatures</h2><div class="case-ligne"><input type="checkbox" id="cand-actif" /><label for="cand-actif">Activer le système de validation</label></div><div class="sous-titre">Salons de résultat</div><div class="deux-col"><div><label>Salon des validations</label><select id="cand-salon-validation"><option value="">Aucun</option></select></div><div><label>Salon des refus</label><select id="cand-salon-refus"><option value="">Utiliser le même</option></select></div></div><label>Rôle(s) autorisé(s) à valider</label><select id="cand-roles-valid" multiple><option value="">Administrateurs</option></select><label>Rôle(s) autorisé(s) à refuser</label><select id="cand-roles-refus" multiple><option value="">Administrateurs</option></select><label>Rôle(s) attribué(s) lors d'une validation</label><select id="cand-roles-attribution" multiple><option value="">Aucun</option></select><div class="case-ligne"><input type="checkbox" id="cand-mp-actif" /><label for="cand-mp-actif">Envoyer un MP</label></div><div class="case-ligne"><input type="checkbox" id="cand-mention-user" /><label for="cand-mention-user">Mentionner le candidat</label></div><div class="case-ligne"><input type="checkbox" id="cand-fermeture-auto" /><label for="cand-fermeture-auto">Fermer le ticket automatiquement</label></div><label>Délai avant fermeture (secondes)</label><input id="cand-fermeture-delai" type="number" min="0" value="10" /><div class="sous-titre">Messages</div><label>Message de validation</label><textarea id="cand-msg-validation"></textarea><label>Message de refus</label><textarea id="cand-msg-refus"></textarea><label>MP de validation</label><textarea id="cand-mp-validation"></textarea><label>MP de refus</label><textarea id="cand-mp-refus"></textarea><button onclick="sauverCandidatures()">Enregistrer</button><div id="cand-statut"></div></section>
+  <section id="vue-historique" class="hidden"><h2>🕘 Historique des candidatures</h2><label>Rechercher</label><input id="hist-recherche" placeholder="Tape pour filtrer..." oninput="chargerHistorique()" /><div id="liste-historique" style="margin-top:16px;"></div></section>
+  <section id="vue-embed" class="hidden"><h2>📢 Envoyer une annonce</h2><label>Salon</label><select id="embed-salon"></select><label>Titre</label><input id="embed-titre" placeholder="Titre de l'annonce" /><label>Description</label><textarea id="embed-description" placeholder="Contenu..."></textarea><label>Couleur (hex)</label><input id="embed-couleur" value="#ff2d78" /><label>Image (fichier)</label><input id="embed-image-fichier" type="file" accept="image/*" /><label>OU Image (URL)</label><input id="embed-image" placeholder="https://..." /><label>Footer</label><input id="embed-footer" placeholder="Footer..." /><button onclick="envoyerEmbed()">Envoyer</button><div id="embed-statut"></div></section>
+  <section id="vue-tickets" class="hidden"><h2>🎫 Tickets ouverts</h2><button class="secondaire" onclick="chargerTickets()">🔄 Rafraîchir</button><div id="liste-tickets"></div></section>
+  <section id="vue-giveaways" class="hidden"><h2>🎉 Giveaways</h2><div class="carte"><label>Salon</label><select id="giveaway-salon"></select><label>Lot</label><input id="giveaway-prize" placeholder="Ex: Grade VIP" /><label>Durée (minutes)</label><input id="giveaway-duree" type="number" value="60" /><label>Nombre de gagnants</label><input id="giveaway-gagnants" type="number" value="1" /><button onclick="creerGiveaway()">Lancer</button><div id="giveaway-statut"></div></div><div id="liste-giveaways"></div></section>
+  <section id="vue-backup" class="hidden"><h2>💾 Sauvegarde</h2><div class="carte"><button onclick="exporterBackup()">📤 Télécharger la sauvegarde</button></div><div class="carte"><label>📥 Importer une sauvegarde</label><input id="backup-fichier" type="file" accept="application/json" /><button class="danger" onclick="importerBackup()">Importer et écraser</button><div id="backup-statut"></div></div></section>
+</main>
+<script>
+// ==========================================
+// PANEL SCRIPT CORRIGÉ (JavaScript)
+// ==========================================
+
+// Échappement HTML pour éviter XSS
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// Gestion de la touche Entrée dans les barres de recherche
+document.querySelectorAll('.search-bar input').forEach(input => {
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const btn = input.parentElement.querySelector('button');
+      if (btn) btn.click();
+    }
+  });
+});
+
+// Variables globales
+let cachedServiceData = {};
+let rechercheTimeout;
+
+// ===== Navigation =====
+const tabs = document.querySelectorAll('.tab');
+const vues = {
+  dashboard: chargerStats,
+  service: function() { chargerService(); chargerServiceTop(); chargerServiceWeekly(); },
+  interventions: function() { chargerInterventionsStats(); chargerInterventionsTop(); },
+  rapports: function() { chargerRapportsStats(); chargerRapportsTop(); },
+  moderation: null,
+  salons: chargerSalonsListe,
+  roles: chargerRolesListe,
+  bienvenue: chargerParametres,
+  candidatures: chargerCandidatures,
+  historique: chargerHistorique,
+  embed: chargerSalons,
+  tickets: chargerTickets,
+  giveaways: chargerGiveaways,
+  backup: null,
+};
+
+tabs.forEach(tab => tab.addEventListener('click', () => {
+  tabs.forEach(t => t.classList.remove('actif'));
+  tab.classList.add('actif');
+  document.querySelectorAll('main section').forEach(s => s.classList.add('hidden'));
+  document.getElementById('vue-' + tab.dataset.tab).classList.remove('hidden');
+  if (vues[tab.dataset.tab]) vues[tab.dataset.tab]();
+}));
+
+document.querySelectorAll('[data-service-tab]').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('[data-service-tab]').forEach(t => t.classList.remove('actif'));
+    tab.classList.add('actif');
+    document.querySelectorAll('#vue-service .stats-content').forEach(c => c.classList.add('hidden'));
+    document.getElementById('service-' + tab.dataset.serviceTab).classList.remove('hidden');
+  });
+});
+
+// ===== Compte =====
+async function chargerCompte() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) { window.location.href = '/login'; return; }
+    const user = await res.json();
+    document.getElementById('compte').innerHTML =
+      (user.avatar ? `<img src="${user.avatar}" />` : '') + `<span>${user.username}</span>`;
+  } catch (e) {
+    console.error('Erreur chargement compte:', e);
+  }
+}
+
+// ===== Formatage =====
+function formatTime(seconds) {
+  if (!seconds || seconds < 0) return '0h0m';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h${minutes}`;
+}
+
+function formatTimeShort(seconds) {
+  if (!seconds || seconds < 0) return '0h';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h${minutes}m`;
+}
+
+// ===== Dashboard =====
+async function chargerStats() {
+  try {
+    const res = await fetch('/api/stats');
+    const s = await res.json();
+    const items = [
+      ['Membres', s.memberCount],
+      ['Salons', s.channelCount],
+      ['Rôles', s.roleCount],
+      ['Ping', s.ping + ' ms'],
+      ['Uptime', Math.floor(s.uptime/60) + ' min'],
+      ['🟢 En service', s.servicesActifs || 0],
+      ['🚑 Interventions', s.totalInterventions || 0],
+      ['📋 Rapports', s.totalRapports || 0],
+      ['⏱️ Service total', s.totalServiceTime + 'h'],
+      ['🎫 Tickets', s.ticketsOuverts || 0],
+      ['🎉 Giveaways', s.giveawaysActifs || 0],
+    ];
+    document.getElementById('stats-grille').innerHTML = items.map(([label, val]) =>
+      `<div class="stat-carte"><div class="valeur">${val}</div><div class="label">${label}</div></div>`
+    ).join('');
+  } catch (e) {
+    console.error('Erreur chargement stats:', e);
+  }
+}
+
+// ===== Service =====
+async function chargerService() {
+  try {
+    const res = await fetch('/api/service/active');
+    const active = await res.json();
+    const container = document.getElementById('service-top-liste');
+    if (!container) return;
+    if (active.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun membre en service.</p>';
+    } else {
+      let html = '<div style="margin-bottom:12px;font-weight:600;color:var(--ok);">🟢 En service actuellement</div>';
+      for (const s of active) {
+        const user = await fetchUser(s.userId);
+        const start = new Date(s.startTime);
+        const duration = Math.floor((Date.now() - start) / 1000);
+        html += `
+          <div class="rank-item" style="border-left-color:var(--ok);">
+            <div class="info">
+              <span class="nom">${user?.username || s.userId}</span>
+              <span class="details">Depuis ${start.toLocaleTimeString('fr-FR')}</span>
+            </div>
+            <div class="value" style="color:var(--ok);">${formatTime(duration)}</div>
+          </div>
+        `;
+      }
+      container.innerHTML = html;
+    }
+  } catch (e) {
+    console.error('Erreur chargement service:', e);
+  }
+}
+
+async function chargerServiceTop() {
+  try {
+    const res = await fetch('/api/service/top');
+    const data = await res.json();
+    const container = document.getElementById('service-top-liste');
+    if (!container) return;
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service.</p>';
+      return;
+    }
+    let html = '<div style="margin-bottom:12px;font-weight:600;">🏆 Classement selon le temps de service total</div>';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      const isActive = getServiceStatus(item.userId);
+      html += `
+        <div class="rank-item" style="border-left-color:${isActive ? 'var(--ok)' : 'var(--border-hover)'};">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId} ${isActive ? '<span class="service-badge" style="font-size:10px;padding:2px 8px;">🟢</span>' : ''}</span>
+              <span class="details">${item.sessions ? item.sessions.length + ' session(s)' : ''}</span>
+            </div>
+          </div>
+          <div class="value">${formatTime(item.totalTime || 0)}</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top service:', e);
+  }
+}
+
+async function chargerServiceWeekly() {
+  try {
+    const res = await fetch('/api/service/top/weekly');
+    const data = await res.json();
+    const container = document.getElementById('service-weekly-liste');
+    if (!container) return;
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune donnée de service cette semaine.</p>';
+      return;
+    }
+    let html = '<div style="margin-bottom:12px;font-weight:600;">📅 Classement selon le temps de service de la semaine</div>';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      html += `
+        <div class="rank-item">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId}</span>
+            </div>
+          </div>
+          <div class="value">${formatTime(item.weeklyTime || 0)}</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top weekly:', e);
+  }
+}
+
+async function chargerServiceMembre() {
+  const search = document.getElementById('service-search').value.trim();
+  if (!search) return;
+  try {
+    const userId = await resolveUser(search);
+    if (!userId) {
+      document.getElementById('service-member-content').innerHTML = 
+        '<div class="carte" style="text-align:center;color:var(--err);">❌ Membre non trouvé</div>';
+      return;
+    }
+    const res = await fetch(`/api/service/member/${userId}`);
+    const stats = await res.json();
+    const user = await fetchUser(userId);
+    if (!stats || stats.totalTime === 0) {
+      document.getElementById('service-member-content').innerHTML = `
+        <div class="carte" style="text-align:center;color:var(--text-dim);">
+          ${user?.username || userId} n'a pas encore de temps de service enregistré.
+        </div>
+      `;
+      return;
+    }
+    const isActive = stats.active || false;
+    const daily = stats.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    const maxDaily = Math.max(...Object.values(daily));
+    document.getElementById('service-member-content').innerHTML = `
+      <div class="carte">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-size:20px;font-weight:700;">${user?.username || userId}</div>
+            ${isActive ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:24px;font-weight:700;color:var(--accent);">${formatTime(stats.totalTime || 0)}</div>
+            <div style="color:var(--text-dim);font-size:13px;">Total cumulé</div>
+          </div>
+        </div>
+        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur ok">${formatTime(stats.weeklyTime || 0)}</div>
+            <div class="label">Cette semaine</div>
+          </div>
+          <div class="stat-carte" style="text-align:center;">
+            <div class="valeur">${stats.sessions ? stats.sessions.length : 0}</div>
+            <div class="label">Sessions</div>
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <div style="font-weight:600;margin-bottom:8px;">📅 Temps par jour</div>
+          <div class="daily-grid">
+            ${jours.map(j => `
+              <div class="daily-item">
+                <div class="jour">${j.charAt(0).toUpperCase() + j.slice(1)}</div>
+                <div class="temps ${daily[j] === maxDaily && maxDaily > 0 ? 'high' : ''}">${formatTimeShort(daily[j] || 0)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        ${stats.sessions && stats.sessions.length > 0 ? `
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+            <div style="font-weight:600;margin-bottom:8px;">📋 Dernières sessions</div>
+            ${stats.sessions.slice(-5).reverse().map(s => `
+              <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-dim);">${new Date(s.start).toLocaleString('fr-FR')}</span>
+                <span style="font-weight:600;">${formatTime(s.duration || 0)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erreur chargement service membre:', e);
+    document.getElementById('service-member-content').innerHTML = 
+      '<div class="carte" style="text-align:center;color:var(--err);">❌ Erreur lors du chargement</div>';
+  }
+}
+
+// ===== Interventions =====
+async function chargerInterventionsStats() {
+  try {
+    const res = await fetch('/api/interventions/stats');
+    const stats = await res.json();
+    document.getElementById('intervention-total').textContent = stats.total || 0;
+    document.getElementById('intervention-intervenants').textContent = stats.intervenants || 0;
+  } catch (e) {
+    console.error('Erreur chargement stats interventions:', e);
+  }
+}
+
+async function chargerInterventionsTop() {
+  try {
+    const res = await fetch('/api/interventions/top');
+    const data = await res.json();
+    const container = document.getElementById('intervention-top-liste');
+    if (!container) return;
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune intervention enregistrée.</p>';
+      return;
+    }
+    let html = '';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      html += `
+        <div class="rank-item">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId}</span>
+            </div>
+          </div>
+          <div class="value">${item.count} intervention(s)</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top interventions:', e);
+  }
+}
+
+async function chargerInterventionsMembre() {
+  const search = document.getElementById('intervention-search').value.trim();
+  if (!search) return;
+  try {
+    const userId = await resolveUser(search);
+    if (!userId) {
+      document.getElementById('intervention-member-content').innerHTML = 
+        '<div style="color:var(--err);text-align:center;">❌ Membre non trouvé</div>';
+      return;
+    }
+    const res = await fetch(`/api/interventions/user/${userId}`);
+    const data = await res.json();
+    const user = await fetchUser(userId);
+    if (!data || data.length === 0) {
+      document.getElementById('intervention-member-content').innerHTML = 
+        `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore d'intervention.</div>`;
+      return;
+    }
+    const types = {};
+    data.forEach(iv => {
+      types[iv.type] = (types[iv.type] || 0) + 1;
+    });
+    document.getElementById('intervention-member-content').innerHTML = `
+      <div class="carte">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:18px;font-weight:700;">${user?.username || userId}</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent);">${data.length} intervention(s)</div>
+        </div>
+        ${Object.keys(types).length > 0 ? `
+          <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+            ${Object.entries(types).map(([type, count]) => `
+              <span class="role-badge">${LABELS_TYPE_INTERVENTION[type] || type}: ${count}</span>
+            `).join('')}
+          </div>
+        ` : ''}
+        <div style="margin-top:12px;max-height:300px;overflow-y:auto;">
+          ${data.slice(-10).reverse().map(iv => `
+            <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">
+              <span>${LABELS_TYPE_INTERVENTION[iv.type] || iv.type} (${LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite})</span>
+              <span style="color:var(--text-dim);">${iv.patient || 'Patient inconnu'} — ${new Date(iv.date).toLocaleDateString('fr-FR')}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erreur chargement interventions membre:', e);
+    document.getElementById('intervention-member-content').innerHTML = 
+      '<div style="color:var(--err);text-align:center;">❌ Erreur lors du chargement</div>';
+  }
+}
+
+// ===== Rapports =====
+async function chargerRapportsStats() {
+  try {
+    const res = await fetch('/api/rapports/stats');
+    const stats = await res.json();
+    document.getElementById('rapport-total').textContent = stats.total || 0;
+    document.getElementById('rapport-auteurs').textContent = stats.users || 0;
+  } catch (e) {
+    console.error('Erreur chargement stats rapports:', e);
+  }
+}
+
+async function chargerRapportsTop() {
+  try {
+    const res = await fetch('/api/rapports/top');
+    const data = await res.json();
+    const container = document.getElementById('rapport-top-liste');
+    if (!container) return;
+    if (!data || data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun rapport enregistré.</p>';
+      return;
+    }
+    let html = '';
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const user = await fetchUser(item.userId);
+      html += `
+        <div class="rank-item">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;">
+            <span class="rank-num">#${i+1}</span>
+            <div class="info">
+              <span class="nom">${user?.username || item.userId}</span>
+            </div>
+          </div>
+          <div class="value">${item.count} rapport(s)</div>
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement top rapports:', e);
+  }
+}
+
+async function chargerRapportsMembre() {
+  const search = document.getElementById('rapport-search').value.trim();
+  if (!search) return;
+  try {
+    const userId = await resolveUser(search);
+    if (!userId) {
+      document.getElementById('rapport-member-content').innerHTML = 
+        '<div style="color:var(--err);text-align:center;">❌ Membre non trouvé</div>';
+      return;
+    }
+    const res = await fetch(`/api/rapports/user/${userId}`);
+    const data = await res.json();
+    const user = await fetchUser(userId);
+    if (!data || data.length === 0) {
+      document.getElementById('rapport-member-content').innerHTML = 
+        `<div style="color:var(--text-dim);text-align:center;">${user?.username || userId} n'a pas encore de rapport.</div>`;
+      return;
+    }
+    document.getElementById('rapport-member-content').innerHTML = `
+      <div class="carte">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:18px;font-weight:700;">${user?.username || userId}</div>
+          <div style="font-size:20px;font-weight:700;color:var(--accent);">${data.length} rapport(s)</div>
+        </div>
+        <div style="margin-top:12px;max-height:400px;overflow-y:auto;">
+          ${data.slice(-10).reverse().map(r => `
+            <div style="padding:10px;border-bottom:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
+                <span style="font-weight:600;">${escapeHTML(r.patient)}</span>
+                <span style="color:var(--text-dim);font-size:12px;">${new Date(r.date).toLocaleString('fr-FR')}</span>
+              </div>
+              <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">${escapeHTML(r.situation.substring(0, 100))}${r.situation.length > 100 ? '...' : ''}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erreur chargement rapports membre:', e);
+    document.getElementById('rapport-member-content').innerHTML = 
+      '<div style="color:var(--err);text-align:center;">❌ Erreur lors du chargement</div>';
+  }
+}
+
+// ===== Modération =====
+async function fetchUser(userId) {
+  try {
+    const res = await fetch(`/api/members/search?q=${userId}`);
+    const data = await res.json();
+    if (data && data.length > 0) return data[0];
+    return null;
+  } catch { return null; }
+}
+
+async function resolveUser(search) {
+  try {
+    const res = await fetch(`/api/members/search?q=${encodeURIComponent(search)}`);
+    const data = await res.json();
+    if (data && data.length > 0) return data[0].id;
+    return null;
+  } catch { return null; }
+}
+
+function getServiceStatus(userId) {
+  return cachedServiceData[userId]?.active || false;
+}
+
+function rechercherMembres(q) {
+  clearTimeout(rechercheTimeout);
+  rechercheTimeout = setTimeout(async () => {
+    if (!q) { document.getElementById('mod-resultats').innerHTML = ''; return; }
+    try {
+      const res = await fetch('/api/members/search?q=' + encodeURIComponent(q));
+      const membres = await res.json();
+      const roles = await (await fetch('/api/roles')).json();
+      const optionsRoles = roles.map(r => `<option value="${r.id}">${escapeHTML(r.name)}</option>`).join('');
+
+      const serviceRes = await fetch('/api/service/stats');
+      cachedServiceData = await serviceRes.json();
+
+      document.getElementById('mod-resultats').innerHTML = membres.map(m => `
+        <div class="carte">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div><img src="${m.avatar}" style="width:32px;height:32px;border-radius:50%;vertical-align:middle;margin-right:8px;">${escapeHTML(m.tag)}</div>
+            <div>
+              ${m.isOnService ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
+              <span class="warn-badge" onclick="toggleWarns('${m.id}')">⚠️ ${m.warnCount} avertissement(s)</span>
+              <span class="role-badge">🚑 ${m.interventions} interventions</span>
+              <span class="role-badge">📋 ${m.rapports} rapports</span>
+              <span class="role-badge">⏱️ ${m.serviceTime}h de service</span>
+            </div>
+          </div>
+          <div style="margin-top:8px;">
+            ${m.roles.map(r => `<span class="role-badge">${escapeHTML(r.name)}</span>`).join('')}
+          </div>
+          <div id="warn-liste-${m.id}" class="warn-liste" style="margin-top:8px;display:none;"></div>
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <select id="role-add-${m.id}" style="width:auto;">${optionsRoles}</select>
+            <button class="petit secondaire" onclick="modifierRole('${m.id}', document.getElementById('role-add-${m.id}').value, 'add')">+ Rôle</button>
+            <button class="petit secondaire" onclick="timeoutMembre('${m.id}')">Timeout 10min</button>
+            <button class="petit avertir" onclick="avertirMembre('${m.id}')">⚠️ Avertir</button>
+            <button class="petit danger" onclick="kickMembre('${m.id}')">Kick</button>
+            <button class="petit danger" onclick="banMembre('${m.id}')">Ban</button>
+          </div>
+        </div>
+      `).join('') || '<p style="color:var(--text-dim);">Aucun résultat.</p>';
+    } catch (e) {
+      console.error('Erreur recherche membres:', e);
+    }
+  }, 400);
+}
+
+async function toggleWarns(userId) {
+  const zone = document.getElementById('warn-liste-' + userId);
+  if (zone.style.display === 'block') { zone.style.display = 'none'; return; }
+  try {
+    const res = await fetch(`/api/members/${userId}/warns`);
+    const liste = await res.json();
+    zone.innerHTML = liste.length
+      ? liste.map(w => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <div>
+            <div>${escapeHTML(w.reason)}</div>
+            <div style="color:var(--text-faint);font-size:11px;">Par ${escapeHTML(w.staffTag)} — ${new Date(w.date).toLocaleString('fr-FR')}</div>
+          </div>
+          <button class="petit danger" style="margin:0;padding:2px 8px;font-size:11px;" onclick="supprimerWarn('${userId}','${w.id}')">×</button>
+        </div>
+      `).join('')
+      : '<p style="color:var(--text-dim);font-size:12.5px;">Aucun avertissement.</p>';
+    zone.style.display = 'block';
+  } catch (e) {
+    console.error('Erreur chargement warns:', e);
+  }
+}
+
+async function avertirMembre(userId) {
+  const raison = prompt("Raison de l'avertissement ?");
+  if (!raison) return;
+  try {
+    const res = await fetch(`/api/members/${userId}/warn`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison })
+    });
+    if (res.ok) rechercherMembres(document.getElementById('mod-recherche').value);
+    else alert("Échec de l'avertissement.");
+  } catch (e) {
+    console.error('Erreur avertissement:', e);
+    alert("Erreur lors de l'avertissement.");
+  }
+}
+
+async function supprimerWarn(userId, warnId) {
+  if (!confirm('Supprimer cet avertissement ?')) return;
+  try {
+    await fetch(`/api/members/${userId}/warns/${warnId}`, { method: 'DELETE' });
+    toggleWarns(userId);
+  } catch (e) {
+    console.error('Erreur suppression warn:', e);
+  }
+}
+
+async function modifierRole(userId, roleId, action) {
+  try {
+    await fetch(`/api/members/${userId}/roles/${roleId}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action })
+    });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur modification rôle:', e);
+  }
+}
+
+async function kickMembre(userId) {
+  const raison = prompt('Raison du kick ? (optionnel)') || '';
+  if (!confirm('Kick ce membre ?')) return;
+  try {
+    await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur kick:', e);
+    alert("Erreur lors du kick.");
+  }
+}
+
+async function banMembre(userId) {
+  const raison = prompt('Raison du ban ? (optionnel)') || '';
+  if (!confirm('Bannir ce membre ?')) return;
+  try {
+    await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur ban:', e);
+    alert("Erreur lors du ban.");
+  }
+}
+
+async function timeoutMembre(userId) {
+  try {
+    await fetch(`/api/members/${userId}/timeout`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 10 }) });
+    rechercherMembres(document.getElementById('mod-recherche').value);
+  } catch (e) {
+    console.error('Erreur timeout:', e);
+    alert("Erreur lors du timeout.");
+  }
+}
+
+// ===== Salons =====
+async function chargerSalonsListe() {
+  try {
+    const res = await fetch('/api/channels/all');
+    const salons = await res.json();
+    document.getElementById('liste-salons').innerHTML = salons.map(c => `
+      <div class="carte" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>#${escapeHTML(c.name)}</span>
+        <button class="petit danger" onclick="supprimerSalon('${c.id}')">Supprimer</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement salons:', e);
+  }
+}
+
+async function creerSalon() {
+  const statut = document.getElementById('salon-statut');
+  try {
+    const res = await fetch('/api/channels', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: document.getElementById('salon-nom').value, type: document.getElementById('salon-type').value })
+    });
+    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) { document.getElementById('salon-nom').value = ''; chargerSalonsListe(); }
+  } catch (e) {
+    console.error('Erreur création salon:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function supprimerSalon(id) {
+  if (!confirm('Supprimer ce salon ?')) return;
+  try {
+    await fetch('/api/channels/' + id, { method: 'DELETE' });
+    chargerSalonsListe();
+  } catch (e) {
+    console.error('Erreur suppression salon:', e);
+  }
+}
+
+// ===== Rôles =====
+async function chargerRolesListe() {
+  try {
+    const res = await fetch('/api/roles');
+    const roles = await res.json();
+    document.getElementById('liste-roles').innerHTML = roles.map(r => `
+      <div class="carte" style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:${r.color !== '#000000' ? r.color : 'var(--text)'};">${escapeHTML(r.name)}</span>
+        <button class="petit danger" onclick="supprimerRole('${r.id}')">Supprimer</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement rôles:', e);
+  }
+}
+
+async function creerRole() {
+  const statut = document.getElementById('role-statut');
+  try {
+    const res = await fetch('/api/roles', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: document.getElementById('role-nom').value, color: document.getElementById('role-couleur').value })
+    });
+    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) { document.getElementById('role-nom').value = ''; chargerRolesListe(); }
+  } catch (e) {
+    console.error('Erreur création rôle:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function supprimerRole(id) {
+  if (!confirm('Supprimer ce rôle ?')) return;
+  try {
+    await fetch('/api/roles/' + id, { method: 'DELETE' });
+    chargerRolesListe();
+  } catch (e) {
+    console.error('Erreur suppression rôle:', e);
+  }
+}
+
+// ===== Bienvenue / Paramètres =====
+async function chargerParametres() {
+  try {
+    const [salons, params] = await Promise.all([
+      (await fetch('/api/channels')).json(),
+      (await fetch('/api/settings')).json(),
+    ]);
+    const roles = await (await fetch('/api/roles')).json();
+
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    const optionsRoles = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${escapeHTML(r.name)}</option>`).join('');
+
+    const autoRoleSelect = document.getElementById('param-autorole');
+    autoRoleSelect.innerHTML = optionsRoles;
+    if (params.autoRoleIds && Array.isArray(params.autoRoleIds)) {
+      Array.from(autoRoleSelect.options).forEach(opt => {
+        opt.selected = params.autoRoleIds.includes(opt.value);
+      });
+    }
+
+    document.getElementById('param-salon-bienvenue').innerHTML = optionsSalons;
+    document.getElementById('param-salon-tickets').innerHTML = optionsSalons;
+    document.getElementById('param-salon-logs-tickets').innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    document.getElementById('param-salon-modlogs').innerHTML = optionsSalons;
+    document.getElementById('param-salon-service').innerHTML = optionsSalons;
+    document.getElementById('param-salon-rapport').innerHTML = optionsSalons;
+    document.getElementById('param-salon-intervention').innerHTML = optionsSalons;
+
+    document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
+    document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
+    document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
+    document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
+    document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
+    document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
+    document.getElementById('param-salon-service').value = params.serviceChannelId || '';
+    document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
+    document.getElementById('param-salon-intervention').value = params.interventionChannelId || '';
+  } catch (e) {
+    console.error('Erreur chargement paramètres:', e);
+  }
+}
+
+async function sauverParametres() {
+  const statut = document.getElementById('param-statut');
+  const autoRoleSelect = document.getElementById('param-autorole');
+  const autoRoleIds = Array.from(autoRoleSelect.selectedOptions).map(opt => opt.value).filter(v => v);
+  
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        autoRoleIds: autoRoleIds,
+        welcomeChannelId: document.getElementById('param-salon-bienvenue').value,
+        welcomeMessage: document.getElementById('param-message-bienvenue').value,
+        ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
+        ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
+        modLogsChannelId: document.getElementById('param-salon-modlogs').value,
+        ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
+        serviceChannelId: document.getElementById('param-salon-service').value,
+        rapportChannelId: document.getElementById('param-salon-rapport').value,
+        interventionChannelId: document.getElementById('param-salon-intervention').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur sauvegarde paramètres:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// ===== Candidatures =====
+async function chargerCandidatures() {
+  try {
+    const [salons, roles, cfg] = await Promise.all([
+      (await fetch('/api/channels')).json(),
+      (await fetch('/api/roles')).json(),
+      (await fetch('/api/settings/candidatures')).json(),
+    ]);
+
+    const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    const optionsSalonRefus = '<option value="">Utiliser le même</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    const optionsRoles = '<option value="">Administrateurs</option>' + roles.map(r => `<option value="${r.id}">${escapeHTML(r.name)}</option>`).join('');
+    const optionsRolesAttr = '<option value="">Aucun</option>' + roles.map(r => `<option value="${r.id}">${escapeHTML(r.name)}</option>`).join('');
+
+    document.getElementById('cand-salon-validation').innerHTML = optionsSalons;
+    document.getElementById('cand-salon-refus').innerHTML = optionsSalonRefus;
+    
+    const rolesValidSelect = document.getElementById('cand-roles-valid');
+    rolesValidSelect.innerHTML = optionsRoles;
+    if (cfg.rolesValid && Array.isArray(cfg.rolesValid)) {
+      Array.from(rolesValidSelect.options).forEach(opt => {
+        opt.selected = cfg.rolesValid.includes(opt.value);
+      });
+    }
+
+    const rolesRefusSelect = document.getElementById('cand-roles-refus');
+    rolesRefusSelect.innerHTML = optionsRoles;
+    if (cfg.rolesRefus && Array.isArray(cfg.rolesRefus)) {
+      Array.from(rolesRefusSelect.options).forEach(opt => {
+        opt.selected = cfg.rolesRefus.includes(opt.value);
+      });
+    }
+
+    const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
+    rolesAttributionSelect.innerHTML = optionsRolesAttr;
+    if (cfg.rolesAttribution && Array.isArray(cfg.rolesAttribution)) {
+      Array.from(rolesAttributionSelect.options).forEach(opt => {
+        opt.selected = cfg.rolesAttribution.includes(opt.value);
+      });
+    }
+
+    document.getElementById('cand-actif').checked = !!cfg.actif;
+    document.getElementById('cand-salon-validation').value = cfg.salonValidation || '';
+    document.getElementById('cand-salon-refus').value = cfg.salonRefus || '';
+    document.getElementById('cand-mp-actif').checked = cfg.mpActif !== false;
+    document.getElementById('cand-mention-user').checked = cfg.mentionUser !== false;
+    document.getElementById('cand-fermeture-auto').checked = !!cfg.fermetureAuto;
+    document.getElementById('cand-fermeture-delai').value = cfg.fermetureDelai ?? 10;
+    document.getElementById('cand-msg-validation').value = cfg.messageValidation || '';
+    document.getElementById('cand-msg-refus').value = cfg.messageRefus || '';
+    document.getElementById('cand-mp-validation').value = cfg.mpValidation || '';
+    document.getElementById('cand-mp-refus').value = cfg.mpRefus || '';
+  } catch (e) {
+    console.error('Erreur chargement candidatures:', e);
+  }
+}
+
+async function sauverCandidatures() {
+  const statut = document.getElementById('cand-statut');
+  const rolesValidSelect = document.getElementById('cand-roles-valid');
+  const rolesRefusSelect = document.getElementById('cand-roles-refus');
+  const rolesAttributionSelect = document.getElementById('cand-roles-attribution');
+  
+  try {
+    const res = await fetch('/api/settings/candidatures', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        actif: document.getElementById('cand-actif').checked,
+        salonValidation: document.getElementById('cand-salon-validation').value,
+        salonRefus: document.getElementById('cand-salon-refus').value,
+        rolesValid: Array.from(rolesValidSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        rolesRefus: Array.from(rolesRefusSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        rolesAttribution: Array.from(rolesAttributionSelect.selectedOptions).map(opt => opt.value).filter(v => v),
+        mpActif: document.getElementById('cand-mp-actif').checked,
+        mentionUser: document.getElementById('cand-mention-user').checked,
+        fermetureAuto: document.getElementById('cand-fermeture-auto').checked,
+        fermetureDelai: document.getElementById('cand-fermeture-delai').value,
+        messageValidation: document.getElementById('cand-msg-validation').value,
+        messageRefus: document.getElementById('cand-msg-refus').value,
+        mpValidation: document.getElementById('cand-mp-validation').value,
+        mpRefus: document.getElementById('cand-mp-refus').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur sauvegarde candidatures:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// ===== Historique =====
+let histTimeout;
+function chargerHistorique() {
+  clearTimeout(histTimeout);
+  histTimeout = setTimeout(async () => {
+    try {
+      const q = document.getElementById('hist-recherche').value || '';
+      const res = await fetch('/api/candidatures/history?q=' + encodeURIComponent(q));
+      const liste = await res.json();
+      document.getElementById('liste-historique').innerHTML = liste.length ? liste.map(h => `
+        <div class="carte">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div style="font-weight:600;">${escapeHTML(h.username)} ${h.ticketNumber ? '— ticket #' + escapeHTML(h.ticketNumber) : ''}</div>
+              <div style="color:var(--text-dim);font-size:12.5px;margin-top:3px;">Par ${escapeHTML(h.staffTag)} — ${new Date(h.date).toLocaleString('fr-FR')}</div>
+              ${h.raison ? `<div style="margin-top:6px;font-size:12.5px;">💬 ${escapeHTML(h.raison)}</div>` : ''}
+            </div>
+            <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;${h.result === 'validee' ? 'background:rgba(52,211,153,0.12);color:var(--ok);border:1px solid rgba(52,211,153,0.25);' : 'background:rgba(251,113,133,0.12);color:var(--err);border:1px solid rgba(251,113,133,0.25);'}">${h.result === 'validee' ? '✅ Validée' : '❌ Refusée'}</span>
+          </div>
+        </div>
+      `).join('') : `<p style="color:var(--text-dim);">Aucune entrée dans l'historique.</p>`;
+    } catch (e) {
+      console.error('Erreur chargement historique:', e);
+    }
+  }, 250);
+}
+
+// ===== Annonces =====
+async function chargerSalons() {
+  try {
+    const res = await fetch('/api/channels');
+    const salons = await res.json();
+    const html = salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    document.getElementById('embed-salon').innerHTML = html;
+    document.getElementById('giveaway-salon').innerHTML = html;
+  } catch (e) {
+    console.error('Erreur chargement salons:', e);
+  }
+}
+
+async function envoyerEmbed() {
+  const statut = document.getElementById('embed-statut');
+  const fichier = document.getElementById('embed-image-fichier').files[0];
+
+  const donnees = new FormData();
+  donnees.append('channelId', document.getElementById('embed-salon').value);
+  donnees.append('title', document.getElementById('embed-titre').value);
+  donnees.append('description', document.getElementById('embed-description').value);
+  donnees.append('color', document.getElementById('embed-couleur').value);
+  donnees.append('imageUrl', document.getElementById('embed-image').value);
+  donnees.append('footer', document.getElementById('embed-footer').value);
+  if (fichier) donnees.append('imageFile', fichier);
+
+  try {
+    const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
+    const data = await res.json();
+    statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur envoi embed:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// ===== Tickets =====
+async function chargerTickets() {
+  try {
+    const res = await fetch('/api/tickets');
+    const tickets = await res.json();
+    const liste = document.getElementById('liste-tickets');
+    if (tickets.length === 0) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
+    liste.innerHTML = tickets.map(t => `
+      <div class="carte">
+        <div style="font-weight:600;margin-bottom:2px;">#${escapeHTML(t.number || '?')} — ${escapeHTML(t.username)}</div>
+        ${t.lastActivity ? `<div style="color:var(--text-faint);font-size:11.5px;margin-bottom:8px;">Dernière activité : ${new Date(t.lastActivity).toLocaleString('fr-FR')}</div>` : ''}
+        <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
+        <button onclick="repondreTicket('${t.userId}')">Répondre</button>
+        <button class="secondaire" onclick="fermerTicket('${t.userId}')">Fermer</button>
+        <div id="statut-${t.userId}"></div>
+        <div style="margin-top:10px;">
+          <label style="font-size:12px;color:var(--text-dim);">📝 Note interne</label>
+          <textarea id="note-${t.userId}" placeholder="Note staff..." style="min-height:40px;font-size:12px;">${escapeHTML(t.note || '')}</textarea>
+          <button class="petit secondaire" onclick="sauverNoteTicket('${t.userId}')">Enregistrer la note</button>
+          <span id="note-statut-${t.userId}" style="margin-left:8px;font-size:12px;"></span>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement tickets:', e);
+  }
+}
+
+async function repondreTicket(userId) {
+  const message = document.getElementById('reply-' + userId).value;
+  const statut = document.getElementById('statut-' + userId);
+  if (!message) return;
+  try {
+    const res = await fetch(`/api/tickets/${userId}/reply`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
+    });
+    statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) document.getElementById('reply-' + userId).value = '';
+  } catch (e) {
+    console.error('Erreur réponse ticket:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function sauverNoteTicket(userId) {
+  const note = document.getElementById('note-' + userId).value;
+  const statut = document.getElementById('note-statut-' + userId);
+  try {
+    const res = await fetch(`/api/tickets/${userId}/note`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
+    });
+    statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    setTimeout(() => { statut.textContent = ''; }, 2500);
+  } catch (e) {
+    console.error('Erreur sauvegarde note:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function fermerTicket(userId) {
+  try {
+    await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
+    chargerTickets();
+  } catch (e) {
+    console.error('Erreur fermeture ticket:', e);
+  }
+}
+
+// ===== Giveaways =====
+async function chargerGiveaways() {
+  try {
+    await chargerSalons();
+    const res = await fetch('/api/giveaways');
+    const gs = await res.json();
+    document.getElementById('liste-giveaways').innerHTML = gs.map(g => `
+      <div class="carte">
+        <div style="font-weight:600;">${escapeHTML(g.prize)} — ${g.participants.length} participant(s)</div>
+        <div style="color:var(--text-dim);font-size:13px;">${g.ended ? 'Terminé' : 'En cours'}</div>
+        ${!g.ended ? `<button class="petit secondaire" onclick="terminerGiveawayPanel('${g.id}')">Terminer maintenant</button>` : ''}
+      </div>
+    `).join('') || '<p style="color:var(--text-dim);">Aucun giveaway.</p>';
+  } catch (e) {
+    console.error('Erreur chargement giveaways:', e);
+  }
+}
+
+async function creerGiveaway() {
+  const statut = document.getElementById('giveaway-statut');
+  try {
+    const res = await fetch('/api/giveaways', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        channelId: document.getElementById('giveaway-salon').value,
+        prize: document.getElementById('giveaway-prize').value,
+        durationMinutes: document.getElementById('giveaway-duree').value,
+        winnersCount: document.getElementById('giveaway-gagnants').value,
+      })
+    });
+    statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) chargerGiveaways();
+  } catch (e) {
+    console.error('Erreur création giveaway:', e);
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+async function terminerGiveawayPanel(id) {
+  try {
+    await fetch(`/api/giveaways/${id}/end`, { method: 'POST' });
+    chargerGiveaways();
+  } catch (e) {
+    console.error('Erreur terminaison giveaway:', e);
+  }
+}
+
+// ===== Backup =====
+function exporterBackup() {
+  window.location.href = '/api/backup';
+}
+
+async function importerBackup() {
+  const statut = document.getElementById('backup-statut');
+  const fichier = document.getElementById('backup-fichier').files[0];
+  if (!fichier) { statut.textContent = '❌ Choisis un fichier .json'; statut.className = 'msg-err'; return; }
+  if (!confirm('Cette action va écraser les données actuelles. Continuer ?')) return;
+
+  try {
+    const texte = await fichier.text();
+    const data = JSON.parse(texte);
+    const res = await fetch('/api/backup/import', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    statut.textContent = res.ok ? '✅ Sauvegarde importée' : "❌ Échec de l'import";
+    statut.className = res.ok ? 'msg-ok' : 'msg-err';
+  } catch (e) {
+    console.error('Erreur import backup:', e);
+    statut.textContent = '❌ Fichier invalide';
+    statut.className = 'msg-err';
+  }
+}
+
+// ===== Constantes =====
+const LABELS_TYPE_INTERVENTION = {
+  accident_circulation: "🚗 Accident de circulation",
+  arme: "🔫 Arme à feu / arme blanche",
+  agression: "🥊 Bagarre / agression",
+  overdose: "💊 Overdose / intoxication",
+  noyade: "🌊 Noyade",
+  chute: "🤕 Chute",
+  malaise: "😵 Malaise",
+  autre: "❓ Autre",
+};
+
+const LABELS_GRAVITE_INTERVENTION = {
+  legere: "🟢 Légère",
+  moyenne: "🟡 Moyenne",
+  critique: "🟠 Critique",
+  deces: "⚫ Décès",
+};
+
+// ===== Initialisation =====
+chargerCompte();
+chargerStats();
+</script>
+</body>
+</html>`;
+  // Écrire panel.html
+  fs.writeFileSync(path.join(publicDir, "panel.html"), panelHTML);
+  console.log("✅ panel.html généré automatiquement.");
 }
 creerFichiersHTML();
-
-function authRequis(req, res, next) {
-  if (req.session.user) return next();
-  return res.status(401).json({ erreur: "Non authentifié" });
-}
-
-function getGuild(res) {
-  const guild = client.guilds.cache.get(GUILD_ID);
-  if (!guild) {
-    res.status(500).json({ erreur: "Le bot n'est pas sur le serveur configuré (GUILD_ID)" });
-    return null;
-  }
-  return guild;
-}
 
 // ---- Auth ----
 app.get("/auth/discord", (req, res) => {
@@ -2747,7 +4447,6 @@ app.get("/api/service/stats", authRequis, (req, res) => {
   res.json(allStats);
 });
 
-// ---- Nouvelle route pour les services actifs (utilisée par le client) ----
 app.get("/api/service/active", authRequis, (req, res) => {
   const active = getActiveServices();
   res.json(active);
@@ -2941,6 +4640,7 @@ app.post("/api/channels", authRequis, async (req, res) => {
   if (!guild) return;
   const { name, type } = req.body;
   if (!name) return res.status(400).json({ erreur: "name requis" });
+  if (name.length < 1 || name.length > 100) return res.status(400).json({ erreur: "nom trop long" });
 
   try {
     const channel = await guild.channels.create({
@@ -2983,11 +4683,18 @@ app.post("/api/roles", authRequis, async (req, res) => {
   if (!guild) return;
   const { name, color, hoist, mentionable } = req.body;
   if (!name) return res.status(400).json({ erreur: "name requis" });
+  if (name.length < 1 || name.length > 100) return res.status(400).json({ erreur: "nom trop long" });
+  let colorNum;
+  if (color) {
+    const hex = color.replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return res.status(400).json({ erreur: "couleur hex invalide" });
+    colorNum = parseInt(hex, 16);
+  }
 
   try {
     const role = await guild.roles.create({
       name,
-      color: color ? parseInt(color.replace("#", ""), 16) : undefined,
+      color: colorNum,
       hoist: !!hoist,
       mentionable: !!mentionable,
     });
@@ -3019,7 +4726,14 @@ app.get("/api/members/search", authRequis, async (req, res) => {
   if (!q) return res.json([]);
 
   try {
-    const resultats = await guild.members.fetch({ query: q, limit: 15 });
+    let resultats;
+    // Si la requête est un ID Discord (18 chiffres)
+    if (/^\d{17,20}$/.test(q)) {
+      const member = await guild.members.fetch(q).catch(() => null);
+      resultats = member ? [member] : [];
+    } else {
+      resultats = await guild.members.fetch({ query: q, limit: 15 });
+    }
     res.json(
       resultats.map((m) => ({
         id: m.id,
@@ -3083,10 +4797,10 @@ app.delete("/api/members/:userId/warns/:warnId", authRequis, (req, res) => {
   res.json({ succes: true });
 });
 
-// ---- Gestion des rôles d'un membre (panel modération) ----
+// ---- Gestion des rôles d'un membre ----
 app.post("/api/members/:userId/roles/:roleId", authRequis, async (req, res) => {
   const { userId, roleId } = req.params;
-  const { action } = req.body; // 'add' ou 'remove'
+  const { action } = req.body;
   const guild = getGuild(res);
   if (!guild) return;
 
@@ -3259,6 +4973,8 @@ app.post("/api/giveaways", authRequis, async (req, res) => {
   if (!channelId || !prize || !durationMinutes) {
     return res.status(400).json({ erreur: "Paramètres manquants" });
   }
+  if (parseInt(durationMinutes) <= 0) return res.status(400).json({ erreur: "Durée doit être > 0" });
+  if (parseInt(winnersCount) <= 0) return res.status(400).json({ erreur: "Nombre de gagnants doit être > 0" });
 
   try {
     const channel = await client.channels.fetch(channelId);
@@ -3309,9 +5025,10 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
   }
 });
 
-// ---- Reactions Giveaway ----
+// ---- Reactions Giveaway (avec partial) ----
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
+  if (reaction.partial) await reaction.fetch().catch(() => {});
   if (reaction.emoji.name !== "🎉") return;
 
   const message = reaction.message;
@@ -3328,6 +5045,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
 client.on("messageReactionRemove", async (reaction, user) => {
   if (user.bot) return;
+  if (reaction.partial) await reaction.fetch().catch(() => {});
   if (reaction.emoji.name !== "🎉") return;
 
   const message = reaction.message;
@@ -3397,6 +5115,10 @@ app.get("/api/backup", authRequis, (req, res) => {
 app.post("/api/backup/import", authRequis, (req, res) => {
   const data = req.body;
   if (!data) return res.status(400).json({ erreur: "Données manquantes" });
+  // Validation basique du schéma
+  if (typeof data !== 'object' || Array.isArray(data)) {
+    return res.status(400).json({ erreur: "Format invalide" });
+  }
 
   try {
     if (data.config) { config = { ...config, ...data.config }; sauverConfig(); }
@@ -3416,5 +5138,18 @@ app.post("/api/backup/import", authRequis, (req, res) => {
   }
 });
 
-// On lance le serveur web
+// ==============================
+// MIDDLEWARE D'ERREUR EXPRESS
+// ==============================
+app.use((err, req, res, next) => {
+  console.error('❌ Erreur Express:', err);
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ erreur: 'Erreur upload: ' + err.message });
+  }
+  res.status(500).json({ erreur: 'Erreur serveur interne' });
+});
+
+// ==============================
+// LANCEMENT DU SERVEUR
+// ==============================
 app.listen(PORT, () => console.log(`✅ Serveur web + panel actif sur le port ${PORT}`));
