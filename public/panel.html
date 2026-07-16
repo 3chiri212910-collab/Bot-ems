@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
 <style>
   :root {
     --bg: #07080d;
@@ -282,9 +283,9 @@
     margin-bottom: 14px;
     backdrop-filter: blur(16px);
     box-shadow: var(--shadow-soft);
-    transition: border-color .2s ease, transform .2s ease;
+    transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
   }
-  .carte:hover { border-color: var(--border-hover); }
+  .carte:hover { border-color: var(--border-hover); transform: translateY(-2px); box-shadow: var(--shadow-glow); }
 
   .stats-grille {
     display: grid;
@@ -299,10 +300,10 @@
     padding: 20px;
     backdrop-filter: blur(16px);
     box-shadow: var(--shadow-soft);
-    transition: transform .2s ease, border-color .2s ease;
+    transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
     text-align: center;
   }
-  .stat-carte:hover { transform: translateY(-2px); border-color: var(--border-hover); }
+  .stat-carte:hover { transform: translateY(-2px); border-color: var(--border-hover); box-shadow: var(--shadow-glow); }
   .stat-carte .valeur {
     font-family: 'Sora', sans-serif;
     font-size: 28px;
@@ -393,9 +394,9 @@
     border-radius: var(--radius-sm);
     margin-bottom: 6px;
     border-left: 3px solid var(--accent);
-    transition: border-color .2s ease;
+    transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
   }
-  .rank-item:hover { border-color: var(--accent); }
+  .rank-item:hover { border-color: var(--accent); transform: translateX(2px); box-shadow: var(--shadow-glow); }
   .rank-item .info {
     display: flex;
     flex-direction: column;
@@ -449,11 +450,12 @@
     transition: all .18s ease;
     font-family: inherit;
   }
-  .tab-stats:hover { border-color: var(--border-hover); color: var(--text); }
+  .tab-stats:hover { border-color: var(--border-hover); color: var(--text); transform: translateY(-1px); }
   .tab-stats.actif {
     background: var(--accent-grad);
     color: white;
     border-color: transparent;
+    box-shadow: 0 4px 12px rgba(255,45,120,0.3);
   }
 
   .stats-content { display: block; }
@@ -471,7 +473,9 @@
     padding: 10px;
     text-align: center;
     border: 1px solid var(--border);
+    transition: transform .2s ease, border-color .2s ease;
   }
+  .daily-item:hover { transform: scale(1.02); border-color: var(--border-hover); }
   .daily-item .jour {
     font-size: 11px;
     color: var(--text-dim);
@@ -498,14 +502,15 @@
     margin: 3px 5px 3px 0;
     border: 1px solid rgba(245,158,11,0.25);
     cursor: pointer;
+    transition: transform .2s ease;
   }
+  .warn-badge:hover { transform: scale(1.05); }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.28); }
 
-  /* Modal pour ajout/modification antécédent */
   .modal-overlay {
     position: fixed;
     inset: 0;
@@ -533,6 +538,11 @@
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: var(--shadow-glow);
+    animation: modalPop 0.25s ease-out;
+  }
+  @keyframes modalPop {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
   }
   .modal-box h3 {
     margin-top: 0;
@@ -546,6 +556,44 @@
   }
   .modal-box .actions button {
     margin-top: 0;
+  }
+
+  #notificationContainer {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .notification {
+    padding: 14px 20px;
+    border-radius: 12px;
+    background: #1e1f22;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    pointer-events: auto;
+    animation: slideInRight 0.3s ease-out;
+    backdrop-filter: blur(8px);
+    min-width: 250px;
+  }
+  .notification.success { border-left: 4px solid #34d399; }
+  .notification.error { border-left: 4px solid #fb7185; }
+  .notification.info { border-left: 4px solid #60a5fa; }
+  @keyframes slideInRight {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  .notification.hide {
+    animation: slideOutRight 0.3s ease-in forwards;
+  }
+  @keyframes slideOutRight {
+    to { transform: translateX(120%); opacity: 0; }
   }
 
   @media (max-width: 900px) {
@@ -583,7 +631,7 @@
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
   <div class="tab" data-tab="backup">💾 Sauvegarde</div>
-  <div class="tab" data-tab="antecedents">🩺 Antécédents</div> <!-- NOUVEAU -->
+  <div class="tab" data-tab="antecedents">🩺 Antécédents</div>
   <div id="compte"></div>
   <div style="padding: 14px 10px 0; margin-top: auto;">
     <a href="/logout" class="discret" style="color:var(--text-faint);font-size:12.5px;text-decoration:none;">↪ Déconnexion</a>
@@ -597,6 +645,9 @@
     <h2>📊 Dashboard EMS</h2>
     <div class="stats-grille" id="stats-grille"></div>
     <button class="secondaire" onclick="chargerStats()">🔄 Rafraîchir</button>
+    <div style="margin-top:16px;">
+      <button class="danger" onclick="resetAllStats()">🔥 Réinitialiser toutes les statistiques</button>
+    </div>
   </section>
 
   <!-- SERVICE -->
@@ -630,6 +681,9 @@
         </div>
       </div>
     </div>
+    <div style="margin-top:16px;">
+      <button class="danger reset-btn" data-target="services">🔄 Réinitialiser les statistiques de service</button>
+    </div>
   </section>
 
   <!-- INTERVENTIONS -->
@@ -647,6 +701,9 @@
       <div class="search-bar"><input id="intervention-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerInterventionsMembre()" style="margin:0;">Rechercher</button></div>
       <div id="intervention-member-content"><div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses interventions</div></div>
     </div>
+    <div style="margin-top:16px;">
+      <button class="danger reset-btn" data-target="interventions">🔄 Réinitialiser les statistiques d'interventions</button>
+    </div>
   </section>
 
   <!-- RAPPORTS -->
@@ -663,6 +720,9 @@
     <div class="carte"><h3 style="margin-top:0;font-size:16px;">👤 Rapports d'un membre</h3>
       <div class="search-bar"><input id="rapport-search" placeholder="ID ou pseudo du membre..." /><button onclick="chargerRapportsMembre()" style="margin:0;">Rechercher</button></div>
       <div id="rapport-member-content"><div style="color:var(--text-dim);text-align:center;">Entrez un ID ou un pseudo pour voir ses rapports</div></div>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="danger reset-btn" data-target="rapports">🔄 Réinitialiser les statistiques de rapports</button>
     </div>
   </section>
 
@@ -702,9 +762,9 @@
     <div id="liste-roles"></div>
   </section>
 
-  <!-- BIENVENUE -->
+  <!-- BIENVENUE & PARAMETRES -->
   <section id="vue-bienvenue" class="hidden">
-    <h2>👋 Bienvenue & Auto-rôle</h2>
+    <h2>👋 Bienvenue & Paramètres</h2>
     <label>Rôle(s) attribué(s) automatiquement à l'arrivée</label>
     <div id="auto-role-checkboxes" class="checkbox-grid">
       <span style="color:var(--text-dim);font-size:13px;">Chargement des rôles...</span>
@@ -749,7 +809,36 @@
       <button class="petit secondaire" onclick="reinitialiserSalon('intervention')" style="margin:0;">🔄 Réinitialiser</button>
     </div>
 
-    <button onclick="sauverParametres()">Enregistrer</button>
+    <div class="sous-titre">⏰ Réinitialisation automatique</div>
+    <div class="case-ligne">
+      <input type="checkbox" id="autoResetEnabled" />
+      <label for="autoResetEnabled">Activer l'auto‑reset</label>
+    </div>
+    <label>Statistiques concernées</label>
+    <div id="autoResetTargets" class="checkbox-grid">
+      <label><input type="checkbox" value="interventions" /> Interventions</label>
+      <label><input type="checkbox" value="services" /> Services</label>
+      <label><input type="checkbox" value="rapports" /> Rapports</label>
+      <label><input type="checkbox" value="all" /> Toutes</label>
+    </div>
+    <label>Fréquence</label>
+    <select id="autoResetFrequency">
+      <option value="daily">Tous les jours</option>
+      <option value="weekly">Toutes les semaines</option>
+      <option value="monthly">Tous les mois</option>
+      <option value="custom">Personnalisé</option>
+    </select>
+    <div id="customIntervalGroup" style="display:none;">
+      <label>Nombre de jours</label>
+      <input type="number" id="autoResetInterval" value="1" min="1" />
+    </div>
+    <label>Heure (HH:mm)</label>
+    <input type="time" id="autoResetTime" value="00:00" />
+    <div id="autoResetNext" style="margin-top:6px;color:var(--text-dim);font-size:13px;"></div>
+    <button onclick="sauverAutoReset()">Enregistrer</button>
+    <div id="autoResetStatut"></div>
+
+    <button onclick="sauverParametres()">Enregistrer tous les paramètres</button>
     <div id="param-statut"></div>
   </section>
 
@@ -849,13 +938,16 @@
       <button class="danger" onclick="importerBackup()">Importer et écraser</button>
       <div id="backup-statut"></div>
     </div>
+    <div class="carte">
+      <h3>📜 Historique des réinitialisations</h3>
+      <div id="resetHistoryList"></div>
+    </div>
   </section>
 
-  <!-- ANTÉCÉDENTS (NOUVEAU) -->
+  <!-- ANTÉCÉDENTS -->
   <section id="vue-antecedents" class="hidden">
     <h2>🩺 Antécédents Médicaux</h2>
     
-    <!-- Configuration -->
     <div class="carte">
       <h3>⚙️ Configuration du module</h3>
       <div class="case-ligne"><input type="checkbox" id="antecedents-actif" /><label for="antecedents-actif">Activer le module</label></div>
@@ -869,7 +961,6 @@
       <div id="antecedents-config-statut"></div>
     </div>
 
-    <!-- Gestion des antécédents -->
     <div class="carte">
       <h3>📋 Gestion des antécédents</h3>
       <div class="search-bar">
@@ -886,8 +977,20 @@
 
 </main>
 
-<!-- MODAL AJOUT/MODIFICATION ANTÉCÉDENT -->
-<div id="modal-antecedent" class="modal-overlay">
+<!-- MODALE DE CONFIRMATION (reset) -->
+<div id="resetModal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:420px;">
+    <h3>⚠️ Confirmation</h3>
+    <p id="resetModalMessage">Êtes-vous sûr de vouloir réinitialiser ces statistiques ? Cette action est irréversible.</p>
+    <div class="actions">
+      <button class="secondaire" id="resetModalCancel">Annuler</button>
+      <button class="danger" id="resetModalConfirm">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODALE AJOUT/MODIFICATION ANTÉCÉDENT -->
+<div id="modal-antecedent" class="modal-overlay" style="display:none;">
   <div class="modal-box">
     <h3 id="modal-antecedent-titre">🩺 Ajouter un antécédent</h3>
     <input type="hidden" id="modal-antecedent-id" value="" />
@@ -915,15 +1018,124 @@
   </div>
 </div>
 
+<!-- CONTENEUR NOTIFICATIONS -->
+<div id="notificationContainer"></div>
+
 <script>
 // ==========================================
-// ÉCHAPPEMENT HTML (XSS)
+// CONSTANTES & UTILS
 // ==========================================
+const LABELS_TYPE_INTERVENTION = {
+  accident_circulation: "🚗 Accident de circulation",
+  arme: "🔫 Arme à feu / arme blanche",
+  agression: "🥊 Bagarre / agression",
+  overdose: "💊 Overdose / intoxication",
+  noyade: "🌊 Noyade",
+  chute: "🤕 Chute",
+  malaise: "😵 Malaise",
+  autre: "❓ Autre",
+};
+
+const LABELS_GRAVITE_INTERVENTION = {
+  legere: "🟢 Légère",
+  moyenne: "🟡 Moyenne",
+  critique: "🟠 Critique",
+  deces: "⚫ Décès",
+};
+
 function escapeHTML(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
 }
+
+function formatTime(seconds) {
+  if (!seconds || seconds < 0) return '0h0m';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h${minutes}`;
+}
+
+function formatTimeShort(seconds) {
+  if (!seconds || seconds < 0) return '0h';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h${minutes}m`;
+}
+
+// ==========================================
+// NOTIFICATIONS
+// ==========================================
+function showNotification(message, type = 'info') {
+  const container = document.getElementById('notificationContainer');
+  const notif = document.createElement('div');
+  notif.className = `notification ${type}`;
+  notif.textContent = message;
+  container.appendChild(notif);
+  setTimeout(() => {
+    notif.classList.add('hide');
+    setTimeout(() => notif.remove(), 300);
+  }, 3000);
+}
+
+// ==========================================
+// SONS
+// ==========================================
+let audioCtx = null;
+
+function playSuccessSound() {
+  playTone(880, 0.12, 'sine', 0.2);
+}
+
+function playErrorSound() {
+  playTone(330, 0.2, 'sawtooth', 0.25);
+}
+
+function playTone(freq, duration, type = 'sine', volume = 0.25) {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + duration);
+  } catch (e) { /* silencieux */ }
+}
+
+// ==========================================
+// SOCKET.IO - TEMPS REEL
+// ==========================================
+const socket = io();
+
+socket.on('dataUpdated', (data) => {
+  if (data.type === 'intervention') {
+    chargerInterventionsStats();
+    chargerInterventionsTop();
+  } else if (data.type === 'service') {
+    chargerService();
+    chargerServiceTop();
+    chargerServiceWeekly();
+  } else if (data.type === 'rapport') {
+    chargerRapportsStats();
+    chargerRapportsTop();
+  } else if (data.type === 'reset') {
+    chargerStats();
+    // Recharger la vue active
+    const activeTab = document.querySelector('.tab.actif');
+    if (activeTab) {
+      const tabName = activeTab.dataset.tab;
+      if (vues && vues[tabName]) vues[tabName]();
+    }
+  }
+});
 
 // ==========================================
 // GESTION DE LA TOUCHE ENTRÉE
@@ -940,28 +1152,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================
-// SON DE CONFIRMATION
-// ==========================================
-let audioCtx = null;
-function jouerSon() {
-  try {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.2);
-  } catch(e) { /* Silencieux */ }
-}
-
-// ==========================================
 // NAVIGATION
 // ==========================================
 const tabs = document.querySelectorAll('.tab');
@@ -973,14 +1163,14 @@ const vues = {
   moderation: null,
   salons: chargerSalonsListe,
   roles: chargerRolesListe,
-  bienvenue: chargerParametres,
+  bienvenue: function() { chargerParametres(); chargerAutoReset(); },
   candidatures: chargerCandidatures,
   historique: chargerHistorique,
   embed: chargerSalons,
   tickets: chargerTickets,
   giveaways: chargerGiveaways,
-  backup: null,
-  antecedents: function() { chargerConfigAntecedents(); chargerAntecedents(0); }, // NOUVEAU
+  backup: chargerResetHistory,
+  antecedents: function() { chargerConfigAntecedents(); chargerAntecedents(0); },
 };
 
 tabs.forEach(tab => tab.addEventListener('click', () => {
@@ -1013,7 +1203,7 @@ async function reinitialiserSalon(type) {
   if (!id) return;
   
   document.getElementById(id).value = '';
-  jouerSon();
+  playSuccessSound();
   await sauverParametres();
 }
 
@@ -1030,24 +1220,6 @@ async function chargerCompte() {
   } catch (e) {
     console.error('Erreur chargement compte:', e);
   }
-}
-
-// ==========================================
-// FORMATAGE
-// ==========================================
-function formatTime(seconds) {
-  if (!seconds || seconds < 0) return '0h0m';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${hours}h${minutes}`;
-}
-
-function formatTimeShort(seconds) {
-  if (!seconds || seconds < 0) return '0h';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours === 0) return `${minutes}m`;
-  return `${hours}h${minutes}m`;
 }
 
 // ==========================================
@@ -1097,7 +1269,7 @@ function getServiceStatus(userId) {
 }
 
 // ==========================================
-// SERVICE (inchangé)
+// SERVICE
 // ==========================================
 async function chargerService() {
   await loadServiceStatuses();
@@ -1150,15 +1322,10 @@ async function chargerServiceTop() {
       return;
     }
     
-    const items = await Promise.all(data.map(async (item) => {
-      const user = await fetchUser(item.userId);
-      return { ...item, user };
-    }));
-
     let html = '<div style="margin-bottom:12px;font-weight:600;">🏆 Classement selon le temps de service total</div>';
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const displayName = item.user?.username || item.userId;
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const displayName = item.userInfo?.displayName || item.userInfo?.username || item.userId || 'Utilisateur inconnu';
       const isActive = getServiceStatus(item.userId);
       html += `
         <div class="rank-item" style="border-left-color:${isActive ? 'var(--ok)' : 'var(--border-hover)'};">
@@ -1191,15 +1358,10 @@ async function chargerServiceWeekly() {
       return;
     }
     
-    const items = await Promise.all(data.map(async (item) => {
-      const user = await fetchUser(item.userId);
-      return { ...item, user };
-    }));
-
     let html = '<div style="margin-bottom:12px;font-weight:600;">📅 Classement selon le temps de service de la semaine</div>';
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const displayName = item.user?.username || item.userId;
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const displayName = item.userInfo?.displayName || item.userInfo?.username || item.userId || 'Utilisateur inconnu';
       html += `
         <div class="rank-item">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
@@ -1243,11 +1405,12 @@ async function chargerServiceMembre() {
     const daily = stats.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
     const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
     const maxDaily = Math.max(...Object.values(daily));
+    const displayName = user?.username || userId;
     document.getElementById('service-member-content').innerHTML = `
       <div class="carte">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
-            <div style="font-size:20px;font-weight:700;">${escapeHTML(user?.username || userId)}</div>
+            <div style="font-size:20px;font-weight:700;">${escapeHTML(displayName)}</div>
             ${isActive ? '<span class="service-badge">🟢 En service</span>' : '<span class="service-off">Hors service</span>'}
           </div>
           <div style="text-align:right;">
@@ -1291,7 +1454,7 @@ async function chargerServiceMembre() {
 }
 
 // ==========================================
-// INTERVENTIONS (inchangé)
+// INTERVENTIONS
 // ==========================================
 async function chargerInterventionsStats() {
   try {
@@ -1316,15 +1479,10 @@ async function chargerInterventionsTop() {
       return;
     }
     
-    const items = await Promise.all(data.map(async (item) => {
-      const user = await fetchUser(item.userId);
-      return { ...item, user };
-    }));
-
     let html = '';
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const displayName = item.user?.username || item.userId;
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const displayName = item.userInfo?.displayName || item.userInfo?.username || item.userId || 'Utilisateur inconnu';
       html += `
         <div class="rank-item">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
@@ -1394,7 +1552,7 @@ async function chargerInterventionsMembre() {
 }
 
 // ==========================================
-// RAPPORTS (inchangé)
+// RAPPORTS
 // ==========================================
 async function chargerRapportsStats() {
   try {
@@ -1419,15 +1577,10 @@ async function chargerRapportsTop() {
       return;
     }
     
-    const items = await Promise.all(data.map(async (item) => {
-      const user = await fetchUser(item.userId);
-      return { ...item, user };
-    }));
-
     let html = '';
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const displayName = item.user?.username || item.userId;
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      const displayName = item.userInfo?.displayName || item.userInfo?.username || item.userId || 'Utilisateur inconnu';
       html += `
         <div class="rank-item">
           <div style="display:flex;align-items:center;gap:8px;flex:1;">
@@ -1491,7 +1644,7 @@ async function chargerRapportsMembre() {
 }
 
 // ==========================================
-// MODERATION (inchangé)
+// MODERATION
 // ==========================================
 let rechercheTimeout;
 
@@ -1588,11 +1741,16 @@ async function avertirMembre(userId) {
     const res = await fetch(`/api/members/${userId}/warn`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison })
     });
-    if (res.ok) rechercherMembres(document.getElementById('mod-recherche').value);
-    else alert("Échec de l'avertissement.");
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('⚠️ Avertissement enregistré', 'success');
+      rechercherMembres(document.getElementById('mod-recherche').value);
+    } else {
+      showNotification('❌ Échec de l\'avertissement', 'error');
+    }
   } catch (e) {
     console.error('Erreur avertissement:', e);
-    alert("Erreur lors de l'avertissement.");
+    showNotification('❌ Erreur', 'error');
   }
 }
 
@@ -1600,6 +1758,7 @@ async function supprimerWarn(userId, warnId) {
   if (!confirm('Supprimer cet avertissement ?')) return;
   try {
     await fetch(`/api/members/${userId}/warns/${warnId}`, { method: 'DELETE' });
+    playSuccessSound();
     toggleWarns(userId);
   } catch (e) {
     console.error('Erreur suppression warn:', e);
@@ -1611,6 +1770,7 @@ async function modifierRole(userId, roleId, action) {
     await fetch(`/api/members/${userId}/roles/${roleId}`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action })
     });
+    playSuccessSound();
     rechercherMembres(document.getElementById('mod-recherche').value);
   } catch (e) {
     console.error('Erreur modification rôle:', e);
@@ -1622,10 +1782,12 @@ async function kickMembre(userId) {
   if (!confirm('Kick ce membre ?')) return;
   try {
     await fetch(`/api/members/${userId}/kick`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
+    playSuccessSound();
+    showNotification('👢 Membre kické', 'success');
     rechercherMembres(document.getElementById('mod-recherche').value);
   } catch (e) {
     console.error('Erreur kick:', e);
-    alert("Erreur lors du kick.");
+    showNotification('❌ Erreur lors du kick', 'error');
   }
 }
 
@@ -1634,25 +1796,29 @@ async function banMembre(userId) {
   if (!confirm('Bannir ce membre ?')) return;
   try {
     await fetch(`/api/members/${userId}/ban`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ reason: raison }) });
+    playSuccessSound();
+    showNotification('⛔ Membre banni', 'success');
     rechercherMembres(document.getElementById('mod-recherche').value);
   } catch (e) {
     console.error('Erreur ban:', e);
-    alert("Erreur lors du ban.");
+    showNotification('❌ Erreur lors du ban', 'error');
   }
 }
 
 async function timeoutMembre(userId) {
   try {
     await fetch(`/api/members/${userId}/timeout`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ minutes: 10 }) });
+    playSuccessSound();
+    showNotification('⏰ Timeout appliqué (10min)', 'success');
     rechercherMembres(document.getElementById('mod-recherche').value);
   } catch (e) {
     console.error('Erreur timeout:', e);
-    alert("Erreur lors du timeout.");
+    showNotification('❌ Erreur lors du timeout', 'error');
   }
 }
 
 // ==========================================
-// SALONS (inchangé)
+// SALONS
 // ==========================================
 async function chargerSalonsListe() {
   try {
@@ -1676,13 +1842,17 @@ async function creerSalon() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name: document.getElementById('salon-nom').value, type: document.getElementById('salon-type').value })
     });
-    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
-    statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    if (res.ok) { document.getElementById('salon-nom').value = ''; chargerSalonsListe(); }
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Salon créé', 'success');
+      document.getElementById('salon-nom').value = '';
+      chargerSalonsListe();
+    } else {
+      showNotification('❌ Erreur création', 'error');
+    }
   } catch (e) {
     console.error('Erreur création salon:', e);
-    statut.textContent = '❌ Erreur';
-    statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
@@ -1690,6 +1860,7 @@ async function supprimerSalon(id) {
   if (!confirm('Supprimer ce salon ?')) return;
   try {
     await fetch('/api/channels/' + id, { method: 'DELETE' });
+    playSuccessSound();
     chargerSalonsListe();
   } catch (e) {
     console.error('Erreur suppression salon:', e);
@@ -1697,7 +1868,7 @@ async function supprimerSalon(id) {
 }
 
 // ==========================================
-// ROLES (inchangé)
+// ROLES
 // ==========================================
 async function chargerRolesListe() {
   try {
@@ -1721,13 +1892,17 @@ async function creerRole() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name: document.getElementById('role-nom').value, color: document.getElementById('role-couleur').value })
     });
-    statut.textContent = res.ok ? '✅ Créé' : '❌ Erreur';
-    statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    if (res.ok) { document.getElementById('role-nom').value = ''; chargerRolesListe(); }
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Rôle créé', 'success');
+      document.getElementById('role-nom').value = '';
+      chargerRolesListe();
+    } else {
+      showNotification('❌ Erreur création', 'error');
+    }
   } catch (e) {
     console.error('Erreur création rôle:', e);
-    statut.textContent = '❌ Erreur';
-    statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
@@ -1735,6 +1910,7 @@ async function supprimerRole(id) {
   if (!confirm('Supprimer ce rôle ?')) return;
   try {
     await fetch('/api/roles/' + id, { method: 'DELETE' });
+    playSuccessSound();
     chargerRolesListe();
   } catch (e) {
     console.error('Erreur suppression rôle:', e);
@@ -1742,7 +1918,7 @@ async function supprimerRole(id) {
 }
 
 // ==========================================
-// BIENVENUE / PARAMETRES (inchangé)
+// BIENVENUE / PARAMETRES
 // ==========================================
 async function chargerParametres() {
   try {
@@ -1782,7 +1958,6 @@ async function chargerParametres() {
         </label>
       `).join('');
     }
-
   } catch (e) {
     console.error('Erreur chargement paramètres:', e);
   }
@@ -1810,18 +1985,175 @@ async function sauverParametres() {
         interventionChannelId: document.getElementById('param-salon-intervention').value,
       })
     });
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) showNotification('✅ Paramètres enregistrés', 'success');
   } catch (e) {
     console.error('Erreur sauvegarde paramètres:', e);
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
 // ==========================================
-// CANDIDATURES (inchangé)
+// AUTO-RESET
+// ==========================================
+async function chargerAutoReset() {
+  try {
+    const res = await fetch('/api/auto-reset/config');
+    const data = await res.json();
+    document.getElementById('autoResetEnabled').checked = data.enabled || false;
+    const targets = data.targets || [];
+    document.querySelectorAll('#autoResetTargets input[type="checkbox"]').forEach(cb => {
+      cb.checked = targets.includes(cb.value) || (targets.includes('all') && cb.value !== 'all');
+    });
+    document.getElementById('autoResetFrequency').value = data.frequency || 'daily';
+    document.getElementById('autoResetInterval').value = data.customInterval || 1;
+    document.getElementById('autoResetTime').value = data.customTime || '00:00';
+    if (data.nextReset) {
+      const date = new Date(data.nextReset);
+      document.getElementById('autoResetNext').textContent = `Prochaine réinitialisation : ${date.toLocaleString('fr-FR')}`;
+    }
+    toggleCustomInterval();
+  } catch (e) {
+    console.error('Erreur chargement auto-reset:', e);
+  }
+}
+
+document.getElementById('autoResetFrequency').addEventListener('change', toggleCustomInterval);
+function toggleCustomInterval() {
+  const show = document.getElementById('autoResetFrequency').value === 'custom';
+  document.getElementById('customIntervalGroup').style.display = show ? 'block' : 'none';
+}
+
+async function sauverAutoReset() {
+  const statut = document.getElementById('autoResetStatut');
+  const enabled = document.getElementById('autoResetEnabled').checked;
+  const targets = Array.from(document.querySelectorAll('#autoResetTargets input:checked')).map(cb => cb.value);
+  const frequency = document.getElementById('autoResetFrequency').value;
+  const customInterval = parseInt(document.getElementById('autoResetInterval').value) || 1;
+  const customTime = document.getElementById('autoResetTime').value;
+  try {
+    const res = await fetch('/api/auto-reset/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, targets, frequency, customInterval, customTime })
+    });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Configuration auto‑reset enregistrée', 'success');
+      statut.textContent = '✅ Enregistré';
+      statut.className = 'msg-ok';
+      chargerAutoReset();
+    } else {
+      statut.textContent = '❌ Erreur';
+      statut.className = 'msg-err';
+      showNotification('❌ Erreur', 'error');
+    }
+  } catch (e) {
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
+  }
+}
+
+// ==========================================
+// RESET MANUEL
+// ==========================================
+let resetTarget = null;
+
+document.querySelectorAll('.reset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    resetTarget = btn.dataset.target;
+    document.getElementById('resetModal').style.display = 'flex';
+    document.getElementById('resetModalMessage').textContent = 
+      `⚠️ Êtes-vous sûr de vouloir réinitialiser les statistiques de ${resetTarget === 'services' ? 'service' : resetTarget} ? Cette action est irréversible.`;
+  });
+});
+
+document.getElementById('resetModalCancel').addEventListener('click', () => {
+  document.getElementById('resetModal').style.display = 'none';
+});
+
+document.getElementById('resetModalConfirm').addEventListener('click', async () => {
+  if (!resetTarget) return;
+  try {
+    const res = await fetch(`/api/reset/${resetTarget}`, { method: 'POST' });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification(`✅ Statistiques ${resetTarget} réinitialisées`, 'success');
+      // Mise à jour automatique des vues
+      if (resetTarget === 'interventions') {
+        chargerInterventionsStats();
+        chargerInterventionsTop();
+      } else if (resetTarget === 'services') {
+        chargerService();
+        chargerServiceTop();
+        chargerServiceWeekly();
+      } else if (resetTarget === 'rapports') {
+        chargerRapportsStats();
+        chargerRapportsTop();
+      } else if (resetTarget === 'all') {
+        chargerStats();
+        chargerService();
+        chargerInterventionsStats();
+        chargerRapportsStats();
+      }
+      document.getElementById('resetModal').style.display = 'none';
+    } else {
+      showNotification('❌ Erreur lors de la réinitialisation', 'error');
+    }
+  } catch (e) {
+    showNotification('❌ Erreur', 'error');
+  }
+});
+
+async function resetAllStats() {
+  if (!confirm('🔥 Êtes-vous sûr de vouloir réinitialiser TOUTES les statistiques ? Action irréversible.')) return;
+  try {
+    const res = await fetch('/api/reset/all', { method: 'POST' });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Toutes les statistiques réinitialisées', 'success');
+      chargerStats();
+      chargerService();
+      chargerInterventionsStats();
+      chargerRapportsStats();
+    } else {
+      showNotification('❌ Erreur', 'error');
+    }
+  } catch (e) {
+    showNotification('❌ Erreur', 'error');
+  }
+}
+
+// ==========================================
+// HISTORIQUE DES RESETS
+// ==========================================
+async function chargerResetHistory() {
+  try {
+    const res = await fetch('/api/reset-history');
+    const history = await res.json();
+    const container = document.getElementById('resetHistoryList');
+    if (history.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun reset enregistré.</p>';
+      return;
+    }
+    container.innerHTML = history.slice(-50).reverse().map(h => `
+      <div style="padding:8px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+        <span>${h.source === 'auto' ? '🤖' : '🧑‍💻'} ${h.type} — ${h.username || 'Inconnu'}</span>
+        <span style="color:var(--text-dim);font-size:12px;">${new Date(h.date).toLocaleString('fr-FR')}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement historique reset:', e);
+  }
+}
+
+// ==========================================
+// CANDIDATURES
 // ==========================================
 function genererCheckboxes(containerId, selectedIds, roles) {
   const container = document.getElementById(containerId);
@@ -1907,18 +2239,20 @@ async function sauverCandidatures() {
         mpRefus: document.getElementById('cand-mp-refus').value,
       })
     });
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Enregistré' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) showNotification('✅ Configuration candidatures enregistrée', 'success');
   } catch (e) {
     console.error('Erreur sauvegarde candidatures:', e);
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
 // ==========================================
-// HISTORIQUE (inchangé)
+// HISTORIQUE CANDIDATURES
 // ==========================================
 let histTimeout;
 function chargerHistorique() {
@@ -1947,7 +2281,7 @@ function chargerHistorique() {
 }
 
 // ==========================================
-// ANNONCES (inchangé)
+// ANNONCES
 // ==========================================
 async function chargerSalons() {
   try {
@@ -1977,18 +2311,20 @@ async function envoyerEmbed() {
   try {
     const res = await fetch('/api/send-embed', { method: 'POST', body: donnees });
     const data = await res.json();
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Envoyé !' : '❌ ' + (data.erreur || 'Erreur');
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) showNotification('📢 Annonce envoyée', 'success');
   } catch (e) {
     console.error('Erreur envoi embed:', e);
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
 // ==========================================
-// TICKETS (inchangé)
+// TICKETS
 // ==========================================
 async function chargerTickets() {
   try {
@@ -2025,14 +2361,18 @@ async function repondreTicket(userId) {
     const res = await fetch(`/api/tickets/${userId}/reply`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
     });
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    if (res.ok) document.getElementById('reply-' + userId).value = '';
+    if (res.ok) {
+      document.getElementById('reply-' + userId).value = '';
+      showNotification('✅ Réponse envoyée', 'success');
+    }
   } catch (e) {
     console.error('Erreur réponse ticket:', e);
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
@@ -2043,7 +2383,7 @@ async function sauverNoteTicket(userId) {
     const res = await fetch(`/api/tickets/${userId}/note`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
     });
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Note enregistrée' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
     setTimeout(() => { statut.textContent = ''; }, 2500);
@@ -2057,6 +2397,8 @@ async function sauverNoteTicket(userId) {
 async function fermerTicket(userId) {
   try {
     await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
+    playSuccessSound();
+    showNotification('🔒 Ticket fermé', 'success');
     chargerTickets();
   } catch (e) {
     console.error('Erreur fermeture ticket:', e);
@@ -2064,7 +2406,7 @@ async function fermerTicket(userId) {
 }
 
 // ==========================================
-// GIVEAWAYS (inchangé)
+// GIVEAWAYS
 // ==========================================
 async function chargerGiveaways() {
   try {
@@ -2109,20 +2451,25 @@ async function creerGiveaway() {
         winnersCount: gagnants,
       })
     });
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Lancé !' : '❌ Erreur';
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
-    if (res.ok) chargerGiveaways();
+    if (res.ok) {
+      showNotification('🎉 Giveaway lancé !', 'success');
+      chargerGiveaways();
+    }
   } catch (e) {
     console.error('Erreur création giveaway:', e);
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
 async function terminerGiveawayPanel(id) {
   try {
     await fetch(`/api/giveaways/${id}/end`, { method: 'POST' });
+    playSuccessSound();
     chargerGiveaways();
   } catch (e) {
     console.error('Erreur terminaison giveaway:', e);
@@ -2130,7 +2477,7 @@ async function terminerGiveawayPanel(id) {
 }
 
 // ==========================================
-// BACKUP (inchangé)
+// BACKUP
 // ==========================================
 function exporterBackup() {
   window.location.href = '/api/backup';
@@ -2148,23 +2495,24 @@ async function importerBackup() {
     const res = await fetch('/api/backup/import', {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
     });
-    jouerSon();
+    playSuccessSound();
     statut.textContent = res.ok ? '✅ Sauvegarde importée' : "❌ Échec de l'import";
     statut.className = res.ok ? 'msg-ok' : 'msg-err';
+    if (res.ok) showNotification('💾 Sauvegarde importée', 'success');
   } catch (e) {
     console.error('Erreur import backup:', e);
     statut.textContent = '❌ Fichier invalide';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
 // ==========================================
-// ANTÉCÉDENTS (NOUVEAU)
+// ANTÉCÉDENTS
 // ==========================================
 let antecedentsPage = 0;
 const antecedentsLimit = 20;
 
-// Charger la configuration du module
 async function chargerConfigAntecedents() {
   try {
     const [configRes, rolesRes, salonsRes] = await Promise.all([
@@ -2200,7 +2548,6 @@ async function chargerConfigAntecedents() {
   }
 }
 
-// Sauvegarder la configuration
 async function sauverConfigAntecedents() {
   const statut = document.getElementById('antecedents-config-statut');
   const enabled = document.getElementById('antecedents-actif').checked;
@@ -2215,19 +2562,22 @@ async function sauverConfigAntecedents() {
       body: JSON.stringify({ enabled, channelId, allowedRoles })
     });
     if (res.ok) {
+      playSuccessSound();
       statut.textContent = '✅ Configuration enregistrée';
       statut.className = 'msg-ok';
+      showNotification('✅ Configuration antécédents enregistrée', 'success');
     } else {
-      statut.textContent = '❌ Erreur lors de l\'enregistrement';
+      statut.textContent = '❌ Erreur';
       statut.className = 'msg-err';
+      showNotification('❌ Erreur', 'error');
     }
   } catch (e) {
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
-// Charger la liste des antécédents
 async function chargerAntecedents(page = 0) {
   antecedentsPage = page;
   const q = document.getElementById('antecedents-recherche').value.trim();
@@ -2284,7 +2634,6 @@ async function chargerAntecedents(page = 0) {
   }
 }
 
-// Ouvrir modal d'ajout
 function ouvrirModalAjoutAntecedent() {
   document.getElementById('modal-antecedent-titre').textContent = '🩺 Ajouter un antécédent';
   document.getElementById('modal-antecedent-id').value = '';
@@ -2297,10 +2646,9 @@ function ouvrirModalAjoutAntecedent() {
   document.getElementById('modal-operations').value = '';
   document.getElementById('modal-observations').value = '';
   document.getElementById('modal-antecedent-statut').textContent = '';
-  document.getElementById('modal-antecedent').classList.add('visible');
+  document.getElementById('modal-antecedent').style.display = 'flex';
 }
 
-// Ouvrir modal de modification
 async function ouvrirModalModifAntecedent(id) {
   try {
     const res = await fetch(`/api/antecedents/${id}`);
@@ -2317,17 +2665,16 @@ async function ouvrirModalModifAntecedent(id) {
     document.getElementById('modal-operations').value = data.operations || '';
     document.getElementById('modal-observations').value = data.observations || '';
     document.getElementById('modal-antecedent-statut').textContent = '';
-    document.getElementById('modal-antecedent').classList.add('visible');
+    document.getElementById('modal-antecedent').style.display = 'flex';
   } catch (e) {
-    alert('❌ Erreur lors du chargement de l\'antécédent.');
+    showNotification('❌ Erreur chargement antécédent', 'error');
   }
 }
 
 function fermerModalAntecedent() {
-  document.getElementById('modal-antecedent').classList.remove('visible');
+  document.getElementById('modal-antecedent').style.display = 'none';
 }
 
-// Sauvegarder le modal (ajout ou modification)
 async function sauverModalAntecedent() {
   const statut = document.getElementById('modal-antecedent-statut');
   const id = document.getElementById('modal-antecedent-id').value;
@@ -2349,12 +2696,10 @@ async function sauverModalAntecedent() {
   try {
     let url, method, body;
     if (id) {
-      // Modification
       url = `/api/antecedents/${id}`;
       method = 'PUT';
       body = JSON.stringify({ type, description, allergies, traitements, maladiesChroniques: maladies, operations, observations });
     } else {
-      // Ajout
       url = '/api/antecedents';
       method = 'POST';
       body = JSON.stringify({ patientNom, type, description, allergies, traitements, maladiesChroniques: maladies, operations, observations });
@@ -2365,45 +2710,47 @@ async function sauverModalAntecedent() {
       body
     });
     if (res.ok) {
+      playSuccessSound();
       statut.textContent = id ? '✅ Antécédent modifié' : '✅ Antécédent ajouté';
       statut.className = 'msg-ok';
-      jouerSon();
+      showNotification(id ? '✅ Antécédent modifié' : '✅ Antécédent ajouté', 'success');
       fermerModalAntecedent();
       chargerAntecedents(antecedentsPage);
     } else {
       const err = await res.json();
       statut.textContent = '❌ ' + (err.erreur || 'Erreur');
       statut.className = 'msg-err';
+      showNotification('❌ Erreur', 'error');
     }
   } catch (e) {
     statut.textContent = '❌ Erreur';
     statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
   }
 }
 
-// Supprimer un antécédent
 async function supprimerAntecedent(id) {
   if (!confirm('Supprimer définitivement cet antécédent ?')) return;
   try {
     const res = await fetch(`/api/antecedents/${id}`, { method: 'DELETE' });
     if (res.ok) {
-      jouerSon();
+      playSuccessSound();
+      showNotification('🗑️ Antécédent supprimé', 'success');
       chargerAntecedents(antecedentsPage);
     } else {
-      alert('❌ Erreur lors de la suppression.');
+      showNotification('❌ Erreur', 'error');
     }
   } catch (e) {
-    alert('❌ Erreur');
+    showNotification('❌ Erreur', 'error');
   }
 }
 
-// Voir l'historique des modifications
 async function voirHistoriqueAntecedent(id) {
   try {
     const res = await fetch(`/api/antecedents/${id}/historique`);
     const hist = await res.json();
     if (!hist || hist.length === 0) {
-      alert('Aucune modification enregistrée pour cet antécédent.');
+      showNotification('Aucune modification enregistrée', 'info');
       return;
     }
     const message = hist.map(h => 
@@ -2412,30 +2759,9 @@ async function voirHistoriqueAntecedent(id) {
     ).join('\n\n');
     alert(`📜 Historique des modifications :\n\n${message}`);
   } catch (e) {
-    alert('❌ Erreur lors du chargement de l\'historique.');
+    showNotification('❌ Erreur', 'error');
   }
 }
-
-// ==========================================
-// CONSTANTES
-// ==========================================
-const LABELS_TYPE_INTERVENTION = {
-  accident_circulation: "🚗 Accident de circulation",
-  arme: "🔫 Arme à feu / arme blanche",
-  agression: "🥊 Bagarre / agression",
-  overdose: "💊 Overdose / intoxication",
-  noyade: "🌊 Noyade",
-  chute: "🤕 Chute",
-  malaise: "😵 Malaise",
-  autre: "❓ Autre",
-};
-
-const LABELS_GRAVITE_INTERVENTION = {
-  legere: "🟢 Légère",
-  moyenne: "🟡 Moyenne",
-  critique: "🟠 Critique",
-  deces: "⚫ Décès",
-};
 
 // ==========================================
 // INITIALISATION
