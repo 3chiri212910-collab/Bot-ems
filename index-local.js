@@ -444,6 +444,7 @@ function getTopServices(limit = 10) {
     .sort((a, b) => (b[1].totalTime || 0) - (a[1].totalTime || 0))
     .map(([userId, data]) => ({ userId, ...data }));
   cachedServiceTop = top;
+  cacheDirty = false;
   return top.slice(0, limit);
 }
 
@@ -458,6 +459,7 @@ function getTopWeeklyServices(limit = 10) {
     .sort((a, b) => b.weekly - a.weekly)
     .map(({ userId, weekly }) => ({ userId, weeklyTime: weekly }));
   cachedServiceWeekly = top;
+  cacheDirty = false;
   return top.slice(0, limit);
 }
 
@@ -475,6 +477,7 @@ function getTopInterventions(limit = 10) {
       return { userId, count, userInfo: sample?.userInfo || null };
     });
   cachedInterventionTop = top;
+  cacheDirty = false;
   return top.slice(0, limit);
 }
 
@@ -491,6 +494,7 @@ function getTopRapports(limit = 10) {
       return { userId, count, userInfo: sample?.userInfo || null };
     });
   cachedRapportTop = top;
+  cacheDirty = false;
   return top.slice(0, limit);
 }
 
@@ -795,8 +799,12 @@ async function performAutoReset() {
   const next = calculateNextReset(auto);
   auto.nextReset = next.toISOString();
   sauverConfig();
-  // Programmer le prochain
   scheduleAutoReset();
+
+  // Rafraîchir les messages Discord
+  if (config.serviceChannelId) await mettreAJourMessageService().catch(() => {});
+  if (config.rapportChannelId) await mettreAJourMessageRapport().catch(() => {});
+  if (config.interventionChannelId) await mettreAJourMessageIntervention().catch(() => {});
 
   // Émettre mise à jour temps réel
   if (io) io.emit('dataUpdated', { type: 'reset' });
@@ -1909,6 +1917,40 @@ function planifierFinGiveaway(g) {
 }
 
 // ==============================
+// GIVEAWAYS – GESTION DES RÉACTIONS (AJOUT)
+// ==============================
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.partial) {
+    try { await reaction.fetch(); } catch { return; }
+  }
+  const giveaway = Object.values(giveaways).find(g =>
+    g.messageId === reaction.message.id && !g.ended
+  );
+  if (!giveaway) return;
+  if (!giveaway.participants.includes(user.id)) {
+    giveaway.participants.push(user.id);
+    sauverGiveaways();
+  }
+});
+
+client.on("messageReactionRemove", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.partial) {
+    try { await reaction.fetch(); } catch { return; }
+  }
+  const giveaway = Object.values(giveaways).find(g =>
+    g.messageId === reaction.message.id && !g.ended
+  );
+  if (!giveaway) return;
+  const idx = giveaway.participants.indexOf(user.id);
+  if (idx !== -1) {
+    giveaway.participants.splice(idx, 1);
+    sauverGiveaways();
+  }
+});
+
+// ==============================
 // INTERACTIONS
 // ==============================
 client.on("interactionCreate", async (interaction) => {
@@ -2544,18 +2586,42 @@ client.on("interactionCreate", async (interaction) => {
           ),
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
-              .setCustomId("allergies_traitements")
-              .setLabel("Allergies / Traitements")
+              .setCustomId("allergies")
+              .setLabel("Allergies")
               .setStyle(TextInputStyle.Short)
-              .setPlaceholder("Ex: Allergie pénicilline / Paracétamol")
+              .setPlaceholder("Ex: Pénicilline")
               .setRequired(false)
           ),
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
-              .setCustomId("maladies_ops_obs")
-              .setLabel("Maladies / Opérations / Observations")
+              .setCustomId("traitements")
+              .setLabel("Traitements en cours")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("Ex: Paracétamol 500mg")
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("maladies")
+              .setLabel("Maladies chroniques")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("Ex: Diabète")
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("operations")
+              .setLabel("Opérations subies")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("Ex: Appendicectomie")
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("observations")
+              .setLabel("Observations")
               .setStyle(TextInputStyle.Paragraph)
-              .setPlaceholder("Ex: Diabète, appendicectomie, suivi cardiologique...")
+              .setPlaceholder("Informations complémentaires...")
               .setRequired(false)
           )
         );
@@ -2588,22 +2654,17 @@ client.on("interactionCreate", async (interaction) => {
       const patientNom = interaction.fields.getTextInputValue("patient_nom");
       const type = interaction.fields.getTextInputValue("type");
       const description = interaction.fields.getTextInputValue("description");
-      const allergiesTraitements = interaction.fields.getTextInputValue("allergies_traitements");
-      const maladiesOpsObs = interaction.fields.getTextInputValue("maladies_ops_obs");
+      const allergies = interaction.fields.getTextInputValue("allergies");
+      const traitements = interaction.fields.getTextInputValue("traitements");
+      const maladiesChroniques = interaction.fields.getTextInputValue("maladies");
+      const operations = interaction.fields.getTextInputValue("operations");
+      const observations = interaction.fields.getTextInputValue("observations");
 
       const entry = ajouterAntecedent(
         patientNom,
         interaction.user.id,
         interaction.user.tag,
-        {
-          type,
-          description,
-          allergies: allergiesTraitements,
-          traitements: allergiesTraitements,
-          maladiesChroniques: maladiesOpsObs,
-          operations: maladiesOpsObs,
-          observations: maladiesOpsObs
-        }
+        { type, description, allergies, traitements, maladiesChroniques, operations, observations }
       );
 
       await interaction.editReply({ content: `✅ Antécédent créé pour **${patientNom}** (ID: ${entry.id}).` });
@@ -3345,6 +3406,9 @@ app.get("/api/service/top/weekly", authRequis, (req, res) => {
 
 app.get("/api/service/member/:id", authRequis, (req, res) => {
   const stats = getServiceStats(req.params.id);
+  if (stats) {
+    stats.weeklyTime = recalculerWeeklyTime(req.params.id);
+  }
   res.json(stats || { totalTime: 0, weeklyTime: 0, daily: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 }, sessions: [], active: false, userInfo: null });
 });
 
@@ -3426,6 +3490,10 @@ app.post("/api/settings", authRequis, (req, res) => {
     interventionChannelId,
   } = req.body;
 
+  const oldService = config.serviceChannelId;
+  const oldRapport = config.rapportChannelId;
+  const oldIntervention = config.interventionChannelId;
+
   if (autoRoleIds !== undefined) config.autoRoleIds = Array.isArray(autoRoleIds) ? autoRoleIds : [];
   if (welcomeChannelId !== undefined) config.welcomeChannelId = welcomeChannelId;
   if (welcomeMessage !== undefined) config.welcomeMessage = welcomeMessage;
@@ -3438,18 +3506,22 @@ app.post("/api/settings", authRequis, (req, res) => {
   if (interventionChannelId !== undefined) config.interventionChannelId = interventionChannelId;
 
   sauverConfig();
-  
-  setTimeout(() => {
-    if (serviceChannelId !== undefined && config.serviceChannelId) {
-      envoyerMessageService().catch(() => {});
-    }
-    if (rapportChannelId !== undefined && config.rapportChannelId) {
-      envoyerMessageRapport().catch(() => {});
-    }
-    if (interventionChannelId !== undefined && config.interventionChannelId) {
-      envoyerMessageIntervention().catch(() => {});
-    }
-  }, 1000);
+
+  if (serviceChannelId !== undefined && serviceChannelId !== oldService) {
+    setTimeout(() => {
+      if (config.serviceChannelId) envoyerMessageService().catch(() => {});
+    }, 1000);
+  }
+  if (rapportChannelId !== undefined && rapportChannelId !== oldRapport) {
+    setTimeout(() => {
+      if (config.rapportChannelId) envoyerMessageRapport().catch(() => {});
+    }, 1000);
+  }
+  if (interventionChannelId !== undefined && interventionChannelId !== oldIntervention) {
+    setTimeout(() => {
+      if (config.interventionChannelId) envoyerMessageIntervention().catch(() => {});
+    }, 1000);
+  }
 
   res.json({ succes: true });
 });
@@ -3997,32 +4069,38 @@ app.get("/api/giveaways", authRequis, (req, res) => {
 
 app.post("/api/giveaways", authRequis, async (req, res) => {
   const { channelId, prize, durationMinutes, winnersCount } = req.body;
-  if (!channelId || !prize || !durationMinutes) {
+  if (!channelId || !prize) {
     return res.status(400).json({ erreur: "Paramètres manquants" });
   }
-  if (parseInt(durationMinutes) <= 0) return res.status(400).json({ erreur: "Durée doit être > 0" });
-  if (parseInt(winnersCount) <= 0) return res.status(400).json({ erreur: "Nombre de gagnants doit être > 0" });
+  const duration = parseInt(durationMinutes);
+  const winners = parseInt(winnersCount) || 1;
+  if (isNaN(duration) || duration <= 0) {
+    return res.status(400).json({ erreur: "Durée invalide (doit être un nombre > 0)" });
+  }
+  if (isNaN(winners) || winners <= 0) {
+    return res.status(400).json({ erreur: "Nombre de gagnants invalide (doit être > 0)" });
+  }
 
   try {
     const channel = await client.channels.fetch(channelId);
     const embed = new EmbedBuilder()
       .setColor(COULEUR_EMBED)
       .setTitle(`🎉 Giveaway : ${prize}`)
-      .setDescription(`Réagissez avec 🎉 pour participer !\nDurée : ${durationMinutes} min\nGagnants : ${winnersCount || 1}`)
+      .setDescription(`Réagissez avec 🎉 pour participer !\nDurée : ${duration} min\nGagnants : ${winners}`)
       .setTimestamp();
 
     const message = await channel.send({ embeds: [embed] });
     await message.react("🎉");
 
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const endsAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+    const endsAt = new Date(Date.now() + duration * 60 * 1000).toISOString();
 
     giveaways[id] = {
       id,
       channelId,
       messageId: message.id,
       prize,
-      winnersCount: parseInt(winnersCount) || 1,
+      winnersCount: winners,
       endsAt,
       participants: [],
       ended: false,
