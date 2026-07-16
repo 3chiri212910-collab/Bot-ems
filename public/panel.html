@@ -179,7 +179,6 @@
     color: white;
   }
 
-  /* === GRILLE DE CASES À COCHER === */
   .checkbox-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -506,6 +505,49 @@
   ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 999px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.28); }
 
+  /* Modal pour ajout/modification antécédent */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .3s ease;
+  }
+  .modal-overlay.visible {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .modal-box {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px 32px;
+    max-width: 640px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-glow);
+  }
+  .modal-box h3 {
+    margin-top: 0;
+    color: var(--text);
+  }
+  .modal-box .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 16px;
+  }
+  .modal-box .actions button {
+    margin-top: 0;
+  }
+
   @media (max-width: 900px) {
     body { flex-direction: column; }
     nav { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
@@ -519,6 +561,7 @@
     .daily-grid { grid-template-columns: repeat(2, 1fr); }
     .search-bar { flex-direction: column; }
     .search-bar select { width: 100%; }
+    .modal-box { padding: 20px; }
   }
 </style>
 </head>
@@ -540,6 +583,7 @@
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
   <div class="tab" data-tab="backup">💾 Sauvegarde</div>
+  <div class="tab" data-tab="antecedents">🩺 Antécédents</div> <!-- NOUVEAU -->
   <div id="compte"></div>
   <div style="padding: 14px 10px 0; margin-top: auto;">
     <a href="/logout" class="discret" style="color:var(--text-faint);font-size:12.5px;text-decoration:none;">↪ Déconnexion</a>
@@ -807,7 +851,69 @@
     </div>
   </section>
 
+  <!-- ANTÉCÉDENTS (NOUVEAU) -->
+  <section id="vue-antecedents" class="hidden">
+    <h2>🩺 Antécédents Médicaux</h2>
+    
+    <!-- Configuration -->
+    <div class="carte">
+      <h3>⚙️ Configuration du module</h3>
+      <div class="case-ligne"><input type="checkbox" id="antecedents-actif" /><label for="antecedents-actif">Activer le module</label></div>
+      <label>Salon d'envoi du message</label>
+      <select id="antecedents-salon"><option value="">Aucun</option></select>
+      <label>Rôles autorisés</label>
+      <div id="antecedents-roles-container" class="checkbox-grid">
+        <span style="color:var(--text-dim);font-size:13px;">Chargement des rôles...</span>
+      </div>
+      <button onclick="sauverConfigAntecedents()">💾 Enregistrer la configuration</button>
+      <div id="antecedents-config-statut"></div>
+    </div>
+
+    <!-- Gestion des antécédents -->
+    <div class="carte">
+      <h3>📋 Gestion des antécédents</h3>
+      <div class="search-bar">
+        <input id="antecedents-recherche" placeholder="Rechercher un patient ou un type..." />
+        <button onclick="chargerAntecedents(0)">🔍 Rechercher</button>
+        <button class="ok" onclick="ouvrirModalAjoutAntecedent()">🩺 Ajouter</button>
+      </div>
+      <div id="antecedents-liste">
+        <p style="color:var(--text-dim);">Chargement des antécédents...</p>
+      </div>
+      <div id="antecedents-pagination" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;"></div>
+    </div>
+  </section>
+
 </main>
+
+<!-- MODAL AJOUT/MODIFICATION ANTÉCÉDENT -->
+<div id="modal-antecedent" class="modal-overlay">
+  <div class="modal-box">
+    <h3 id="modal-antecedent-titre">🩺 Ajouter un antécédent</h3>
+    <input type="hidden" id="modal-antecedent-id" value="" />
+    <label>Nom du patient *</label>
+    <input id="modal-patient" placeholder="Ex: Jean Dupont" />
+    <label>Type *</label>
+    <input id="modal-type" placeholder="Ex: Allergie, maladie chronique..." />
+    <label>Description</label>
+    <textarea id="modal-description" placeholder="Détails..."></textarea>
+    <label>Allergies</label>
+    <input id="modal-allergies" placeholder="Ex: Pénicilline" />
+    <label>Traitements en cours</label>
+    <input id="modal-traitements" placeholder="Ex: Paracétamol 500mg" />
+    <label>Maladies chroniques</label>
+    <input id="modal-maladies" placeholder="Ex: Diabète" />
+    <label>Opérations subies</label>
+    <input id="modal-operations" placeholder="Ex: Appendicectomie" />
+    <label>Observations</label>
+    <textarea id="modal-observations" placeholder="Informations complémentaires..."></textarea>
+    <div class="actions">
+      <button class="secondaire" onclick="fermerModalAntecedent()">Annuler</button>
+      <button onclick="sauverModalAntecedent()">💾 Enregistrer</button>
+    </div>
+    <div id="modal-antecedent-statut"></div>
+  </div>
+</div>
 
 <script>
 // ==========================================
@@ -874,6 +980,7 @@ const vues = {
   tickets: chargerTickets,
   giveaways: chargerGiveaways,
   backup: null,
+  antecedents: function() { chargerConfigAntecedents(); chargerAntecedents(0); }, // NOUVEAU
 };
 
 tabs.forEach(tab => tab.addEventListener('click', () => {
@@ -990,7 +1097,7 @@ function getServiceStatus(userId) {
 }
 
 // ==========================================
-// SERVICE
+// SERVICE (inchangé)
 // ==========================================
 async function chargerService() {
   await loadServiceStatuses();
@@ -1184,7 +1291,7 @@ async function chargerServiceMembre() {
 }
 
 // ==========================================
-// INTERVENTIONS
+// INTERVENTIONS (inchangé)
 // ==========================================
 async function chargerInterventionsStats() {
   try {
@@ -1287,7 +1394,7 @@ async function chargerInterventionsMembre() {
 }
 
 // ==========================================
-// RAPPORTS
+// RAPPORTS (inchangé)
 // ==========================================
 async function chargerRapportsStats() {
   try {
@@ -1384,7 +1491,7 @@ async function chargerRapportsMembre() {
 }
 
 // ==========================================
-// MODERATION
+// MODERATION (inchangé)
 // ==========================================
 let rechercheTimeout;
 
@@ -1545,7 +1652,7 @@ async function timeoutMembre(userId) {
 }
 
 // ==========================================
-// SALONS
+// SALONS (inchangé)
 // ==========================================
 async function chargerSalonsListe() {
   try {
@@ -1590,7 +1697,7 @@ async function supprimerSalon(id) {
 }
 
 // ==========================================
-// ROLES
+// ROLES (inchangé)
 // ==========================================
 async function chargerRolesListe() {
   try {
@@ -1635,7 +1742,7 @@ async function supprimerRole(id) {
 }
 
 // ==========================================
-// BIENVENUE / PARAMETRES (avec CASES À COCHER)
+// BIENVENUE / PARAMETRES (inchangé)
 // ==========================================
 async function chargerParametres() {
   try {
@@ -1714,7 +1821,7 @@ async function sauverParametres() {
 }
 
 // ==========================================
-// CANDIDATURES (CASES À COCHER)
+// CANDIDATURES (inchangé)
 // ==========================================
 function genererCheckboxes(containerId, selectedIds, roles) {
   const container = document.getElementById(containerId);
@@ -1811,7 +1918,7 @@ async function sauverCandidatures() {
 }
 
 // ==========================================
-// HISTORIQUE
+// HISTORIQUE (inchangé)
 // ==========================================
 let histTimeout;
 function chargerHistorique() {
@@ -1840,7 +1947,7 @@ function chargerHistorique() {
 }
 
 // ==========================================
-// ANNONCES
+// ANNONCES (inchangé)
 // ==========================================
 async function chargerSalons() {
   try {
@@ -1881,7 +1988,7 @@ async function envoyerEmbed() {
 }
 
 // ==========================================
-// TICKETS
+// TICKETS (inchangé)
 // ==========================================
 async function chargerTickets() {
   try {
@@ -1957,7 +2064,7 @@ async function fermerTicket(userId) {
 }
 
 // ==========================================
-// GIVEAWAYS
+// GIVEAWAYS (inchangé)
 // ==========================================
 async function chargerGiveaways() {
   try {
@@ -2023,7 +2130,7 @@ async function terminerGiveawayPanel(id) {
 }
 
 // ==========================================
-// BACKUP
+// BACKUP (inchangé)
 // ==========================================
 function exporterBackup() {
   window.location.href = '/api/backup';
@@ -2048,6 +2155,264 @@ async function importerBackup() {
     console.error('Erreur import backup:', e);
     statut.textContent = '❌ Fichier invalide';
     statut.className = 'msg-err';
+  }
+}
+
+// ==========================================
+// ANTÉCÉDENTS (NOUVEAU)
+// ==========================================
+let antecedentsPage = 0;
+const antecedentsLimit = 20;
+
+// Charger la configuration du module
+async function chargerConfigAntecedents() {
+  try {
+    const [configRes, rolesRes, salonsRes] = await Promise.all([
+      fetch('/api/antecedents/config'),
+      fetch('/api/roles'),
+      fetch('/api/channels')
+    ]);
+    const config = await configRes.json();
+    const roles = await rolesRes.json();
+    const salons = await salonsRes.json();
+
+    const select = document.getElementById('antecedents-salon');
+    select.innerHTML = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
+    select.value = config.channelId || '';
+
+    document.getElementById('antecedents-actif').checked = !!config.enabled;
+
+    const container = document.getElementById('antecedents-roles-container');
+    const allowed = config.allowedRoles || [];
+    if (roles.length === 0) {
+      container.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+    } else {
+      container.innerHTML = roles.map(r => `
+        <label>
+          <input type="checkbox" value="${r.id}" ${allowed.includes(r.id) ? 'checked' : ''} />
+          <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
+          ${escapeHTML(r.name)}
+        </label>
+      `).join('');
+    }
+  } catch (e) {
+    console.error('Erreur chargement config antécédents:', e);
+  }
+}
+
+// Sauvegarder la configuration
+async function sauverConfigAntecedents() {
+  const statut = document.getElementById('antecedents-config-statut');
+  const enabled = document.getElementById('antecedents-actif').checked;
+  const channelId = document.getElementById('antecedents-salon').value;
+  const checkboxes = document.querySelectorAll('#antecedents-roles-container input[type="checkbox"]:checked');
+  const allowedRoles = Array.from(checkboxes).map(cb => cb.value);
+
+  try {
+    const res = await fetch('/api/antecedents/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, channelId, allowedRoles })
+    });
+    if (res.ok) {
+      statut.textContent = '✅ Configuration enregistrée';
+      statut.className = 'msg-ok';
+    } else {
+      statut.textContent = '❌ Erreur lors de l\'enregistrement';
+      statut.className = 'msg-err';
+    }
+  } catch (e) {
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// Charger la liste des antécédents
+async function chargerAntecedents(page = 0) {
+  antecedentsPage = page;
+  const q = document.getElementById('antecedents-recherche').value.trim();
+  const offset = page * antecedentsLimit;
+  const url = `/api/antecedents?q=${encodeURIComponent(q)}&limit=${antecedentsLimit}&offset=${offset}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const container = document.getElementById('antecedents-liste');
+    if (data.data.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun antécédent trouvé.</p>';
+    } else {
+      container.innerHTML = data.data.map(a => `
+        <div class="carte" style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div style="font-weight:600;">👤 ${escapeHTML(a.patientNom)}</div>
+              <div style="font-size:13px;color:var(--text-dim);">🩺 ${escapeHTML(a.type)}</div>
+            </div>
+            <div style="font-size:12px;color:var(--text-faint);">
+              Créé le ${new Date(a.dateCreation).toLocaleString('fr-FR')}<br>
+              par ${escapeHTML(a.auteurTag)}
+            </div>
+          </div>
+          <div style="margin-top:8px;font-size:13px;">
+            ${a.description ? `📝 ${escapeHTML(a.description)}<br>` : ''}
+            ${a.allergies ? `⚠️ Allergies : ${escapeHTML(a.allergies)}<br>` : ''}
+            ${a.traitements ? `💊 Traitements : ${escapeHTML(a.traitements)}<br>` : ''}
+            ${a.maladiesChroniques ? `🩺 Maladies chroniques : ${escapeHTML(a.maladiesChroniques)}<br>` : ''}
+            ${a.operations ? `🔬 Opérations : ${escapeHTML(a.operations)}<br>` : ''}
+            ${a.observations ? `📋 Observations : ${escapeHTML(a.observations)}` : ''}
+          </div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="petit secondaire" onclick="ouvrirModalModifAntecedent('${a.id}')">✏️ Modifier</button>
+            <button class="petit danger" onclick="supprimerAntecedent('${a.id}')">🗑️ Supprimer</button>
+            <button class="petit secondaire" onclick="voirHistoriqueAntecedent('${a.id}')">📜 Historique</button>
+          </div>
+        </div>
+      `).join('');
+    }
+    // Pagination
+    const pagination = document.getElementById('antecedents-pagination');
+    const totalPages = Math.ceil(data.total / antecedentsLimit);
+    let paginationHtml = '';
+    if (totalPages > 1) {
+      for (let i = 0; i < totalPages; i++) {
+        paginationHtml += `<button class="tab-stats ${i === page ? 'actif' : ''}" onclick="chargerAntecedents(${i})">${i+1}</button>`;
+      }
+    }
+    pagination.innerHTML = paginationHtml;
+  } catch (e) {
+    console.error('Erreur chargement antécédents:', e);
+    document.getElementById('antecedents-liste').innerHTML = '<p style="color:var(--err);">❌ Erreur de chargement</p>';
+  }
+}
+
+// Ouvrir modal d'ajout
+function ouvrirModalAjoutAntecedent() {
+  document.getElementById('modal-antecedent-titre').textContent = '🩺 Ajouter un antécédent';
+  document.getElementById('modal-antecedent-id').value = '';
+  document.getElementById('modal-patient').value = '';
+  document.getElementById('modal-type').value = '';
+  document.getElementById('modal-description').value = '';
+  document.getElementById('modal-allergies').value = '';
+  document.getElementById('modal-traitements').value = '';
+  document.getElementById('modal-maladies').value = '';
+  document.getElementById('modal-operations').value = '';
+  document.getElementById('modal-observations').value = '';
+  document.getElementById('modal-antecedent-statut').textContent = '';
+  document.getElementById('modal-antecedent').classList.add('visible');
+}
+
+// Ouvrir modal de modification
+async function ouvrirModalModifAntecedent(id) {
+  try {
+    const res = await fetch(`/api/antecedents/${id}`);
+    if (!res.ok) throw new Error('Antécédent introuvable');
+    const data = await res.json();
+    document.getElementById('modal-antecedent-titre').textContent = '✏️ Modifier un antécédent';
+    document.getElementById('modal-antecedent-id').value = id;
+    document.getElementById('modal-patient').value = data.patientNom || '';
+    document.getElementById('modal-type').value = data.type || '';
+    document.getElementById('modal-description').value = data.description || '';
+    document.getElementById('modal-allergies').value = data.allergies || '';
+    document.getElementById('modal-traitements').value = data.traitements || '';
+    document.getElementById('modal-maladies').value = data.maladiesChroniques || '';
+    document.getElementById('modal-operations').value = data.operations || '';
+    document.getElementById('modal-observations').value = data.observations || '';
+    document.getElementById('modal-antecedent-statut').textContent = '';
+    document.getElementById('modal-antecedent').classList.add('visible');
+  } catch (e) {
+    alert('❌ Erreur lors du chargement de l\'antécédent.');
+  }
+}
+
+function fermerModalAntecedent() {
+  document.getElementById('modal-antecedent').classList.remove('visible');
+}
+
+// Sauvegarder le modal (ajout ou modification)
+async function sauverModalAntecedent() {
+  const statut = document.getElementById('modal-antecedent-statut');
+  const id = document.getElementById('modal-antecedent-id').value;
+  const patientNom = document.getElementById('modal-patient').value.trim();
+  const type = document.getElementById('modal-type').value.trim();
+  const description = document.getElementById('modal-description').value.trim();
+  const allergies = document.getElementById('modal-allergies').value.trim();
+  const traitements = document.getElementById('modal-traitements').value.trim();
+  const maladies = document.getElementById('modal-maladies').value.trim();
+  const operations = document.getElementById('modal-operations').value.trim();
+  const observations = document.getElementById('modal-observations').value.trim();
+
+  if (!patientNom || !type) {
+    statut.textContent = '❌ Le nom du patient et le type sont requis.';
+    statut.className = 'msg-err';
+    return;
+  }
+
+  try {
+    let url, method, body;
+    if (id) {
+      // Modification
+      url = `/api/antecedents/${id}`;
+      method = 'PUT';
+      body = JSON.stringify({ type, description, allergies, traitements, maladiesChroniques: maladies, operations, observations });
+    } else {
+      // Ajout
+      url = '/api/antecedents';
+      method = 'POST';
+      body = JSON.stringify({ patientNom, type, description, allergies, traitements, maladiesChroniques: maladies, operations, observations });
+    }
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body
+    });
+    if (res.ok) {
+      statut.textContent = id ? '✅ Antécédent modifié' : '✅ Antécédent ajouté';
+      statut.className = 'msg-ok';
+      jouerSon();
+      fermerModalAntecedent();
+      chargerAntecedents(antecedentsPage);
+    } else {
+      const err = await res.json();
+      statut.textContent = '❌ ' + (err.erreur || 'Erreur');
+      statut.className = 'msg-err';
+    }
+  } catch (e) {
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+  }
+}
+
+// Supprimer un antécédent
+async function supprimerAntecedent(id) {
+  if (!confirm('Supprimer définitivement cet antécédent ?')) return;
+  try {
+    const res = await fetch(`/api/antecedents/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      jouerSon();
+      chargerAntecedents(antecedentsPage);
+    } else {
+      alert('❌ Erreur lors de la suppression.');
+    }
+  } catch (e) {
+    alert('❌ Erreur');
+  }
+}
+
+// Voir l'historique des modifications
+async function voirHistoriqueAntecedent(id) {
+  try {
+    const res = await fetch(`/api/antecedents/${id}/historique`);
+    const hist = await res.json();
+    if (!hist || hist.length === 0) {
+      alert('Aucune modification enregistrée pour cet antécédent.');
+      return;
+    }
+    const message = hist.map(h => 
+      `📅 ${new Date(h.date).toLocaleString('fr-FR')} par ${h.auteurTag}\n` +
+      `  ${h.champ} : "${h.ancienneValeur}" → "${h.nouvelleValeur}"`
+    ).join('\n\n');
+    alert(`📜 Historique des modifications :\n\n${message}`);
+  } catch (e) {
+    alert('❌ Erreur lors du chargement de l\'historique.');
   }
 }
 
