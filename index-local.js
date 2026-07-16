@@ -105,6 +105,11 @@ const ANTECEDENTS_FILE = path.join(DATA_DIR, "antecedents.json");
 const RESET_HISTORY_FILE = path.join(DATA_DIR, "resetHistory.json");
 
 // ==============================
+// CACHE UTILISATEURS (pour les pseudos manquants)
+// ==============================
+const userCache = new Map();
+
+// ==============================
 // FONCTIONS DE LECTURE/ÉCRITURE
 // ==============================
 function lire(fichier, defaut) {
@@ -496,6 +501,59 @@ function getTopRapports(limit = 10) {
   cachedRapportTop = top;
   cacheDirty = false;
   return top.slice(0, limit);
+}
+
+// ==============================
+// FONCTION UTILITAIRE POUR RÉCUPÉRER UN UTILISATEUR AVEC CACHE
+// ==============================
+async function fetchUserWithCache(userId) {
+  if (userCache.has(userId)) return userCache.get(userId);
+  try {
+    const user = await client.users.fetch(userId);
+    const data = {
+      username: user.username,
+      displayName: user.username,
+      avatar: user.displayAvatarURL(),
+      guildId: GUILD_ID
+    };
+    userCache.set(userId, data);
+    return data;
+  } catch {
+    const fallback = { username: userId, displayName: userId, avatar: null, guildId: GUILD_ID };
+    userCache.set(userId, fallback);
+    return fallback;
+  }
+}
+
+// ==============================
+// MIGRATION DES DONNÉES EXISTANTES POUR AJOUTER userInfo
+// ==============================
+async function migrerUserInfo() {
+  const usersToFetch = new Set();
+  for (const iv of interventions) {
+    if (!iv.userInfo || !iv.userInfo.username) usersToFetch.add(iv.userId);
+  }
+  for (const r of rapports) {
+    if (!r.userInfo || !r.userInfo.username) usersToFetch.add(r.userId);
+  }
+  if (usersToFetch.size === 0) return;
+  console.log(`🔄 Migration userInfo pour ${usersToFetch.size} utilisateurs...`);
+  for (const userId of usersToFetch) {
+    const info = await fetchUserWithCache(userId);
+    for (const iv of interventions) {
+      if (iv.userId === userId && (!iv.userInfo || !iv.userInfo.username)) {
+        iv.userInfo = info;
+      }
+    }
+    for (const r of rapports) {
+      if (r.userId === userId && (!r.userInfo || !r.userInfo.username)) {
+        r.userInfo = info;
+      }
+    }
+  }
+  sauverInterventions();
+  sauverRapports();
+  console.log(`✅ Migration userInfo terminée.`);
 }
 
 function remplacerVariables(texte, vars) {
@@ -1064,6 +1122,9 @@ client.once("ready", async () => {
   isBotReady = true;
 
   nettoyerTimers();
+
+  // Migration des userInfo manquants
+  await migrerUserInfo();
 
   for (const g of Object.values(giveaways)) {
     if (!g.ended) planifierFinGiveaway(g);
@@ -1917,7 +1978,7 @@ function planifierFinGiveaway(g) {
 }
 
 // ==============================
-// GIVEAWAYS – GESTION DES RÉACTIONS (AJOUT)
+// GIVEAWAYS – GESTION DES RÉACTIONS
 // ==============================
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
@@ -2411,7 +2472,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     // ========================================
-    // BOUTONS TICKET (inchangé)
+    // BOUTONS TICKET
     // ========================================
     if (interaction.isButton()) {
       const customId = interaction.customId;
@@ -3420,9 +3481,16 @@ app.get("/api/interventions/stats", authRequis, (req, res) => {
   res.json(stats);
 });
 
-app.get("/api/interventions/top", authRequis, (req, res) => {
+app.get("/api/interventions/top", authRequis, async (req, res) => {
   const top = getTopInterventions(50);
-  res.json(top);
+  const enriched = await Promise.all(top.map(async (item) => {
+    if (!item.userInfo || !item.userInfo.username) {
+      const userInfo = await fetchUserWithCache(item.userId);
+      item.userInfo = userInfo;
+    }
+    return item;
+  }));
+  res.json(enriched);
 });
 
 app.get("/api/interventions/user/:id", authRequis, (req, res) => {
@@ -3443,9 +3511,16 @@ app.get("/api/rapports/stats", authRequis, (req, res) => {
   res.json({ total, users });
 });
 
-app.get("/api/rapports/top", authRequis, (req, res) => {
+app.get("/api/rapports/top", authRequis, async (req, res) => {
   const top = getTopRapports(50);
-  res.json(top);
+  const enriched = await Promise.all(top.map(async (item) => {
+    if (!item.userInfo || !item.userInfo.username) {
+      const userInfo = await fetchUserWithCache(item.userId);
+      item.userInfo = userInfo;
+    }
+    return item;
+  }));
+  res.json(enriched);
 });
 
 app.get("/api/rapports/user/:id", authRequis, (req, res) => {
