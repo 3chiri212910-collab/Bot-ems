@@ -1,3 +1,28 @@
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  ChannelType,
+  PermissionsBitField,
+  SlashCommandBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  UserSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  REST,
+  Routes,
+} = require("discord.js");
+const express = require("express");
+const session = require("express-session");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 // ==============================
 // CHARGEMENT SITUATIONS
 // ==============================
