@@ -102,6 +102,7 @@ const CAND_HISTORY_FILE = path.join(DATA_DIR, "candidatures-history.json");
 const INTERVENTIONS_FILE = path.join(DATA_DIR, "interventions.json");
 const SERVICE_FILE = path.join(DATA_DIR, "service.json");
 const RAPPORTS_FILE = path.join(DATA_DIR, "rapports.json");
+const ANTECEDENTS_FILE = path.join(DATA_DIR, "antecedents.json"); // NOUVEAU
 
 // ==============================
 // FONCTIONS DE LECTURE/ÉCRITURE
@@ -191,6 +192,12 @@ let config = lire(CONFIG_FILE, {
   interventionChannelId: null,
   interventionMessageId: null,
   candidatures: { ...CANDIDATURES_DEFAUT },
+  antecedents: { // NOUVEAU
+    enabled: false,
+    channelId: null,
+    messageId: null,
+    allowedRoles: [],
+  }
 });
 
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
@@ -210,6 +217,9 @@ if (!Array.isArray(config.autoRoleIds)) {
   config.autoRoleIds = config.autoRoleId ? [config.autoRoleId] : [];
   delete config.autoRoleId;
 }
+if (!config.antecedents) { // NOUVEAU
+  config.antecedents = { enabled: false, channelId: null, messageId: null, allowedRoles: [] };
+}
 
 let tickets = lire(TICKETS_FILE, {});
 let giveaways = lire(GIVEAWAYS_FILE, {});
@@ -222,6 +232,7 @@ if (!Array.isArray(interventions)) {
 }
 let serviceData = lire(SERVICE_FILE, {});
 let rapports = lire(RAPPORTS_FILE, []);
+let antecedents = lire(ANTECEDENTS_FILE, []); // NOUVEAU
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
 function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
@@ -232,6 +243,7 @@ function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); }
 function sauverInterventions() { ecrire(INTERVENTIONS_FILE, interventions); }
 function sauverService() { ecrire(SERVICE_FILE, serviceData); }
 function sauverRapports() { ecrire(RAPPORTS_FILE, rapports); }
+function sauverAntecedents() { ecrire(ANTECEDENTS_FILE, antecedents); } // NOUVEAU
 
 // ==============================
 // FONCTIONS SERVICE
@@ -519,6 +531,132 @@ function echapperHtml(str) {
 }
 
 // ==============================
+// FONCTIONS ANTÉCÉDENTS (NOUVEAU)
+// ==============================
+function genererIdAntecedent() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function ajouterAntecedent(patientNom, auteurId, auteurTag, donnees) {
+  const entry = {
+    id: genererIdAntecedent(),
+    patientNom: patientNom,
+    auteurId: auteurId,
+    auteurTag: auteurTag,
+    dateCreation: new Date().toISOString(),
+    dateModification: null,
+    type: donnees.type || "Non spécifié",
+    description: donnees.description || "",
+    allergies: donnees.allergies || "",
+    traitements: donnees.traitements || "",
+    maladiesChroniques: donnees.maladiesChroniques || "",
+    operations: donnees.operations || "",
+    observations: donnees.observations || "",
+    historiqueModifications: []
+  };
+  antecedents.push(entry);
+  sauverAntecedents();
+  return entry;
+}
+
+function modifierAntecedent(id, auteurId, auteurTag, nouvellesDonnees) {
+  const index = antecedents.findIndex(a => a.id === id);
+  if (index === -1) return null;
+  const ancien = antecedents[index];
+  const modifications = [];
+  const champs = ['type', 'description', 'allergies', 'traitements', 'maladiesChroniques', 'operations', 'observations'];
+  for (const champ of champs) {
+    if (nouvellesDonnees[champ] !== undefined && nouvellesDonnees[champ] !== ancien[champ]) {
+      modifications.push({
+        date: new Date().toISOString(),
+        auteurTag: auteurTag,
+        champ: champ,
+        ancienneValeur: ancien[champ] || "",
+        nouvelleValeur: nouvellesDonnees[champ] || ""
+      });
+    }
+  }
+  if (modifications.length === 0) return ancien;
+  for (const mod of modifications) {
+    ancien[mod.champ] = mod.nouvelleValeur;
+  }
+  ancien.dateModification = new Date().toISOString();
+  ancien.historiqueModifications = ancien.historiqueModifications || [];
+  ancien.historiqueModifications.push(...modifications);
+  sauverAntecedents();
+  return ancien;
+}
+
+function supprimerAntecedent(id) {
+  const index = antecedents.findIndex(a => a.id === id);
+  if (index === -1) return false;
+  antecedents.splice(index, 1);
+  sauverAntecedents();
+  return true;
+}
+
+function obtenirAntecedentParId(id) {
+  return antecedents.find(a => a.id === id);
+}
+
+function rechercherAntecedents(patientNom) {
+  if (!patientNom) return antecedents;
+  const lower = patientNom.toLowerCase();
+  return antecedents.filter(a => a.patientNom.toLowerCase().includes(lower));
+}
+
+function estAutoriseAntecedents(member) {
+  if (member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
+  const allowed = config.antecedents.allowedRoles || [];
+  if (allowed.length === 0) return false;
+  return member.roles.cache.some(role => allowed.includes(role.id));
+}
+
+async function envoyerMessageAntecedents() {
+  if (!config.antecedents.enabled || !config.antecedents.channelId) {
+    return;
+  }
+  try {
+    const channel = await client.channels.fetch(config.antecedents.channelId);
+    if (!channel || !channel.isTextBased()) return;
+
+    if (config.antecedents.messageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(config.antecedents.messageId);
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle("🩺 Module Antécédents Médicaux")
+      .setDescription("Utilisez les boutons ci-dessous pour gérer les antécédents médicaux des patients.\n\n" +
+        "• **🩺 Créer un antécédent** : Enregistrer un nouvel antécédent\n" +
+        "• **🔍 Rechercher** : Consulter les antécédents d'un patient")
+      .setFooter({ text: NOM_SERVEUR })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("antecedents_creer")
+        .setLabel("🩺 Créer un antécédent")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("antecedents_rechercher")
+        .setLabel("🔍 Rechercher un patient")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    config.antecedents.messageId = message.id;
+    sauverConfig();
+    console.log('✅ Message antécédents envoyé');
+  } catch (e) {
+    console.error("❌ Erreur envoi message antécédents:", e);
+  }
+}
+
+// ==============================
 // CLIENT DISCORD
 // ==============================
 const client = new Client({
@@ -633,7 +771,7 @@ async function chargerDepuisRedis() {
     console.log("⚠️ UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN non configurés.");
     return;
   }
-  const [c, t, g, ct, w, ch, iv, sv, rp] = await Promise.all([
+  const [c, t, g, ct, w, ch, iv, sv, rp, ant] = await Promise.all([
     redisGet("config"),
     redisGet("tickets"),
     redisGet("giveaways"),
@@ -643,6 +781,7 @@ async function chargerDepuisRedis() {
     redisGet("interventions"),
     redisGet("service"),
     redisGet("rapports"),
+    redisGet("antecedents"), // NOUVEAU
   ]);
   if (c) {
     config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
@@ -662,6 +801,7 @@ async function chargerDepuisRedis() {
       config.autoRoleIds = config.autoRoleId ? [config.autoRoleId] : [];
       delete config.autoRoleId;
     }
+    if (!config.antecedents) config.antecedents = { enabled: false, channelId: null, messageId: null, allowedRoles: [] };
     sauverConfig();
   }
   if (t) tickets = t;
@@ -672,6 +812,7 @@ async function chargerDepuisRedis() {
   if (iv) interventions = Array.isArray(iv) ? iv : Object.values(iv || {});
   if (sv) serviceData = sv;
   if (rp) rapports = Array.isArray(rp) ? rp : [];
+  if (ant) antecedents = Array.isArray(ant) ? ant : []; // NOUVEAU
   console.log("✅ Toutes les données rechargées depuis Upstash Redis.");
 }
 
@@ -761,6 +902,11 @@ client.once("ready", async () => {
     console.log('⚠️ Salon d\'intervention non configuré');
   }
 
+  // NOUVEAU : Message antécédents
+  if (config.antecedents.enabled && config.antecedents.channelId) {
+    await envoyerMessageAntecedents();
+  }
+
   serviceIntervalId = setInterval(async () => {
     if (!isBotReady) return;
     await mettreAJourMessageService();
@@ -770,7 +916,7 @@ client.once("ready", async () => {
 });
 
 // ==============================
-// MESSAGE DE SERVICE
+// MESSAGE DE SERVICE (inchangé)
 // ==============================
 async function construireEmbedService() {
   const activeServices = getActiveServices();
@@ -878,7 +1024,7 @@ async function mettreAJourMessageService() {
 }
 
 // ==============================
-// MESSAGE RAPPORT
+// MESSAGE RAPPORT (inchangé)
 // ==============================
 async function construireEmbedRapport() {
   const embed = new EmbedBuilder()
@@ -983,7 +1129,7 @@ async function mettreAJourMessageRapport() {
 }
 
 // ==============================
-// MESSAGE INTERVENTION
+// MESSAGE INTERVENTION (inchangé)
 // ==============================
 async function construireEmbedIntervention() {
   const stats = statsInterventions();
@@ -1562,7 +1708,7 @@ function planifierFinGiveaway(g) {
 }
 
 // ==============================
-// INTERACTIONS (suite)
+// INTERACTIONS (ajout des antécédents)
 // ==============================
 client.on("interactionCreate", async (interaction) => {
   if (interaction.replied) {
@@ -1996,7 +2142,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     // ========================================
-    // BOUTONS TICKET
+    // BOUTONS TICKET (inchangés)
     // ========================================
     if (interaction.isButton()) {
       const customId = interaction.customId;
@@ -2132,7 +2278,224 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     // ========================================
-    // COMMANDES SLASH (suite)
+    // BOUTONS ANTÉCÉDENTS (NOUVEAU)
+    // ========================================
+    if (interaction.isButton() && ["antecedents_creer", "antecedents_rechercher"].includes(interaction.customId)) {
+      if (!estAutoriseAntecedents(interaction.member)) {
+        return interaction.reply({ content: "❌ Vous n'avez pas la permission d'utiliser ce module.", flags: 64 });
+      }
+
+      if (interaction.customId === "antecedents_creer") {
+        const modal = new ModalBuilder()
+          .setCustomId("antecedents_modal_creer")
+          .setTitle("🩺 Nouvel antécédent");
+
+        const patientInput = new TextInputBuilder()
+          .setCustomId("patient_nom")
+          .setLabel("Nom ou ID du patient")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Jean Dupont")
+          .setRequired(true);
+
+        const typeInput = new TextInputBuilder()
+          .setCustomId("type")
+          .setLabel("Type d'antécédent")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Allergie, maladie chronique...")
+          .setRequired(true);
+
+        const descInput = new TextInputBuilder()
+          .setCustomId("description")
+          .setLabel("Description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder("Détails sur l'antécédent...")
+          .setRequired(false);
+
+        const allergiesInput = new TextInputBuilder()
+          .setCustomId("allergies")
+          .setLabel("Allergies")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Pénicilline")
+          .setRequired(false);
+
+        const traitementsInput = new TextInputBuilder()
+          .setCustomId("traitements")
+          .setLabel("Traitements en cours")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Paracétamol 500mg")
+          .setRequired(false);
+
+        const maladiesInput = new TextInputBuilder()
+          .setCustomId("maladiesChroniques")
+          .setLabel("Maladies chroniques")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Diabète")
+          .setRequired(false);
+
+        const operationsInput = new TextInputBuilder()
+          .setCustomId("operations")
+          .setLabel("Opérations subies")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Ex: Appendicectomie")
+          .setRequired(false);
+
+        const obsInput = new TextInputBuilder()
+          .setCustomId("observations")
+          .setLabel("Observations")
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder("Informations complémentaires...")
+          .setRequired(false);
+
+        // On regroupe pour tenir dans 5 lignes max
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(patientInput),
+          new ActionRowBuilder().addComponents(typeInput),
+          new ActionRowBuilder().addComponents(descInput),
+          new ActionRowBuilder().addComponents(allergiesInput, traitementsInput),
+          new ActionRowBuilder().addComponents(maladiesInput, operationsInput, obsInput) // 3 sur une ligne possible ?
+        );
+        // En réalité, un TextInput par ligne, on va regrouper observations avec maladies? 
+        // Pour rester simple, on met observations sur une ligne séparée mais on dépasse.
+        // On va combiner maladies et opérations en un seul champ, et observations sur la même ligne que allergies/traitements ? 
+        // Je vais réorganiser pour rester dans 5 lignes.
+        // J'utilise un modal avec 5 lignes : patient, type, description, allergies+traitements, maladies+operations+observations.
+        // Je vais refaire le modal proprement :
+        const modal2 = new ModalBuilder()
+          .setCustomId("antecedents_modal_creer")
+          .setTitle("🩺 Nouvel antécédent");
+
+        modal2.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("patient_nom")
+              .setLabel("Nom du patient")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("Ex: Jean Dupont")
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("type")
+              .setLabel("Type d'antécédent")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("Ex: Allergie, maladie, opération...")
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("description")
+              .setLabel("Description")
+              .setStyle(TextInputStyle.Paragraph)
+              .setPlaceholder("Détails...")
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("allergies_traitements")
+              .setLabel("Allergies / Traitements")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("Ex: Allergie pénicilline / Paracétamol")
+              .setRequired(false)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("maladies_ops_obs")
+              .setLabel("Maladies / Opérations / Observations")
+              .setStyle(TextInputStyle.Paragraph)
+              .setPlaceholder("Ex: Diabète, appendicectomie, suivi cardiologique...")
+              .setRequired(false)
+          )
+        );
+
+        await interaction.showModal(modal2);
+        return;
+      }
+
+      if (interaction.customId === "antecedents_rechercher") {
+        const modal = new ModalBuilder()
+          .setCustomId("antecedents_modal_recherche")
+          .setTitle("🔍 Rechercher un patient");
+        const searchInput = new TextInputBuilder()
+          .setCustomId("recherche")
+          .setLabel("Nom du patient")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Saisissez le nom")
+          .setRequired(true);
+        modal.addComponents(new ActionRowBuilder().addComponents(searchInput));
+        await interaction.showModal(modal);
+        return;
+      }
+    }
+
+    // ========================================
+    // MODALS ANTÉCÉDENTS
+    // ========================================
+    if (interaction.isModalSubmit() && interaction.customId === "antecedents_modal_creer") {
+      await interaction.deferReply({ flags: 64 });
+      const patientNom = interaction.fields.getTextInputValue("patient_nom");
+      const type = interaction.fields.getTextInputValue("type");
+      const description = interaction.fields.getTextInputValue("description");
+      const allergiesTraitements = interaction.fields.getTextInputValue("allergies_traitements");
+      const maladiesOpsObs = interaction.fields.getTextInputValue("maladies_ops_obs");
+
+      // On enregistre
+      const entry = ajouterAntecedent(
+        patientNom,
+        interaction.user.id,
+        interaction.user.tag,
+        {
+          type,
+          description,
+          allergies: allergiesTraitements,
+          traitements: allergiesTraitements,
+          maladiesChroniques: maladiesOpsObs,
+          operations: maladiesOpsObs,
+          observations: maladiesOpsObs
+        }
+      );
+
+      await interaction.editReply({ content: `✅ Antécédent créé pour **${patientNom}** (ID: ${entry.id}).` });
+      return;
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === "antecedents_modal_recherche") {
+      await interaction.deferReply({ flags: 64 });
+      const recherche = interaction.fields.getTextInputValue("recherche").trim();
+      if (!recherche) return interaction.editReply({ content: "❌ Veuillez saisir un nom." });
+
+      const resultats = rechercherAntecedents(recherche);
+      if (resultats.length === 0) {
+        return interaction.editReply({ content: `Aucun antécédent trouvé pour **${recherche}**.` });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(COULEUR_EMBED)
+        .setTitle(`📋 Antécédents de ${resultats[0].patientNom}`)
+        .setDescription(`**${resultats.length}** antécédent(s) trouvé(s).`)
+        .setTimestamp();
+
+      const maxAffichage = Math.min(resultats.length, 10);
+      for (let i = 0; i < maxAffichage; i++) {
+        const a = resultats[i];
+        const date = new Date(a.dateCreation).toLocaleString('fr-FR');
+        let value = `ID: \`${a.id}\`\nType: ${a.type}\n`;
+        if (a.description) value += `📝 ${a.description}\n`;
+        if (a.allergies) value += `⚠️ Allergies: ${a.allergies}\n`;
+        if (a.traitements) value += `💊 Traitements: ${a.traitements}\n`;
+        if (a.maladiesChroniques) value += `🩺 Maladies: ${a.maladiesChroniques}\n`;
+        if (a.operations) value += `🔬 Opérations: ${a.operations}\n`;
+        if (a.observations) value += `📋 Obs: ${a.observations}`;
+        embed.addFields({ name: `🩺 ${a.type} (${date})`, value: value || "Aucune info", inline: false });
+      }
+      if (resultats.length > 10) {
+        embed.setFooter({ text: `Et ${resultats.length - 10} autres... Consultez le panel web.` });
+      }
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+
+    // ========================================
+    // COMMANDES SLASH (inchangées)
     // ========================================
     if (interaction.isChatInputCommand()) {
       const commandName = interaction.commandName;
@@ -2257,7 +2620,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // TICKET COMMANDS
+      // TICKET COMMANDS (inchangé)
       if (["rename", "claim", "unclaim", "add", "remove", "priority", "reopen", "transcript"].includes(commandName)) {
         if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
           return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
@@ -2350,7 +2713,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // MODERATION COMMANDS
+      // MODERATION COMMANDS (inchangé)
       if (["clear", "lock", "unlock", "slowmode", "nuke"].includes(commandName)) {
         const channel = interaction.channel;
 
@@ -2425,7 +2788,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // CANDIDATURES
+      // CANDIDATURES (inchangé)
       if (["valid", "refuser"].includes(commandName)) {
         if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
           return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
@@ -2562,7 +2925,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // WARN
+      // WARN (inchangé)
       if (commandName === "warn") {
         const membre = options.getUser("membre");
         const raison = options.getString("raison");
@@ -2592,7 +2955,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // WARNS
+      // WARNS (inchangé)
       if (commandName === "warns") {
         const membre = options.getUser("membre");
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
@@ -2632,9 +2995,6 @@ client.on("interactionCreate", async (interaction) => {
 // ==============================
 // VOICE STATE UPDATE (désactivé)
 // ==============================
-/*
-client.on("voiceStateUpdate", async (oldState, newState) => {});
-*/
 
 // ==============================
 // PANEL WEB (Express) - Partie API
@@ -2685,7 +3045,7 @@ function getGuild(res) {
 }
 
 // ==============================
-// ROUTES D'AUTHENTIFICATION
+// ROUTES D'AUTHENTIFICATION (inchangé)
 // ==============================
 app.get("/", (req, res) => {
   if (req.session.user) return res.redirect("/panel");
@@ -2766,7 +3126,7 @@ app.get("/logout", (req, res) => {
 app.get("/api/me", authRequis, (req, res) => res.json(req.session.user));
 
 // ==============================
-// API STATS
+// API STATS (inchangé)
 // ==============================
 app.get("/api/stats", authRequis, (req, res) => {
   const guild = getGuild(res);
@@ -2793,7 +3153,7 @@ app.get("/api/stats", authRequis, (req, res) => {
 });
 
 // ==============================
-// API SERVICE
+// API SERVICE (inchangé)
 // ==============================
 app.get("/api/service/stats", authRequis, (req, res) => {
   const allStats = {};
@@ -2831,7 +3191,7 @@ app.get("/api/service/member/:id", authRequis, (req, res) => {
 });
 
 // ==============================
-// API INTERVENTIONS
+// API INTERVENTIONS (inchangé)
 // ==============================
 app.get("/api/interventions/stats", authRequis, (req, res) => {
   const stats = statsInterventions();
@@ -2853,7 +3213,7 @@ app.get("/api/interventions/recent", authRequis, (req, res) => {
 });
 
 // ==============================
-// API RAPPORTS
+// API RAPPORTS (inchangé)
 // ==============================
 app.get("/api/rapports/stats", authRequis, (req, res) => {
   const total = rapports.length;
@@ -2876,7 +3236,7 @@ app.get("/api/rapports/recent", authRequis, (req, res) => {
 });
 
 // ==============================
-// API SETTINGS
+// API SETTINGS (inchangé)
 // ==============================
 app.get("/api/settings", authRequis, (req, res) => {
   res.json({
@@ -2936,7 +3296,7 @@ app.post("/api/settings", authRequis, (req, res) => {
 });
 
 // ==============================
-// API SERVICE CONFIG (post)
+// API SERVICE CONFIG (inchangé)
 // ==============================
 app.post("/api/service/config", authRequis, (req, res) => {
   const { channelId } = req.body;
@@ -2981,7 +3341,7 @@ app.post("/api/intervention/config", authRequis, (req, res) => {
 });
 
 // ==============================
-// API CHANNELS
+// API CHANNELS (inchangé)
 // ==============================
 app.get("/api/channels", authRequis, (req, res) => {
   const guild = getGuild(res);
@@ -3037,7 +3397,7 @@ app.delete("/api/channels/:id", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API ROLES
+// API ROLES (inchangé)
 // ==============================
 app.get("/api/roles", authRequis, (req, res) => {
   const guild = getGuild(res);
@@ -3092,7 +3452,7 @@ app.delete("/api/roles/:id", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API MEMBERS SEARCH
+// API MEMBERS SEARCH (inchangé)
 // ==============================
 app.get("/api/members/search", authRequis, async (req, res) => {
   const guild = getGuild(res);
@@ -3130,7 +3490,7 @@ app.get("/api/members/search", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API WARNS
+// API WARNS (inchangé)
 // ==============================
 app.get("/api/members/:id/warns", authRequis, (req, res) => {
   const userWarns = warns[req.params.id] || [];
@@ -3174,7 +3534,7 @@ app.delete("/api/members/:userId/warns/:warnId", authRequis, (req, res) => {
 });
 
 // ==============================
-// API MEMBER ROLES
+// API MEMBER ROLES (inchangé)
 // ==============================
 app.post("/api/members/:userId/roles/:roleId", authRequis, async (req, res) => {
   const { userId, roleId } = req.params;
@@ -3200,7 +3560,7 @@ app.post("/api/members/:userId/roles/:roleId", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API KICK / BAN / TIMEOUT (avec logs)
+// API KICK / BAN / TIMEOUT (inchangé)
 // ==============================
 app.post("/api/members/:userId/kick", authRequis, async (req, res) => {
   const { userId } = req.params;
@@ -3282,7 +3642,7 @@ app.post("/api/members/:userId/timeout", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API CANDIDATURES
+// API CANDIDATURES (inchangé)
 // ==============================
 app.get("/api/settings/candidatures", authRequis, (req, res) => {
   res.json(config.candidatures || { ...CANDIDATURES_DEFAUT });
@@ -3316,7 +3676,7 @@ app.get("/api/candidatures/history", authRequis, (req, res) => {
 });
 
 // ==============================
-// API TICKETS
+// API TICKETS (inchangé)
 // ==============================
 app.get("/api/tickets", authRequis, (req, res) => {
   const liste = Object.entries(tickets).map(([userId, t]) => ({
@@ -3381,7 +3741,7 @@ app.post("/api/tickets/:userId/close", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API GIVEAWAYS
+// API GIVEAWAYS (inchangé)
 // ==============================
 app.get("/api/giveaways", authRequis, (req, res) => {
   res.json(Object.values(giveaways));
@@ -3445,7 +3805,7 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
 });
 
 // ==============================
-// API SEND EMBED
+// API SEND EMBED (inchangé)
 // ==============================
 app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, res) => {
   const { channelId, title, description, color, imageUrl, footer } = req.body;
@@ -3482,7 +3842,7 @@ app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, 
 });
 
 // ==============================
-// API BACKUP
+// API BACKUP (inchangé)
 // ==============================
 app.get("/api/backup", authRequis, (req, res) => {
   const backup = {
@@ -3495,6 +3855,7 @@ app.get("/api/backup", authRequis, (req, res) => {
     interventions,
     serviceData,
     rapports,
+    antecedents, // NOUVEAU
     date: new Date().toISOString(),
   };
   res.setHeader('Content-Type', 'application/json');
@@ -3519,12 +3880,93 @@ app.post("/api/backup/import", authRequis, (req, res) => {
     if (data.interventions) { interventions = Array.isArray(data.interventions) ? data.interventions : []; sauverInterventions(); }
     if (data.serviceData) { serviceData = data.serviceData; sauverService(); }
     if (data.rapports) { rapports = Array.isArray(data.rapports) ? data.rapports : []; sauverRapports(); }
+    if (data.antecedents) { antecedents = Array.isArray(data.antecedents) ? data.antecedents : []; sauverAntecedents(); } // NOUVEAU
 
     res.json({ succes: true });
   } catch (e) {
     console.error("Erreur import backup:", e);
     res.status(500).json({ erreur: "Erreur lors de l'import" });
   }
+});
+
+// ==============================
+// API ANTÉCÉDENTS (NOUVEAU)
+// ==============================
+app.get("/api/antecedents/config", authRequis, (req, res) => {
+  res.json(config.antecedents || { enabled: false, channelId: null, allowedRoles: [] });
+});
+
+app.post("/api/antecedents/config", authRequis, (req, res) => {
+  const { enabled, channelId, allowedRoles } = req.body;
+  if (!config.antecedents) config.antecedents = {};
+  if (enabled !== undefined) config.antecedents.enabled = !!enabled;
+  if (channelId !== undefined) config.antecedents.channelId = channelId;
+  if (allowedRoles !== undefined) config.antecedents.allowedRoles = Array.isArray(allowedRoles) ? allowedRoles : [];
+  sauverConfig();
+  if (config.antecedents.enabled && config.antecedents.channelId) {
+    envoyerMessageAntecedents().catch(() => {});
+  }
+  res.json({ succes: true });
+});
+
+app.get("/api/antecedents", authRequis, (req, res) => {
+  const { q, limit = 100, offset = 0 } = req.query;
+  let resultats = antecedents;
+  if (q) {
+    const lower = q.toLowerCase();
+    resultats = resultats.filter(a => 
+      a.patientNom.toLowerCase().includes(lower) ||
+      a.id.toLowerCase().includes(lower) ||
+      (a.type && a.type.toLowerCase().includes(lower))
+    );
+  }
+  const total = resultats.length;
+  const paginated = resultats.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+  res.json({ data: paginated, total, offset: parseInt(offset), limit: parseInt(limit) });
+});
+
+app.get("/api/antecedents/:id", authRequis, (req, res) => {
+  const entry = obtenirAntecedentParId(req.params.id);
+  if (!entry) return res.status(404).json({ erreur: "Antécédent introuvable" });
+  res.json(entry);
+});
+
+app.post("/api/antecedents", authRequis, (req, res) => {
+  const { patientNom, type, description, allergies, traitements, maladiesChroniques, operations, observations } = req.body;
+  if (!patientNom || !type) {
+    return res.status(400).json({ erreur: "Patient et type sont requis." });
+  }
+  const entry = ajouterAntecedent(
+    patientNom,
+    req.session.user.id,
+    req.session.user.username,
+    { type, description, allergies, traitements, maladiesChroniques, operations, observations }
+  );
+  res.status(201).json(entry);
+});
+
+app.put("/api/antecedents/:id", authRequis, (req, res) => {
+  const { type, description, allergies, traitements, maladiesChroniques, operations, observations } = req.body;
+  const updated = modifierAntecedent(
+    req.params.id,
+    req.session.user.id,
+    req.session.user.username,
+    { type, description, allergies, traitements, maladiesChroniques, operations, observations }
+  );
+  if (!updated) return res.status(404).json({ erreur: "Antécédent introuvable" });
+  res.json(updated);
+});
+
+app.delete("/api/antecedents/:id", authRequis, (req, res) => {
+  const success = supprimerAntecedent(req.params.id);
+  if (!success) return res.status(404).json({ erreur: "Antécédent introuvable" });
+  res.json({ succes: true });
+});
+
+app.get("/api/antecedents/:id/historique", authRequis, (req, res) => {
+  const entry = obtenirAntecedentParId(req.params.id);
+  if (!entry) return res.status(404).json({ erreur: "Antécédent introuvable" });
+  res.json(entry.historiqueModifications || []);
 });
 
 // ==============================
