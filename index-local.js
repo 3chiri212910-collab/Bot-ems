@@ -1,3 +1,8 @@
+// ============================================================
+//  index.js – Bot Discord + API REST pour le panel EMS
+//  Version complète avec logs de départ (leave/kick/ban)
+// ============================================================
+
 const {
   Client,
   GatewayIntentBits,
@@ -23,14 +28,16 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const rateLimit = require("express-rate-limit");
+
 // ==============================
-// CHARGEMENT SITUATIONS
+// CHARGEMENT DU MODULE SITUATIONS (externe)
 // ==============================
 let trouverSituation = (situation) => ({
   diagnostic: ["Non diagnostiqué"],
   prise_en_charge: ["Aucune prise en charge"],
   examen: "Examen non spécifié",
-  observations: "Aucune observation"
+  observations: "Aucune observation",
 });
 
 try {
@@ -44,7 +51,7 @@ try {
 }
 
 // ==============================
-// CONFIGURATION
+// VARIABLES D'ENVIRONNEMENT
 // ==============================
 const requiredEnv = ['TOKEN', 'CLIENT_ID', 'GUILD_ID', 'CLIENT_SECRET', 'DISCORD_REDIRECT_URI'];
 for (const key of requiredEnv) {
@@ -81,15 +88,15 @@ const NOM_SERVEUR = "EMS";
 const COULEUR_EMBED = "#ff2d78";
 
 // ==============================
-// UPLOAD
+// UPLOAD (multer)
 // ==============================
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 }
+  limits: { fileSize: 8 * 1024 * 1024 },
 });
 
 // ==============================
-// STOCKAGE
+// FICHIERS DE STOCKAGE
 // ==============================
 const DATA_DIR = __dirname;
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
@@ -105,12 +112,7 @@ const ANTECEDENTS_FILE = path.join(DATA_DIR, "antecedents.json");
 const RESET_HISTORY_FILE = path.join(DATA_DIR, "resetHistory.json");
 
 // ==============================
-// CACHE UTILISATEURS (pour les pseudos manquants)
-// ==============================
-const userCache = new Map();
-
-// ==============================
-// FONCTIONS DE LECTURE/ÉCRITURE
+// FONCTIONS DE LECTURE / ÉCRITURE (avec Redis)
 // ==============================
 function lire(fichier, defaut) {
   try {
@@ -152,7 +154,7 @@ async function redisSet(cle, valeur) {
       method: "POST",
       headers: {
         Authorization: `Bearer ${UPSTASH_TOKEN}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(valeur),
     });
@@ -162,7 +164,7 @@ async function redisSet(cle, valeur) {
 }
 
 // ==============================
-// CHARGEMENT DES DONNÉES
+// CHARGEMENT INITIAL DES DONNÉES
 // ==============================
 const CANDIDATURES_DEFAUT = {
   actif: false,
@@ -188,6 +190,7 @@ let config = lire(CONFIG_FILE, {
   ticketStaffChannelId: null,
   ticketLogsChannelId: null,
   modLogsChannelId: null,
+  leaveLogsChannelId: null, // NOUVEAU : salon pour les logs de départ
   ticketAutoCloseHours: 0,
   ticketCounter: 0,
   serviceChannelId: null,
@@ -206,24 +209,30 @@ let config = lire(CONFIG_FILE, {
   autoReset: {
     enabled: false,
     targets: [],
-    frequency: 'daily',
+    frequency: "daily",
     customInterval: 1,
-    customTime: '00:00',
-    nextReset: null
-  }
+    customTime: "00:00",
+    nextReset: null,
+  },
 });
 
 config.candidatures = { ...CANDIDATURES_DEFAUT, ...(config.candidatures || {}) };
 if (!Array.isArray(config.candidatures.rolesValid)) {
-  config.candidatures.rolesValid = config.candidatures.roleValid ? [config.candidatures.roleValid] : [];
+  config.candidatures.rolesValid = config.candidatures.roleValid
+    ? [config.candidatures.roleValid]
+    : [];
   delete config.candidatures.roleValid;
 }
 if (!Array.isArray(config.candidatures.rolesRefus)) {
-  config.candidatures.rolesRefus = config.candidatures.roleRefus ? [config.candidatures.roleRefus] : [];
+  config.candidatures.rolesRefus = config.candidatures.roleRefus
+    ? [config.candidatures.roleRefus]
+    : [];
   delete config.candidatures.roleRefus;
 }
 if (!Array.isArray(config.candidatures.rolesAttribution)) {
-  config.candidatures.rolesAttribution = config.candidatures.roleAValider ? [config.candidatures.roleAValider] : [];
+  config.candidatures.rolesAttribution = config.candidatures.roleAValider
+    ? [config.candidatures.roleAValider]
+    : [];
   delete config.candidatures.roleAValider;
 }
 if (!Array.isArray(config.autoRoleIds)) {
@@ -234,7 +243,14 @@ if (!config.antecedents) {
   config.antecedents = { enabled: false, channelId: null, messageId: null, allowedRoles: [] };
 }
 if (!config.autoReset) {
-  config.autoReset = { enabled: false, targets: [], frequency: 'daily', customInterval: 1, customTime: '00:00', nextReset: null };
+  config.autoReset = {
+    enabled: false,
+    targets: [],
+    frequency: "daily",
+    customInterval: 1,
+    customTime: "00:00",
+    nextReset: null,
+  };
 }
 
 let tickets = lire(TICKETS_FILE, {});
@@ -243,31 +259,110 @@ let closedTickets = lire(CLOSED_TICKETS_FILE, {});
 let warns = lire(WARNS_FILE, {});
 let candHistory = lire(CAND_HISTORY_FILE, []);
 let interventions = lire(INTERVENTIONS_FILE, []);
-if (!Array.isArray(interventions)) {
-  interventions = Object.values(interventions || {});
-}
+if (!Array.isArray(interventions)) interventions = Object.values(interventions || {});
 let serviceData = lire(SERVICE_FILE, {});
 let rapports = lire(RAPPORTS_FILE, []);
 let antecedents = lire(ANTECEDENTS_FILE, []);
 let resetHistory = lire(RESET_HISTORY_FILE, []);
 
-function sauverConfig() { ecrire(CONFIG_FILE, config); }
-function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
-function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
-function sauverClosedTickets() { ecrire(CLOSED_TICKETS_FILE, closedTickets); }
-function sauverWarns() { ecrire(WARNS_FILE, warns); }
-function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); }
-function sauverInterventions() { ecrire(INTERVENTIONS_FILE, interventions); }
-function sauverService() { ecrire(SERVICE_FILE, serviceData); }
-function sauverRapports() { ecrire(RAPPORTS_FILE, rapports); }
-function sauverAntecedents() { ecrire(ANTECEDENTS_FILE, antecedents); }
-function sauverResetHistory() { ecrire(RESET_HISTORY_FILE, resetHistory); }
+function sauverConfig() {
+  ecrire(CONFIG_FILE, config);
+}
+function sauverTickets() {
+  ecrire(TICKETS_FILE, tickets);
+}
+function sauverGiveaways() {
+  ecrire(GIVEAWAYS_FILE, giveaways);
+}
+function sauverClosedTickets() {
+  ecrire(CLOSED_TICKETS_FILE, closedTickets);
+}
+function sauverWarns() {
+  ecrire(WARNS_FILE, warns);
+}
+function sauverCandHistory() {
+  ecrire(CAND_HISTORY_FILE, candHistory);
+}
+function sauverInterventions() {
+  ecrire(INTERVENTIONS_FILE, interventions);
+}
+function sauverService() {
+  ecrire(SERVICE_FILE, serviceData);
+}
+function sauverRapports() {
+  ecrire(RAPPORTS_FILE, rapports);
+}
+function sauverAntecedents() {
+  ecrire(ANTECEDENTS_FILE, antecedents);
+}
+function sauverResetHistory() {
+  ecrire(RESET_HISTORY_FILE, resetHistory);
+}
 
 // ==============================
-// FONCTIONS SERVICE
+// CACHE UTILISATEURS (pour éviter trop d'appels API)
+// ==============================
+const userCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function fetchUserWithCache(userId) {
+  if (userCache.has(userId)) {
+    const entry = userCache.get(userId);
+    if (Date.now() - entry.timestamp < CACHE_TTL) return entry.data;
+  }
+  try {
+    const user = await client.users.fetch(userId);
+    const data = {
+      username: user.username,
+      displayName: user.username,
+      avatar: user.displayAvatarURL(),
+      guildId: GUILD_ID,
+    };
+    userCache.set(userId, { data, timestamp: Date.now() });
+    return data;
+  } catch {
+    const fallback = { username: userId, displayName: userId, avatar: null, guildId: GUILD_ID };
+    userCache.set(userId, { data: fallback, timestamp: Date.now() });
+    return fallback;
+  }
+}
+
+// ==============================
+// MIGRATION DES DONNÉES (userInfo manquants)
+// ==============================
+async function migrerUserInfo() {
+  const usersToFetch = new Set();
+  for (const iv of interventions) {
+    if (!iv.userInfo || !iv.userInfo.username) usersToFetch.add(iv.userId);
+  }
+  for (const r of rapports) {
+    if (!r.userInfo || !r.userInfo.username) usersToFetch.add(r.userId);
+  }
+  if (usersToFetch.size === 0) return;
+  console.log(`🔄 Migration userInfo pour ${usersToFetch.size} utilisateurs...`);
+  for (const userId of usersToFetch) {
+    const info = await fetchUserWithCache(userId);
+    for (const iv of interventions) {
+      if (iv.userId === userId && (!iv.userInfo || !iv.userInfo.username)) {
+        iv.userInfo = info;
+      }
+    }
+    for (const r of rapports) {
+      if (r.userId === userId && (!r.userInfo || !r.userInfo.username)) {
+        r.userInfo = info;
+      }
+    }
+  }
+  sauverInterventions();
+  sauverRapports();
+  console.log("✅ Migration userInfo terminée.");
+}
+
+// ==============================
+// FONCTIONS MÉTIER (service, stats, etc.)
 // ==============================
 function getJourSemaine(date) {
-  const jours = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const jours = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
   return jours[date.getDay()];
 }
 
@@ -286,7 +381,9 @@ function getServiceStatus(userId) {
   if (!data || !data.active) return null;
   const start = new Date(data.startTime);
   if (Date.now() - start.getTime() > 24 * 60 * 60 * 1000) {
-    (async () => { await stopService(userId); })();
+    (async () => {
+      await stopService(userId);
+    })();
     return null;
   }
   return data;
@@ -304,10 +401,12 @@ function getActiveServices() {
           startTime: data.startTime,
           lastPing: data.lastPing || data.startTime,
           totalTime: data.totalTime || 0,
-          weeklyTime: data.weeklyTime || 0
+          weeklyTime: data.weeklyTime || 0,
         });
       } else {
-        (async () => { await stopService(userId); })();
+        (async () => {
+          await stopService(userId);
+        })();
       }
     }
   }
@@ -323,10 +422,9 @@ async function startService(userId) {
       daily: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 },
       sessions: [],
       active: false,
-      userInfo: null
+      userInfo: null,
     };
   }
-  // Sauvegarder les infos utilisateur
   try {
     const user = await client.users.fetch(userId);
     const member = client.guilds.cache.get(GUILD_ID)?.members.cache.get(userId);
@@ -334,16 +432,13 @@ async function startService(userId) {
       username: user.username,
       displayName: member?.displayName || user.username,
       avatar: user.displayAvatarURL(),
-      guildId: GUILD_ID
+      guildId: GUILD_ID,
     };
   } catch (e) {}
-
   if (serviceData[userId].active) return null;
-
   serviceData[userId].active = true;
   serviceData[userId].startTime = now.toISOString();
   serviceData[userId].lastPing = now.toISOString();
-
   sauverService();
   return serviceData[userId];
 }
@@ -351,21 +446,17 @@ async function startService(userId) {
 async function stopService(userId) {
   const data = serviceData[userId];
   if (!data || !data.active) return null;
-
   const now = new Date();
   const start = new Date(data.startTime);
   const duration = Math.floor((now - start) / 1000);
-
   if (duration < 30) {
     data.active = false;
     sauverService();
     return { duration: 0, message: "Service trop court (moins de 30s)" };
   }
-
   data.active = false;
   data.endTime = now.toISOString();
   data.totalTime = (data.totalTime || 0) + duration;
-
   const debutSemaine = getDebutSemaine();
   const startDate = new Date(data.startTime);
   if (startDate >= debutSemaine) {
@@ -373,18 +464,23 @@ async function stopService(userId) {
   } else {
     data.weeklyTime = duration;
   }
-
   const jour = getJourSemaine(startDate);
-  data.daily = data.daily || { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 };
+  data.daily = data.daily || {
+    lundi: 0,
+    mardi: 0,
+    mercredi: 0,
+    jeudi: 0,
+    vendredi: 0,
+    samedi: 0,
+    dimanche: 0,
+  };
   data.daily[jour] = (data.daily[jour] || 0) + duration;
-
   if (!data.sessions) data.sessions = [];
   data.sessions.push({
     start: data.startTime,
     end: now.toISOString(),
-    duration: duration
+    duration: duration,
   });
-
   sauverService();
   return { duration };
 }
@@ -399,7 +495,7 @@ function getServiceStats(userId) {
     sessions: data.sessions || [],
     active: data.active || false,
     startTime: data.startTime || null,
-    userInfo: data.userInfo || null
+    userInfo: data.userInfo || null,
   };
 }
 
@@ -418,11 +514,11 @@ function recalculerWeeklyTime(userId) {
 }
 
 function getInterventionsByUser(userId) {
-  return interventions.filter(iv => iv.userId === userId);
+  return interventions.filter((iv) => iv.userId === userId);
 }
 
 function getRapportsByUser(userId) {
-  return rapports.filter(r => r.userId === userId);
+  return rapports.filter((r) => r.userId === userId);
 }
 
 // ==============================
@@ -460,7 +556,7 @@ function getTopWeeklyServices(limit = 10) {
     return { userId, weekly, ...data };
   });
   const top = items
-    .filter(item => item.weekly > 0)
+    .filter((item) => item.weekly > 0)
     .sort((a, b) => b.weekly - a.weekly)
     .map(({ userId, weekly }) => ({ userId, weeklyTime: weekly }));
   cachedServiceWeekly = top;
@@ -471,14 +567,13 @@ function getTopWeeklyServices(limit = 10) {
 function getTopInterventions(limit = 10) {
   if (!cacheDirty && cachedInterventionTop) return cachedInterventionTop.slice(0, limit);
   const counts = {};
-  interventions.forEach(iv => {
+  interventions.forEach((iv) => {
     counts[iv.userId] = (counts[iv.userId] || 0) + 1;
   });
   const top = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .map(([userId, count]) => {
-      // Récupérer userInfo du premier élément
-      const sample = interventions.find(iv => iv.userId === userId);
+      const sample = interventions.find((iv) => iv.userId === userId);
       return { userId, count, userInfo: sample?.userInfo || null };
     });
   cachedInterventionTop = top;
@@ -489,13 +584,13 @@ function getTopInterventions(limit = 10) {
 function getTopRapports(limit = 10) {
   if (!cacheDirty && cachedRapportTop) return cachedRapportTop.slice(0, limit);
   const counts = {};
-  rapports.forEach(r => {
+  rapports.forEach((r) => {
     counts[r.userId] = (counts[r.userId] || 0) + 1;
   });
   const top = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .map(([userId, count]) => {
-      const sample = rapports.find(r => r.userId === userId);
+      const sample = rapports.find((r) => r.userId === userId);
       return { userId, count, userInfo: sample?.userInfo || null };
     });
   cachedRapportTop = top;
@@ -504,58 +599,8 @@ function getTopRapports(limit = 10) {
 }
 
 // ==============================
-// FONCTION UTILITAIRE POUR RÉCUPÉRER UN UTILISATEUR AVEC CACHE
+// FONCTIONS UTILITAIRES
 // ==============================
-async function fetchUserWithCache(userId) {
-  if (userCache.has(userId)) return userCache.get(userId);
-  try {
-    const user = await client.users.fetch(userId);
-    const data = {
-      username: user.username,
-      displayName: user.username,
-      avatar: user.displayAvatarURL(),
-      guildId: GUILD_ID
-    };
-    userCache.set(userId, data);
-    return data;
-  } catch {
-    const fallback = { username: userId, displayName: userId, avatar: null, guildId: GUILD_ID };
-    userCache.set(userId, fallback);
-    return fallback;
-  }
-}
-
-// ==============================
-// MIGRATION DES DONNÉES EXISTANTES POUR AJOUTER userInfo
-// ==============================
-async function migrerUserInfo() {
-  const usersToFetch = new Set();
-  for (const iv of interventions) {
-    if (!iv.userInfo || !iv.userInfo.username) usersToFetch.add(iv.userId);
-  }
-  for (const r of rapports) {
-    if (!r.userInfo || !r.userInfo.username) usersToFetch.add(r.userId);
-  }
-  if (usersToFetch.size === 0) return;
-  console.log(`🔄 Migration userInfo pour ${usersToFetch.size} utilisateurs...`);
-  for (const userId of usersToFetch) {
-    const info = await fetchUserWithCache(userId);
-    for (const iv of interventions) {
-      if (iv.userId === userId && (!iv.userInfo || !iv.userInfo.username)) {
-        iv.userInfo = info;
-      }
-    }
-    for (const r of rapports) {
-      if (r.userId === userId && (!r.userInfo || !r.userInfo.username)) {
-        r.userInfo = info;
-      }
-    }
-  }
-  sauverInterventions();
-  sauverRapports();
-  console.log(`✅ Migration userInfo terminée.`);
-}
-
 function remplacerVariables(texte, vars) {
   return String(texte || "")
     .replaceAll("{user}", vars.user ?? "")
@@ -571,7 +616,7 @@ function remplacerVariables(texte, vars) {
 function estAutoriseCandidature(interaction, roleIds) {
   if (interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
   if (!roleIds || roleIds.length === 0) return false;
-  return roleIds.some(id => interaction.member.roles.cache.has(id));
+  return roleIds.some((id) => interaction.member.roles.cache.has(id));
 }
 
 function trouverUserIdParThread(threadId) {
@@ -588,7 +633,6 @@ function prochainNumeroTicket() {
 }
 
 const EMOJIS_PRIORITE = { basse: "🟢", normale: "🟡", haute: "🟠", urgente: "🔴" };
-
 const LABELS_TYPE_INTERVENTION = {
   accident_circulation: "🚗 Accident de circulation",
   arme: "🔫 Arme à feu / arme blanche",
@@ -599,7 +643,6 @@ const LABELS_TYPE_INTERVENTION = {
   malaise: "😵 Malaise",
   autre: "❓ Autre",
 };
-
 const LABELS_GRAVITE_INTERVENTION = {
   legere: "🟢 Légère",
   moyenne: "🟡 Moyenne",
@@ -617,13 +660,23 @@ function statsInterventions() {
     const mois = iv.date.slice(0, 7);
     parMois[mois] = (parMois[mois] || 0) + 1;
   }
-  const intervenants = new Set(interventions.map(iv => iv.userId)).size;
+  const intervenants = new Set(interventions.map((iv) => iv.userId)).size;
   return { total: interventions.length, intervenants, parType, parGravite, parMois };
 }
 
+// ==============================
+// FONCTIONS DE LOG DE MODÉRATION ET DÉPART
+// ==============================
 async function envoyerLogModeration(embed) {
   if (!config.modLogsChannelId) return;
   const salon = await client.channels.fetch(config.modLogsChannelId).catch(() => null);
+  if (!salon) return;
+  await salon.send({ embeds: [embed] }).catch(() => {});
+}
+
+async function envoyerLogDepart(embed) {
+  if (!config.leaveLogsChannelId) return;
+  const salon = await client.channels.fetch(config.leaveLogsChannelId).catch(() => null);
   if (!salon) return;
   await salon.send({ embeds: [embed] }).catch(() => {});
 }
@@ -640,18 +693,24 @@ function embedLogModeration({ action, couleur, emoji, cibleTag, cibleId, parTag,
     .setTimestamp();
 }
 
-function echapperHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+function embedLogDepart({ titre, couleur, membreTag, membreId, raison, timestamp }) {
+  const embed = new EmbedBuilder()
+    .setColor(couleur)
+    .setTitle(titre)
+    .addFields(
+      { name: "Membre", value: `${membreTag} (\`${membreId}\`)`, inline: true },
+      { name: "ID", value: membreId, inline: true },
+      { name: "Date / Heure", value: `<t:${Math.floor(timestamp / 1000)}:F>`, inline: true }
+    )
+    .setTimestamp();
+  if (raison) {
+    embed.addFields({ name: "Raison", value: raison, inline: false });
+  }
+  return embed;
 }
 
 // ==============================
-// FONCTIONS ANTÉCÉDENTS
+// ANTÉCÉDENTS
 // ==============================
 function genererIdAntecedent() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -672,7 +731,7 @@ function ajouterAntecedent(patientNom, auteurId, auteurTag, donnees) {
     maladiesChroniques: donnees.maladiesChroniques || "",
     operations: donnees.operations || "",
     observations: donnees.observations || "",
-    historiqueModifications: []
+    historiqueModifications: [],
   };
   antecedents.push(entry);
   sauverAntecedents();
@@ -680,11 +739,19 @@ function ajouterAntecedent(patientNom, auteurId, auteurTag, donnees) {
 }
 
 function modifierAntecedent(id, auteurId, auteurTag, nouvellesDonnees) {
-  const index = antecedents.findIndex(a => a.id === id);
+  const index = antecedents.findIndex((a) => a.id === id);
   if (index === -1) return null;
   const ancien = antecedents[index];
   const modifications = [];
-  const champs = ['type', 'description', 'allergies', 'traitements', 'maladiesChroniques', 'operations', 'observations'];
+  const champs = [
+    "type",
+    "description",
+    "allergies",
+    "traitements",
+    "maladiesChroniques",
+    "operations",
+    "observations",
+  ];
   for (const champ of champs) {
     if (nouvellesDonnees[champ] !== undefined && nouvellesDonnees[champ] !== ancien[champ]) {
       modifications.push({
@@ -692,7 +759,7 @@ function modifierAntecedent(id, auteurId, auteurTag, nouvellesDonnees) {
         auteurTag: auteurTag,
         champ: champ,
         ancienneValeur: ancien[champ] || "",
-        nouvelleValeur: nouvellesDonnees[champ] || ""
+        nouvelleValeur: nouvellesDonnees[champ] || "",
       });
     }
   }
@@ -708,7 +775,7 @@ function modifierAntecedent(id, auteurId, auteurTag, nouvellesDonnees) {
 }
 
 function supprimerAntecedent(id) {
-  const index = antecedents.findIndex(a => a.id === id);
+  const index = antecedents.findIndex((a) => a.id === id);
   if (index === -1) return false;
   antecedents.splice(index, 1);
   sauverAntecedents();
@@ -716,46 +783,43 @@ function supprimerAntecedent(id) {
 }
 
 function obtenirAntecedentParId(id) {
-  return antecedents.find(a => a.id === id);
+  return antecedents.find((a) => a.id === id);
 }
 
 function rechercherAntecedents(patientNom) {
   if (!patientNom) return antecedents;
   const lower = patientNom.toLowerCase();
-  return antecedents.filter(a => a.patientNom.toLowerCase().includes(lower));
+  return antecedents.filter((a) => a.patientNom.toLowerCase().includes(lower));
 }
 
 function estAutoriseAntecedents(member) {
   if (member.permissions.has(PermissionsBitField.Flags.Administrator)) return true;
   const allowed = config.antecedents.allowedRoles || [];
   if (allowed.length === 0) return false;
-  return member.roles.cache.some(role => allowed.includes(role.id));
+  return member.roles.cache.some((role) => allowed.includes(role.id));
 }
 
 async function envoyerMessageAntecedents() {
-  if (!config.antecedents.enabled || !config.antecedents.channelId) {
-    return;
-  }
+  if (!config.antecedents.enabled || !config.antecedents.channelId) return;
   try {
     const channel = await client.channels.fetch(config.antecedents.channelId);
     if (!channel || !channel.isTextBased()) return;
-
     if (config.antecedents.messageId) {
       try {
         const oldMsg = await channel.messages.fetch(config.antecedents.messageId);
         if (oldMsg) await oldMsg.delete();
       } catch (e) {}
     }
-
     const embed = new EmbedBuilder()
       .setColor(COULEUR_EMBED)
       .setTitle("🩺 Module Antécédents Médicaux")
-      .setDescription("Utilisez les boutons ci-dessous pour gérer les antécédents médicaux des patients.\n\n" +
-        "• **🩺 Créer un antécédent** : Enregistrer un nouvel antécédent\n" +
-        "• **🔍 Rechercher** : Consulter les antécédents d'un patient")
+      .setDescription(
+        "Utilisez les boutons ci-dessous pour gérer les antécédents médicaux des patients.\n\n" +
+          "• **🩺 Créer un antécédent** : Enregistrer un nouvel antécédent\n" +
+          "• **🔍 Rechercher** : Consulter les antécédents d'un patient"
+      )
       .setFooter({ text: NOM_SERVEUR })
       .setTimestamp();
-
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("antecedents_creer")
@@ -766,25 +830,24 @@ async function envoyerMessageAntecedents() {
         .setLabel("🔍 Rechercher un patient")
         .setStyle(ButtonStyle.Secondary)
     );
-
     const message = await channel.send({ embeds: [embed], components: [row] });
     config.antecedents.messageId = message.id;
     sauverConfig();
-    console.log('✅ Message antécédents envoyé');
+    console.log("✅ Message antécédents envoyé");
   } catch (e) {
     console.error("❌ Erreur envoi message antécédents:", e);
   }
 }
 
 // ==============================
-// FONCTIONS RESET
+// AUTO-RESET
 // ==============================
 function logReset(type, source, username) {
   const entry = {
     type,
-    source, // 'manuel' ou 'auto'
-    username: username || 'Système',
-    date: new Date().toISOString()
+    source,
+    username: username || "Système",
+    date: new Date().toISOString(),
   };
   resetHistory.push(entry);
   if (resetHistory.length > 1000) resetHistory = resetHistory.slice(-1000);
@@ -794,17 +857,17 @@ function logReset(type, source, username) {
 function calculateNextReset(auto) {
   const now = new Date();
   let target = new Date(now);
-  const freq = auto.frequency || 'daily';
+  const freq = auto.frequency || "daily";
   const customDays = parseInt(auto.customInterval) || 1;
-  const [hour, minute] = (auto.customTime || '00:00').split(':').map(Number);
+  const [hour, minute] = (auto.customTime || "00:00").split(":").map(Number);
 
-  if (freq === 'daily') {
+  if (freq === "daily") {
     target.setDate(target.getDate() + 1);
-  } else if (freq === 'weekly') {
+  } else if (freq === "weekly") {
     target.setDate(target.getDate() + 7);
-  } else if (freq === 'monthly') {
+  } else if (freq === "monthly") {
     target.setMonth(target.getMonth() + 1);
-  } else if (freq === 'custom') {
+  } else if (freq === "custom") {
     target.setDate(target.getDate() + customDays);
   }
 
@@ -821,7 +884,7 @@ async function performAutoReset() {
   const auto = config.autoReset || {};
   if (!auto.enabled) return;
   const targets = auto.targets || [];
-  const resetAll = targets.includes('all') || targets.length === 0;
+  const resetAll = targets.includes("all") || targets.length === 0;
 
   if (resetAll) {
     interventions = [];
@@ -830,42 +893,39 @@ async function performAutoReset() {
     sauverService();
     rapports = [];
     sauverRapports();
-    logReset('all', 'auto', 'Système');
+    logReset("all", "auto", "Système");
     invalidateCache();
   } else {
-    if (targets.includes('interventions')) {
+    if (targets.includes("interventions")) {
       interventions = [];
       sauverInterventions();
-      logReset('interventions', 'auto', 'Système');
+      logReset("interventions", "auto", "Système");
       invalidateCache();
     }
-    if (targets.includes('services')) {
+    if (targets.includes("services")) {
       serviceData = {};
       sauverService();
-      logReset('services', 'auto', 'Système');
+      logReset("services", "auto", "Système");
       invalidateCache();
     }
-    if (targets.includes('rapports')) {
+    if (targets.includes("rapports")) {
       rapports = [];
       sauverRapports();
-      logReset('rapports', 'auto', 'Système');
+      logReset("rapports", "auto", "Système");
       invalidateCache();
     }
   }
 
-  // Recalculer prochaine date
   const next = calculateNextReset(auto);
   auto.nextReset = next.toISOString();
   sauverConfig();
   scheduleAutoReset();
 
-  // Rafraîchir les messages Discord
   if (config.serviceChannelId) await mettreAJourMessageService().catch(() => {});
   if (config.rapportChannelId) await mettreAJourMessageRapport().catch(() => {});
   if (config.interventionChannelId) await mettreAJourMessageIntervention().catch(() => {});
 
-  // Émettre mise à jour temps réel
-  if (io) io.emit('dataUpdated', { type: 'reset' });
+  if (io) io.emit("dataUpdated", { type: "reset" });
 }
 
 function scheduleAutoReset() {
@@ -911,11 +971,7 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [
-    Partials.Channel,
-    Partials.Message,
-    Partials.Reaction
-  ],
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
 
 // ==============================
@@ -956,13 +1012,17 @@ const commands = [
   new SlashCommandBuilder()
     .setName("clear")
     .setDescription("Supprimer des messages (dans un salon ou un ticket)")
-    .addIntegerOption((o) => o.setName("nombre").setDescription("Nombre de messages (1-100)").setRequired(true).setMinValue(1).setMaxValue(100)),
+    .addIntegerOption((o) =>
+      o.setName("nombre").setDescription("Nombre de messages (1-100)").setRequired(true).setMinValue(1).setMaxValue(100)
+    ),
   new SlashCommandBuilder().setName("lock").setDescription("Verrouiller le salon ou ticket"),
   new SlashCommandBuilder().setName("unlock").setDescription("Déverrouiller le salon ou ticket"),
   new SlashCommandBuilder()
     .setName("slowmode")
     .setDescription("Définir le mode lent (salon ou ticket)")
-    .addIntegerOption((o) => o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)),
+    .addIntegerOption((o) =>
+      o.setName("secondes").setDescription("Délai en secondes (0 = désactivé)").setRequired(true).setMinValue(0).setMaxValue(21600)
+    ),
   new SlashCommandBuilder().setName("nuke").setDescription("Purger tous les messages du salon (ou ticket)"),
   new SlashCommandBuilder()
     .setName("valid")
@@ -984,18 +1044,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName("service")
     .setDescription("Gérer ton service")
-    .addSubcommand((sub) =>
-      sub.setName("start")
-        .setDescription("Prendre ton service")
-    )
-    .addSubcommand((sub) =>
-      sub.setName("stop")
-        .setDescription("Déposer ton service")
-    )
-    .addSubcommand((sub) =>
-      sub.setName("status")
-        .setDescription("Voir ton statut de service")
-    ),
+    .addSubcommand((sub) => sub.setName("start").setDescription("Prendre ton service"))
+    .addSubcommand((sub) => sub.setName("stop").setDescription("Déposer ton service"))
+    .addSubcommand((sub) => sub.setName("status").setDescription("Voir ton statut de service")),
   new SlashCommandBuilder()
     .setName("stats")
     .setDescription("Voir tes statistiques EMS")
@@ -1005,7 +1056,7 @@ const commands = [
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 // ==============================
-// CHARGEMENT REDIS
+// CHARGEMENT REDIS + DÉMARRAGE
 // ==============================
 async function chargerDepuisRedis() {
   if (!REDIS_ACTIF) {
@@ -1028,15 +1079,21 @@ async function chargerDepuisRedis() {
   if (c) {
     config = { ...config, ...c, candidatures: { ...CANDIDATURES_DEFAUT, ...(c.candidatures || {}) } };
     if (!Array.isArray(config.candidatures.rolesValid)) {
-      config.candidatures.rolesValid = config.candidatures.roleValid ? [config.candidatures.roleValid] : [];
+      config.candidatures.rolesValid = config.candidatures.roleValid
+        ? [config.candidatures.roleValid]
+        : [];
       delete config.candidatures.roleValid;
     }
     if (!Array.isArray(config.candidatures.rolesRefus)) {
-      config.candidatures.rolesRefus = config.candidatures.roleRefus ? [config.candidatures.roleRefus] : [];
+      config.candidatures.rolesRefus = config.candidatures.roleRefus
+        ? [config.candidatures.roleRefus]
+        : [];
       delete config.candidatures.roleRefus;
     }
     if (!Array.isArray(config.candidatures.rolesAttribution)) {
-      config.candidatures.rolesAttribution = config.candidatures.roleAValider ? [config.candidatures.roleAValider] : [];
+      config.candidatures.rolesAttribution = config.candidatures.roleAValider
+        ? [config.candidatures.roleAValider]
+        : [];
       delete config.candidatures.roleAValider;
     }
     if (!Array.isArray(config.autoRoleIds)) {
@@ -1044,7 +1101,16 @@ async function chargerDepuisRedis() {
       delete config.autoRoleId;
     }
     if (!config.antecedents) config.antecedents = { enabled: false, channelId: null, messageId: null, allowedRoles: [] };
-    if (!config.autoReset) config.autoReset = { enabled: false, targets: [], frequency: 'daily', customInterval: 1, customTime: '00:00', nextReset: null };
+    if (!config.autoReset) {
+      config.autoReset = {
+        enabled: false,
+        targets: [],
+        frequency: "daily",
+        customInterval: 1,
+        customTime: "00:00",
+        nextReset: null,
+      };
+    }
     sauverConfig();
   }
   if (t) tickets = t;
@@ -1071,12 +1137,11 @@ async function chargerDepuisRedis() {
   client.login(TOKEN);
 })();
 
-process.on('unhandledRejection', (error) => {
-  console.error('❌ Unhandled Rejection:', error);
+process.on("unhandledRejection", (error) => {
+  console.error("❌ Unhandled Rejection:", error);
 });
-
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
+process.on("uncaughtException", (error) => {
+  console.error("❌ Uncaught Exception:", error);
 });
 
 function nettoyerTimers() {
@@ -1087,20 +1152,19 @@ function nettoyerTimers() {
   if (serviceAutoResetInterval) clearTimeout(serviceAutoResetInterval);
 }
 
-process.on('SIGINT', () => {
-  console.log('🛑 Arrêt du bot... Nettoyage des timers...');
+process.on("SIGINT", () => {
+  console.log("🛑 Arrêt du bot... Nettoyage des timers...");
   nettoyerTimers();
   process.exit(0);
 });
-
-process.on('SIGTERM', () => {
-  console.log('🛑 Arrêt (SIGTERM)... Nettoyage...');
+process.on("SIGTERM", () => {
+  console.log("🛑 Arrêt (SIGTERM)... Nettoyage...");
   nettoyerTimers();
   process.exit(0);
 });
 
 // ==============================
-// VARIABLES GLOBALES
+// VARIABLES GLOBALES (timers, socket.io)
 // ==============================
 let serviceIntervalId = null;
 let rapportIntervalId = null;
@@ -1114,16 +1178,14 @@ let io = null;
 // ==============================
 client.once("ready", async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
-
   if (isBotReady) {
-    console.log('⚠️ Bot déjà prêt, ignore...');
+    console.log("⚠️ Bot déjà prêt, ignore...");
     return;
   }
   isBotReady = true;
 
   nettoyerTimers();
 
-  // Migration des userInfo manquants
   await migrerUserInfo();
 
   for (const g of Object.values(giveaways)) {
@@ -1136,19 +1198,19 @@ client.once("ready", async () => {
   if (config.serviceChannelId) {
     await envoyerMessageService();
   } else {
-    console.log('⚠️ Salon de service non configuré');
+    console.log("⚠️ Salon de service non configuré");
   }
 
   if (config.rapportChannelId) {
     await envoyerMessageRapport();
   } else {
-    console.log('⚠️ Salon de rapport non configuré');
+    console.log("⚠️ Salon de rapport non configuré");
   }
 
   if (config.interventionChannelId) {
     await envoyerMessageIntervention();
   } else {
-    console.log('⚠️ Salon d\'intervention non configuré');
+    console.log("⚠️ Salon d'intervention non configuré");
   }
 
   if (config.antecedents.enabled && config.antecedents.channelId) {
@@ -1160,77 +1222,70 @@ client.once("ready", async () => {
     await mettreAJourMessageService();
   }, 30000);
 
-  // Planification auto-reset
   scheduleAutoReset();
 
   console.log("✅ Bot prêt et auto-reset planifié.");
 });
 
 // ==============================
-// MESSAGE DE SERVICE
+// MESSAGES DE SERVICE / RAPPORT / INTERVENTION
 // ==============================
+
 async function construireEmbedService() {
   const activeServices = getActiveServices();
-
   const embed = new EmbedBuilder()
     .setColor(COULEUR_EMBED)
     .setTitle("🟢 Système de service")
-    .setDescription("Utilise les boutons ci-dessous pour gérer ton service.\n\n" +
-      "• **🟢 Prendre mon service** : Débute ta garde\n" +
-      "• **🔴 Arrêter mon service** : Termine ta garde\n" +
-      "• **⏱️ Voir mon temps** : Affiche ta durée en service")
+    .setDescription(
+      "Utilise les boutons ci-dessous pour gérer ton service.\n\n" +
+        "• **🟢 Prendre mon service** : Débute ta garde\n" +
+        "• **🔴 Arrêter mon service** : Termine ta garde\n" +
+        "• **⏱️ Voir mon temps** : Affiche ta durée en service"
+    )
     .setFooter({ text: NOM_SERVEUR })
     .setTimestamp();
 
   if (activeServices.length === 0) {
     embed.addFields({ name: "📊 En service actuellement", value: "Aucun membre", inline: false });
   } else {
-    let liste = await Promise.all(activeServices.map(async (s) => {
-      const user = await client.users.fetch(s.userId).catch(() => null);
-      const start = new Date(s.startTime);
-      const duration = Math.floor((Date.now() - start) / 60000);
-      const hours = Math.floor(duration / 60);
-      const minutes = duration % 60;
-      return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
-    }));
-    let texte = liste.join('\n');
+    let liste = await Promise.all(
+      activeServices.map(async (s) => {
+        const user = await client.users.fetch(s.userId).catch(() => null);
+        const start = new Date(s.startTime);
+        const duration = Math.floor((Date.now() - start) / 60000);
+        const hours = Math.floor(duration / 60);
+        const minutes = duration % 60;
+        return `${user?.username || s.userId} — ⏱️ ${hours}h${minutes}m`;
+      })
+    );
+    let texte = liste.join("\n");
     if (texte.length > 900) {
       liste = liste.slice(0, 10);
-      texte = liste.join('\n') + `\n... et ${activeServices.length - 10} autre(s)`;
+      texte = liste.join("\n") + `\n... et ${activeServices.length - 10} autre(s)`;
     }
     embed.addFields({ name: "📊 En service actuellement", value: texte, inline: false });
   }
-
   return embed;
 }
 
 async function envoyerMessageService() {
   if (!config.serviceChannelId) {
-    console.log('⚠️ Salon de service non configuré');
+    console.log("⚠️ Salon de service non configuré");
     return;
   }
-
   try {
     const channel = await client.channels.fetch(config.serviceChannelId);
     if (!channel || !channel.isTextBased()) {
-      console.log('⚠️ Salon de service introuvable');
+      console.log("⚠️ Salon de service introuvable");
       return;
     }
-
     if (config.serviceMessageId) {
       try {
         const oldMsg = await channel.messages.fetch(config.serviceMessageId);
-        if (oldMsg) {
-          await oldMsg.delete();
-          console.log('✅ Ancien message service supprimé');
-        }
-      } catch (e) {
-        console.log('ℹ️ Aucun ancien message service trouvé');
-      }
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
     }
-
     const embed = await construireEmbedService();
-
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("service_start")
@@ -1245,28 +1300,22 @@ async function envoyerMessageService() {
         .setLabel("⏱️ Voir mon temps en service")
         .setStyle(ButtonStyle.Secondary)
     );
-
     const message = await channel.send({ embeds: [embed], components: [row] });
     config.serviceMessageId = message.id;
     sauverConfig();
-    console.log('✅ Message service envoyé');
-
+    console.log("✅ Message service envoyé");
   } catch (e) {
     console.error("❌ Erreur envoi message service:", e);
   }
 }
 
 async function mettreAJourMessageService() {
-  if (!config.serviceMessageId || !config.serviceChannelId) {
-    return;
-  }
-
+  if (!config.serviceMessageId || !config.serviceChannelId) return;
   try {
     const channel = await client.channels.fetch(config.serviceChannelId);
     if (!channel) return;
     const message = await channel.messages.fetch(config.serviceMessageId).catch(() => null);
     if (!message) return;
-
     const embed = await construireEmbedService();
     await message.edit({ embeds: [embed] }).catch(() => {});
   } catch (e) {
@@ -1274,68 +1323,56 @@ async function mettreAJourMessageService() {
   }
 }
 
-// ==============================
-// MESSAGE RAPPORT
-// ==============================
 async function construireEmbedRapport() {
   const embed = new EmbedBuilder()
     .setColor(COULEUR_EMBED)
     .setTitle("📋 Système de rapports médicaux")
-    .setDescription("Utilise les boutons ci-dessous pour gérer tes rapports médicaux.\n\n" +
-      "• **📝 Nouveau rapport** : Créer un rapport médical détaillé\n" +
-      "• **📊 Mes rapports** : Voir le nombre de rapports que tu as faits\n" +
-      "• **🏆 Classement** : Voir le classement des rapporteurs")
+    .setDescription(
+      "Utilise les boutons ci-dessous pour gérer tes rapports médicaux.\n\n" +
+        "• **📝 Nouveau rapport** : Créer un rapport médical détaillé\n" +
+        "• **📊 Mes rapports** : Voir le nombre de rapports que tu as faits\n" +
+        "• **🏆 Classement** : Voir le classement des rapporteurs"
+    )
     .setFooter({ text: NOM_SERVEUR })
     .setTimestamp();
 
   const totalRapports = rapports.length;
-  const rapporteurs = new Set(rapports.map(r => r.userId)).size;
-
+  const rapporteurs = new Set(rapports.map((r) => r.userId)).size;
   embed.addFields(
     { name: "📊 Total rapports", value: String(totalRapports), inline: true },
     { name: "👨‍⚕️ Rapporteurs actifs", value: String(rapporteurs), inline: true }
   );
-
   const topRapporteurs = getTopRapports(3);
-
   if (topRapporteurs.length > 0) {
-    const topListe = await Promise.all(topRapporteurs.map(async (r, i) => {
-      const user = await client.users.fetch(r.userId).catch(() => null);
-      return `**${i+1}.** ${user?.username || r.userId} — ${r.count} rapport(s)`;
-    }));
-    embed.addFields({ name: "🏆 Top rapporteurs", value: topListe.join('\n'), inline: false });
+    const topListe = await Promise.all(
+      topRapporteurs.map(async (r, i) => {
+        const user = await client.users.fetch(r.userId).catch(() => null);
+        return `**${i + 1}.** ${user?.username || r.userId} — ${r.count} rapport(s)`;
+      })
+    );
+    embed.addFields({ name: "🏆 Top rapporteurs", value: topListe.join("\n"), inline: false });
   }
-
   return embed;
 }
 
 async function envoyerMessageRapport() {
   if (!config.rapportChannelId) {
-    console.log('⚠️ Salon de rapport non configuré');
+    console.log("⚠️ Salon de rapport non configuré");
     return;
   }
-
   try {
     const channel = await client.channels.fetch(config.rapportChannelId);
     if (!channel || !channel.isTextBased()) {
-      console.log('⚠️ Salon de rapport introuvable');
+      console.log("⚠️ Salon de rapport introuvable");
       return;
     }
-
     if (config.rapportMessageId) {
       try {
         const oldMsg = await channel.messages.fetch(config.rapportMessageId);
-        if (oldMsg) {
-          await oldMsg.delete();
-          console.log('✅ Ancien message rapport supprimé');
-        }
-      } catch (e) {
-        console.log('ℹ️ Aucun ancien message rapport trouvé');
-      }
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
     }
-
     const embed = await construireEmbedRapport();
-
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("rapport_new")
@@ -1350,28 +1387,22 @@ async function envoyerMessageRapport() {
         .setLabel("🏆 Classement")
         .setStyle(ButtonStyle.Success)
     );
-
     const message = await channel.send({ embeds: [embed], components: [row] });
     config.rapportMessageId = message.id;
     sauverConfig();
-    console.log('✅ Message rapport envoyé');
-
+    console.log("✅ Message rapport envoyé");
   } catch (e) {
     console.error("❌ Erreur envoi message rapport:", e);
   }
 }
 
 async function mettreAJourMessageRapport() {
-  if (!config.rapportMessageId || !config.rapportChannelId) {
-    return;
-  }
-
+  if (!config.rapportMessageId || !config.rapportChannelId) return;
   try {
     const channel = await client.channels.fetch(config.rapportChannelId);
     if (!channel) return;
     const message = await channel.messages.fetch(config.rapportMessageId).catch(() => null);
     if (!message) return;
-
     const embed = await construireEmbedRapport();
     await message.edit({ embeds: [embed] }).catch(() => {});
   } catch (e) {
@@ -1379,82 +1410,68 @@ async function mettreAJourMessageRapport() {
   }
 }
 
-// ==============================
-// MESSAGE INTERVENTION
-// ==============================
 async function construireEmbedIntervention() {
   const stats = statsInterventions();
-
   const embed = new EmbedBuilder()
     .setColor(COULEUR_EMBED)
     .setTitle("🚑 Système d'interventions")
-    .setDescription("Utilise les boutons ci-dessous pour gérer tes interventions.\n\n" +
-      "• **📝 Nouvelle intervention** : Logger une intervention rapide\n" +
-      "• **📊 Mes interventions** : Voir le nombre d'interventions que tu as faites\n" +
-      "• **🏆 Classement** : Voir le classement des intervenants")
+    .setDescription(
+      "Utilise les boutons ci-dessous pour gérer tes interventions.\n\n" +
+        "• **📝 Nouvelle intervention** : Logger une intervention rapide\n" +
+        "• **📊 Mes interventions** : Voir le nombre d'interventions que tu as faites\n" +
+        "• **🏆 Classement** : Voir le classement des intervenants"
+    )
     .setFooter({ text: NOM_SERVEUR })
     .setTimestamp();
 
   const totalInterventions = Array.isArray(interventions) ? interventions.length : 0;
   const intervenantsActifs = Array.isArray(interventions)
-    ? new Set(interventions.map(iv => iv.userId)).size
+    ? new Set(interventions.map((iv) => iv.userId)).size
     : 0;
-
   embed.addFields(
     { name: "📊 Total interventions", value: String(totalInterventions), inline: true },
     { name: "🚑 Intervenants actifs", value: String(intervenantsActifs), inline: true }
   );
-
   const topIntervenants = getTopInterventions(3);
-
   if (topIntervenants.length > 0) {
-    const topListe = await Promise.all(topIntervenants.map(async (iv, i) => {
-      const user = await client.users.fetch(iv.userId).catch(() => null);
-      return `**${i+1}.** ${user?.username || iv.userId} — ${iv.count} intervention(s)`;
-    }));
-    embed.addFields({ name: "🏆 Top intervenants", value: topListe.join('\n'), inline: false });
+    const topListe = await Promise.all(
+      topIntervenants.map(async (iv, i) => {
+        const user = await client.users.fetch(iv.userId).catch(() => null);
+        return `**${i + 1}.** ${user?.username || iv.userId} — ${iv.count} intervention(s)`;
+      })
+    );
+    embed.addFields({ name: "🏆 Top intervenants", value: topListe.join("\n"), inline: false });
   }
-
   const recent = Array.isArray(interventions) ? interventions.slice(-3).reverse() : [];
   if (recent.length > 0) {
-    const recentListe = recent.map(iv => {
+    const recentListe = recent.map((iv) => {
       const type = LABELS_TYPE_INTERVENTION[iv.type] || iv.type;
       const gravite = LABELS_GRAVITE_INTERVENTION[iv.gravite] || iv.gravite;
-      return `• ${type} (${gravite}) — ${iv.patient || 'Patient inconnu'}`;
+      return `• ${type} (${gravite}) — ${iv.patient || "Patient inconnu"}`;
     });
-    embed.addFields({ name: "📋 Dernières interventions", value: recentListe.join('\n'), inline: false });
+    embed.addFields({ name: "📋 Dernières interventions", value: recentListe.join("\n"), inline: false });
   }
-
   return embed;
 }
 
 async function envoyerMessageIntervention() {
   if (!config.interventionChannelId) {
-    console.log('⚠️ Salon d\'intervention non configuré');
+    console.log("⚠️ Salon d'intervention non configuré");
     return;
   }
-
   try {
     const channel = await client.channels.fetch(config.interventionChannelId);
     if (!channel || !channel.isTextBased()) {
-      console.log('⚠️ Salon d\'intervention introuvable');
+      console.log("⚠️ Salon d'intervention introuvable");
       return;
     }
-
     if (config.interventionMessageId) {
       try {
         const oldMsg = await channel.messages.fetch(config.interventionMessageId);
-        if (oldMsg) {
-          await oldMsg.delete();
-          console.log('✅ Ancien message intervention supprimé');
-        }
-      } catch (e) {
-        console.log('ℹ️ Aucun ancien message intervention trouvé');
-      }
+        if (oldMsg) await oldMsg.delete();
+      } catch (e) {}
     }
-
     const embed = await construireEmbedIntervention();
-
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("intervention_new")
@@ -1469,39 +1486,26 @@ async function envoyerMessageIntervention() {
         .setLabel("🏆 Classement")
         .setStyle(ButtonStyle.Success)
     );
-
     const message = await channel.send({ embeds: [embed], components: [row] });
     config.interventionMessageId = message.id;
     sauverConfig();
-    console.log('✅ Message intervention envoyé');
-
+    console.log("✅ Message intervention envoyé");
   } catch (e) {
     console.error("❌ Erreur envoi message intervention:", e);
   }
 }
 
 async function mettreAJourMessageIntervention() {
-  if (!config.interventionMessageId || !config.interventionChannelId) {
-    return;
-  }
-
+  if (!config.interventionMessageId || !config.interventionChannelId) return;
   try {
     const channel = await client.channels.fetch(config.interventionChannelId);
-    if (!channel) {
-      console.log('⚠️ Salon intervention introuvable');
-      return;
-    }
+    if (!channel) return;
     const message = await channel.messages.fetch(config.interventionMessageId).catch(() => null);
-    if (!message) {
-      console.log('⚠️ Message intervention introuvable, recréation...');
-      await envoyerMessageIntervention();
-      return;
-    }
-
+    if (!message) return;
     const embed = await construireEmbedIntervention();
     await message.edit({ embeds: [embed] }).catch(() => {});
   } catch (e) {
-    console.error("❌ Erreur mise à jour message intervention:", e);
+    console.error("Erreur mise à jour message intervention:", e);
   }
 }
 
@@ -1563,7 +1567,192 @@ client.on("guildMemberAdd", async (member) => {
 });
 
 // ==============================
-// SYSTEME DE TICKETS
+// LOG DE DÉPART (LEAVE / KICK / BAN)
+// ==============================
+
+// --- guildMemberRemove (départ volontaire ou kick) ---
+client.on("guildMemberRemove", async (member) => {
+  if (!config.leaveLogsChannelId) return;
+
+  try {
+    const channel = await client.channels.fetch(config.leaveLogsChannelId);
+    if (!channel) return;
+
+    // Tentative de récupération de la raison (kick)
+    let raison = "Départ volontaire ou kick sans raison spécifiée.";
+    try {
+      const fetchedLogs = await member.guild.fetchAuditLogs({
+        limit: 1,
+        type: 20, // Membre kick
+      });
+      const kickLog = fetchedLogs.entries.first();
+      if (kickLog && kickLog.target.id === member.id) {
+        const diff = Date.now() - kickLog.createdTimestamp;
+        if (diff < 5000) {
+          raison = `Kick par ${kickLog.executor.tag}`;
+          if (kickLog.reason) raison += ` – Raison : ${kickLog.reason}`;
+        }
+      }
+    } catch (e) {}
+
+    const embed = embedLogDepart({
+      titre: "👋 Membre quitté le serveur",
+      couleur: "#fb7185",
+      membreTag: member.user.tag,
+      membreId: member.user.id,
+      raison: raison,
+      timestamp: Date.now(),
+    });
+
+    await channel.send({ embeds: [embed] });
+  } catch (e) {
+    console.error("❌ Erreur lors du log de départ :", e);
+  }
+});
+
+// --- guildBanAdd (ban) ---
+client.on("guildBanAdd", async (ban) => {
+  if (!config.leaveLogsChannelId) return;
+
+  try {
+    const channel = await client.channels.fetch(config.leaveLogsChannelId);
+    if (!channel) return;
+
+    const raison = ban.reason || "Aucune raison fournie.";
+    const embed = embedLogDepart({
+      titre: "⛔ Membre banni",
+      couleur: "#ef4444",
+      membreTag: ban.user.tag,
+      membreId: ban.user.id,
+      raison: `Ban – Raison : ${raison}`,
+      timestamp: Date.now(),
+    });
+
+    await channel.send({ embeds: [embed] });
+  } catch (e) {
+    console.error("❌ Erreur lors du log de ban :", e);
+  }
+});
+
+// ==============================
+// MESSAGE CREATE (gestion des DMs et tickets)
+// ==============================
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+
+  if (message.channel.type === ChannelType.DM) {
+    try {
+      const guild = client.guilds.cache.get(GUILD_ID);
+      if (!guild) {
+        await message.author.send("❌ Le bot n'est pas sur le serveur configuré.");
+        return;
+      }
+      const member = await guild.members.fetch(message.author.id).catch(() => null);
+      if (!member) {
+        await message.author.send("❌ Tu n'es pas membre du serveur. Rejoins-le d'abord.");
+        return;
+      }
+
+      const { thread, nouveau } = await obtenirOuCreerThread(message.author);
+      await thread.send({
+        content: `**${message.author.tag}** :\n${message.content || "*(pièce jointe / message vide)*"}`,
+        files: [...message.attachments.values()],
+      });
+
+      if (tickets[message.author.id]) {
+        tickets[message.author.id].lastActivity = new Date().toISOString();
+        sauverTickets();
+      }
+
+      if (nouveau) {
+        await message.author
+          .send({
+            embeds: [
+              new EmbedBuilder()
+                .setColor(COULEUR_EMBED)
+                .setTitle("🎫 Ticket ouvert")
+                .setDescription(
+                  "Ton message a bien été transmis à l'équipe. Ton ticket va être pris en charge, tu peux continuer à écrire ici, ça arrive directement au staff."
+                )
+                .setTimestamp(),
+            ],
+          })
+          .catch(() => {});
+      }
+    } catch (e) {
+      console.error("Erreur relais DM->thread:", e);
+      await message.author
+        .send(
+          "⚠️ Désolé, le système de tickets n'est pas encore configuré côté serveur. Contacte le staff autrement en attendant."
+        )
+        .catch(() => {});
+    }
+    return;
+  }
+
+  if (message.channel.isThread && message.channel.isThread()) {
+    if (message.channel.parentId !== config.ticketStaffChannelId) return;
+    const userId = trouverUserIdParThread(message.channel.id);
+    if (!userId) return;
+
+    try {
+      const user = await client.users.fetch(userId);
+      await user.send({
+        content: message.content || undefined,
+        files: [...message.attachments.values()],
+      });
+      if (tickets[userId]) {
+        tickets[userId].lastActivity = new Date().toISOString();
+        sauverTickets();
+      }
+    } catch (e) {
+      console.error("Erreur relais thread->DM:", e);
+      await message.reply("⚠️ Impossible d'envoyer le DM (DMs fermés par l'utilisateur ?).");
+    }
+    return;
+  }
+});
+
+// ==============================
+// GIVEAWAYS (gestion des réactions)
+// ==============================
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.partial) {
+    try {
+      await reaction.fetch();
+    } catch {
+      return;
+    }
+  }
+  const giveaway = Object.values(giveaways).find((g) => g.messageId === reaction.message.id && !g.ended);
+  if (!giveaway) return;
+  if (!giveaway.participants.includes(user.id)) {
+    giveaway.participants.push(user.id);
+    sauverGiveaways();
+  }
+});
+
+client.on("messageReactionRemove", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.partial) {
+    try {
+      await reaction.fetch();
+    } catch {
+      return;
+    }
+  }
+  const giveaway = Object.values(giveaways).find((g) => g.messageId === reaction.message.id && !g.ended);
+  if (!giveaway) return;
+  const idx = giveaway.participants.indexOf(user.id);
+  if (idx !== -1) {
+    giveaway.participants.splice(idx, 1);
+    sauverGiveaways();
+  }
+});
+
+// ==============================
+// SYSTEME DE TICKETS (fonctions)
 // ==============================
 function boutonsTicket() {
   const ligne1 = new ActionRowBuilder().addComponents(
@@ -1600,7 +1789,11 @@ async function genererTranscriptHTML(thread) {
   toutMessages.reverse();
 
   const echapper = (s) =>
-    String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
 
   const guild = client.guilds.cache.get(GUILD_ID);
   const guildIcon = guild?.iconURL({ dynamic: true }) || "https://cdn.discordapp.com/embed/avatars/0.png";
@@ -1649,7 +1842,7 @@ async function genererTranscriptHTML(thread) {
       <img src="${guildIcon}" alt="Logo serveur" />
       <span>${echapper(NOM_SERVEUR)}</span>
     </div>
-    <div class="header-right">${user ? echapper(user.tag) : 'Utilisateur inconnu'}</div>
+    <div class="header-right">${user ? echapper(user.tag) : "Utilisateur inconnu"}</div>
   </div>
   <div class="content">
     <h1>🎫 Transcript — ${echapper(thread.name)}</h1>
@@ -1725,7 +1918,9 @@ async function fermerTicketParThread(threadId, fermePar) {
             new EmbedBuilder()
               .setColor(COULEUR_EMBED)
               .setTitle("🔒 Ticket fermé")
-              .setDescription("Ton ticket a été fermé par l'équipe. Si tu as besoin d'aide à nouveau, renvoie-moi simplement un message ici pour en ouvrir un nouveau.")
+              .setDescription(
+                "Ton ticket a été fermé par l'équipe. Si tu as besoin d'aide à nouveau, renvoie-moi simplement un message ici pour en ouvrir un nouveau."
+              )
               .setTimestamp(),
           ],
         })
@@ -1857,80 +2052,7 @@ async function obtenirOuCreerThread(user) {
 }
 
 // ==============================
-// MESSAGE CREATE
-// ==============================
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-
-  if (message.channel.type === ChannelType.DM) {
-    try {
-      const guild = client.guilds.cache.get(GUILD_ID);
-      if (!guild) {
-        await message.author.send("❌ Le bot n'est pas sur le serveur configuré.");
-        return;
-      }
-      const member = await guild.members.fetch(message.author.id).catch(() => null);
-      if (!member) {
-        await message.author.send("❌ Tu n'es pas membre du serveur. Rejoins-le d'abord.");
-        return;
-      }
-
-      const { thread, nouveau } = await obtenirOuCreerThread(message.author);
-      await thread.send({
-        content: `**${message.author.tag}** :\n${message.content || "*(pièce jointe / message vide)*"}`,
-        files: [...message.attachments.values()],
-      });
-
-      if (tickets[message.author.id]) {
-        tickets[message.author.id].lastActivity = new Date().toISOString();
-        sauverTickets();
-      }
-
-      if (nouveau) {
-        await message.author.send({
-          embeds: [
-            new EmbedBuilder()
-              .setColor(COULEUR_EMBED)
-              .setTitle("🎫 Ticket ouvert")
-              .setDescription("Ton message a bien été transmis à l'équipe. Ton ticket va être pris en charge, tu peux continuer à écrire ici, ça arrive directement au staff.")
-              .setTimestamp(),
-          ],
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.error("Erreur relais DM->thread:", e);
-      await message.author.send(
-        "⚠️ Désolé, le système de tickets n'est pas encore configuré côté serveur. Contacte le staff autrement en attendant."
-      ).catch(() => {});
-    }
-    return;
-  }
-
-  if (message.channel.isThread && message.channel.isThread()) {
-    if (message.channel.parentId !== config.ticketStaffChannelId) return;
-    const userId = trouverUserIdParThread(message.channel.id);
-    if (!userId) return;
-
-    try {
-      const user = await client.users.fetch(userId);
-      await user.send({
-        content: message.content || undefined,
-        files: [...message.attachments.values()],
-      });
-      if (tickets[userId]) {
-        tickets[userId].lastActivity = new Date().toISOString();
-        sauverTickets();
-      }
-    } catch (e) {
-      console.error("Erreur relais thread->DM:", e);
-      await message.reply("⚠️ Impossible d'envoyer le DM (DMs fermés par l'utilisateur ?).");
-    }
-    return;
-  }
-});
-
-// ==============================
-// GIVEAWAYS
+// GIVEAWAYS (fonctions)
 // ==============================
 function tirerGagnants(participants, nombre) {
   const pool = [...participants];
@@ -1978,45 +2100,12 @@ function planifierFinGiveaway(g) {
 }
 
 // ==============================
-// GIVEAWAYS – GESTION DES RÉACTIONS
-// ==============================
-client.on("messageReactionAdd", async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.partial) {
-    try { await reaction.fetch(); } catch { return; }
-  }
-  const giveaway = Object.values(giveaways).find(g =>
-    g.messageId === reaction.message.id && !g.ended
-  );
-  if (!giveaway) return;
-  if (!giveaway.participants.includes(user.id)) {
-    giveaway.participants.push(user.id);
-    sauverGiveaways();
-  }
-});
-
-client.on("messageReactionRemove", async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.partial) {
-    try { await reaction.fetch(); } catch { return; }
-  }
-  const giveaway = Object.values(giveaways).find(g =>
-    g.messageId === reaction.message.id && !g.ended
-  );
-  if (!giveaway) return;
-  const idx = giveaway.participants.indexOf(user.id);
-  if (idx !== -1) {
-    giveaway.participants.splice(idx, 1);
-    sauverGiveaways();
-  }
-});
-
-// ==============================
-// INTERACTIONS
+// INTERACTIONS (boutons, menus, commandes)
 // ==============================
 client.on("interactionCreate", async (interaction) => {
-  if (interaction.replied) {
-    console.log('⚠️ Interaction déjà répondue, ignorée.');
+  // On s'assure de ne pas répondre deux fois
+  if (interaction.replied || interaction.deferred) {
+    console.log("⚠️ Interaction déjà répondue, ignorée.");
     return;
   }
 
@@ -2036,7 +2125,7 @@ client.on("interactionCreate", async (interaction) => {
         await startService(userId);
         await interaction.editReply({ content: "✅ Tu as pris ton service ! 🟢" });
         await mettreAJourMessageService();
-        if (io) io.emit('dataUpdated', { type: 'service' });
+        if (io) io.emit("dataUpdated", { type: "service" });
       } else if (interaction.customId === "service_stop") {
         const status = getServiceStatus(userId);
         if (!status) {
@@ -2045,18 +2134,17 @@ client.on("interactionCreate", async (interaction) => {
         const result = await stopService(userId);
         const duration = Math.floor(result.duration / 60);
         await interaction.editReply({
-          content: `✅ Tu as déposé ton service après **${duration} minutes** !`
+          content: `✅ Tu as déposé ton service après **${duration} minutes** !`,
         });
         await mettreAJourMessageService();
-        if (io) io.emit('dataUpdated', { type: 'service' });
+        if (io) io.emit("dataUpdated", { type: "service" });
       } else if (interaction.customId === "service_status") {
         const status = getServiceStatus(userId);
         if (!status) {
           return interaction.editReply({
-            embeds: [new EmbedBuilder()
-              .setColor(COULEUR_EMBED)
-              .setDescription("❌ Tu n'es pas en service.")
-            ]
+            embeds: [
+              new EmbedBuilder().setColor(COULEUR_EMBED).setDescription("❌ Tu n'es pas en service."),
+            ],
           });
         }
         const start = new Date(status.startTime);
@@ -2097,8 +2185,9 @@ client.on("interactionCreate", async (interaction) => {
         const serviceStatus = getServiceStatus(userId);
         if (!serviceStatus) {
           return interaction.reply({
-            content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-            flags: 64
+            content:
+              "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+            flags: 64,
           });
         }
 
@@ -2128,10 +2217,10 @@ client.on("interactionCreate", async (interaction) => {
         try {
           await interaction.showModal(modal);
         } catch (error) {
-          if (error.code === 'InteractionAlreadyReplied') {
-            console.log('⚠️ Erreur ignorée : interaction déjà répondue');
+          if (error.code === "InteractionAlreadyReplied") {
+            console.log("⚠️ Erreur ignorée : interaction déjà répondue");
           } else {
-            console.error('❌ Erreur affichage modal:', error);
+            console.error("❌ Erreur affichage modal:", error);
           }
         }
         return;
@@ -2155,15 +2244,17 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({ content: "Aucun rapport n'a encore été rédigé." });
         }
 
-        const liste = await Promise.all(topRapporteurs.map(async (r, i) => {
-          const user = await client.users.fetch(r.userId).catch(() => null);
-          return `**${i+1}.** ${user?.username || r.userId} — ${r.count} rapport(s)`;
-        }));
+        const liste = await Promise.all(
+          topRapporteurs.map(async (r, i) => {
+            const user = await client.users.fetch(r.userId).catch(() => null);
+            return `**${i + 1}.** ${user?.username || r.userId} — ${r.count} rapport(s)`;
+          })
+        );
 
         const embed = new EmbedBuilder()
           .setColor(COULEUR_EMBED)
           .setTitle("🏆 Classement des rapporteurs")
-          .setDescription(liste.join('\n'))
+          .setDescription(liste.join("\n"))
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
@@ -2181,8 +2272,9 @@ client.on("interactionCreate", async (interaction) => {
         const serviceStatus = getServiceStatus(userId);
         if (!serviceStatus) {
           return interaction.reply({
-            content: "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-            flags: 64
+            content:
+              "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+            flags: 64,
           });
         }
 
@@ -2218,7 +2310,7 @@ client.on("interactionCreate", async (interaction) => {
 
         await interaction.editReply({
           content: "Sélectionne le type et la gravité de l'intervention :",
-          components: [row1, row2]
+          components: [row1, row2],
         });
         return;
       } else if (interaction.customId === "intervention_mes_stats") {
@@ -2241,15 +2333,17 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.editReply({ content: "Aucune intervention n'a encore été loggée." });
         }
 
-        const liste = await Promise.all(topIntervenants.map(async (iv, i) => {
-          const user = await client.users.fetch(iv.userId).catch(() => null);
-          return `**${i+1}.** ${user?.username || iv.userId} — ${iv.count} intervention(s)`;
-        }));
+        const liste = await Promise.all(
+          topIntervenants.map(async (iv, i) => {
+            const user = await client.users.fetch(iv.userId).catch(() => null);
+            return `**${i + 1}.** ${user?.username || iv.userId} — ${iv.count} intervention(s)`;
+          })
+        );
 
         const embed = new EmbedBuilder()
           .setColor(COULEUR_EMBED)
           .setTitle("🏆 Classement des intervenants")
-          .setDescription(liste.join('\n'))
+          .setDescription(liste.join("\n"))
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
@@ -2296,7 +2390,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.update({
         content: `✅ Type sélectionné : **${LABELS_TYPE_INTERVENTION[type] || type}**\nSélectionne maintenant la gravité.`,
-        components: [row1, row2]
+        components: [row1, row2],
       });
       return;
     }
@@ -2313,8 +2407,9 @@ client.on("interactionCreate", async (interaction) => {
       const serviceStatus = getServiceStatus(interaction.user.id);
       if (!serviceStatus) {
         return interaction.update({
-          content: "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-          components: []
+          content:
+            "❌ Tu dois être en service pour logger une intervention ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          components: [],
         });
       }
 
@@ -2353,7 +2448,7 @@ client.on("interactionCreate", async (interaction) => {
         username: interaction.user.username,
         displayName: interaction.member?.displayName || interaction.user.username,
         avatar: interaction.user.displayAvatarURL(),
-        guildId: interaction.guildId || GUILD_ID
+        guildId: interaction.guildId || GUILD_ID,
       };
 
       const entree = {
@@ -2363,7 +2458,7 @@ client.on("interactionCreate", async (interaction) => {
         gravite: gravite,
         patient: patient || "Inconnu",
         date: new Date().toISOString(),
-        userInfo: userInfo
+        userInfo: userInfo,
       };
       interventions.push(entree);
       sauverInterventions();
@@ -2373,32 +2468,34 @@ client.on("interactionCreate", async (interaction) => {
       if (config.interventionChannelId) {
         const salon = await client.channels.fetch(config.interventionChannelId).catch(() => null);
         if (salon) {
-          await salon.send({
-            embeds: [
-              new EmbedBuilder()
-                .setColor(COULEUR_EMBED)
-                .setTitle("🚑 Intervention loggée")
-                .setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() })
-                .setThumbnail(interaction.guild?.iconURL({ dynamic: true }) || null)
-                .addFields(
-                  { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
-                  { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
-                  { name: "Patient", value: patient || "Inconnu", inline: true },
-                  { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true }
-                )
-                .setTimestamp(),
-            ],
-          }).catch(() => {});
+          await salon
+            .send({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(COULEUR_EMBED)
+                  .setTitle("🚑 Intervention loggée")
+                  .setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() })
+                  .setThumbnail(interaction.guild?.iconURL({ dynamic: true }) || null)
+                  .addFields(
+                    { name: "Type", value: LABELS_TYPE_INTERVENTION[type] || type, inline: true },
+                    { name: "Gravité", value: LABELS_GRAVITE_INTERVENTION[gravite] || gravite, inline: true },
+                    { name: "Patient", value: patient || "Inconnu", inline: true },
+                    { name: "Intervenant", value: `<@${interaction.user.id}>`, inline: true }
+                  )
+                  .setTimestamp(),
+              ],
+            })
+            .catch(() => {});
         }
       }
 
       await interaction.reply({
-        content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]}) avec patient **${patient || 'Inconnu'}**.`,
-        flags: 64
+        content: `✅ Intervention loggée : **${LABELS_TYPE_INTERVENTION[type]}** (${LABELS_GRAVITE_INTERVENTION[gravite]}) avec patient **${patient || "Inconnu"}**.`,
+        flags: 64,
       });
 
       await mettreAJourMessageIntervention();
-      if (io) io.emit('dataUpdated', { type: 'intervention' });
+      if (io) io.emit("dataUpdated", { type: "intervention" });
       delete interaction.client.interventionData?.[interaction.user.id];
       return;
     }
@@ -2410,8 +2507,9 @@ client.on("interactionCreate", async (interaction) => {
       const serviceStatus = getServiceStatus(interaction.user.id);
       if (!serviceStatus) {
         return interaction.reply({
-          content: "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
-          flags: 64
+          content:
+            "❌ Tu dois être en service pour rédiger un rapport ! Utilise /service start ou le bouton 🟢 Prendre mon service.",
+          flags: 64,
         });
       }
 
@@ -2449,7 +2547,7 @@ client.on("interactionCreate", async (interaction) => {
         username: interaction.user.username,
         displayName: interaction.member?.displayName || interaction.user.username,
         avatar: interaction.user.displayAvatarURL(),
-        guildId: interaction.guildId || GUILD_ID
+        guildId: interaction.guildId || GUILD_ID,
       };
 
       const rapportEntry = {
@@ -2458,7 +2556,7 @@ client.on("interactionCreate", async (interaction) => {
         patient: patient,
         situation: situation,
         date: new Date().toISOString(),
-        userInfo: userInfo
+        userInfo: userInfo,
       };
       rapports.push(rapportEntry);
       sauverRapports();
@@ -2467,7 +2565,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.reply({ embeds: [embed] });
       await mettreAJourMessageRapport();
-      if (io) io.emit('dataUpdated', { type: 'rapport' });
+      if (io) io.emit("dataUpdated", { type: "rapport" });
       return;
     }
 
@@ -2476,8 +2574,20 @@ client.on("interactionCreate", async (interaction) => {
     // ========================================
     if (interaction.isButton()) {
       const customId = interaction.customId;
-      
-      if (["ticket_claim", "ticket_unclaim", "ticket_rename", "ticket_add", "ticket_remove", "ticket_transcript", "ticket_close", "ticket_delete", "ticket_reopen"].includes(customId)) {
+
+      if (
+        [
+          "ticket_claim",
+          "ticket_unclaim",
+          "ticket_rename",
+          "ticket_add",
+          "ticket_remove",
+          "ticket_transcript",
+          "ticket_close",
+          "ticket_delete",
+          "ticket_reopen",
+        ].includes(customId)
+      ) {
         if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
           return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
         }
@@ -2489,7 +2599,8 @@ client.on("interactionCreate", async (interaction) => {
         if (!ticket) return interaction.reply({ content: "❌ Ticket introuvable.", flags: 64 });
 
         if (customId === "ticket_claim") {
-          if (ticket.claimedBy) return interaction.reply({ content: `❌ Ce ticket est déjà pris par <@${ticket.claimedBy}>.`, flags: 64 });
+          if (ticket.claimedBy)
+            return interaction.reply({ content: `❌ Ce ticket est déjà pris par <@${ticket.claimedBy}>.`, flags: 64 });
           ticket.claimedBy = interaction.user.id;
           sauverTickets();
           await interaction.reply({ content: `✅ Tu as pris en charge le ticket #${ticket.number}.`, flags: 64 });
@@ -2565,10 +2676,10 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.customId === "ticket_add_user") {
         const user = interaction.users.first();
         if (!user) return interaction.update({ content: "❌ Aucun membre sélectionné.", components: [] });
-        
+
         const userId = trouverUserIdParThread(interaction.channel.id);
         if (!userId) return interaction.update({ content: "❌ Ticket introuvable.", components: [] });
-        
+
         try {
           await interaction.channel.members.add(user.id);
           await interaction.update({ content: `✅ ${user.tag} a été ajouté au ticket.`, components: [] });
@@ -2582,10 +2693,10 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.customId === "ticket_remove_user") {
         const user = interaction.users.first();
         if (!user) return interaction.update({ content: "❌ Aucun membre sélectionné.", components: [] });
-        
+
         const userId = trouverUserIdParThread(interaction.channel.id);
         if (!userId) return interaction.update({ content: "❌ Ticket introuvable.", components: [] });
-        
+
         try {
           await interaction.channel.members.remove(user.id);
           await interaction.update({ content: `✅ ${user.tag} a été retiré du ticket.`, components: [] });
@@ -2721,12 +2832,15 @@ client.on("interactionCreate", async (interaction) => {
       const operations = interaction.fields.getTextInputValue("operations");
       const observations = interaction.fields.getTextInputValue("observations");
 
-      const entry = ajouterAntecedent(
-        patientNom,
-        interaction.user.id,
-        interaction.user.tag,
-        { type, description, allergies, traitements, maladiesChroniques, operations, observations }
-      );
+      const entry = ajouterAntecedent(patientNom, interaction.user.id, interaction.user.tag, {
+        type,
+        description,
+        allergies,
+        traitements,
+        maladiesChroniques,
+        operations,
+        observations,
+      });
 
       await interaction.editReply({ content: `✅ Antécédent créé pour **${patientNom}** (ID: ${entry.id}).` });
       return;
@@ -2751,7 +2865,7 @@ client.on("interactionCreate", async (interaction) => {
       const maxAffichage = Math.min(resultats.length, 10);
       for (let i = 0; i < maxAffichage; i++) {
         const a = resultats[i];
-        const date = new Date(a.dateCreation).toLocaleString('fr-FR');
+        const date = new Date(a.dateCreation).toLocaleString("fr-FR");
         let value = `ID: \`${a.id}\`\nType: ${a.type}\n`;
         if (a.description) value += `📝 ${a.description}\n`;
         if (a.allergies) value += `⚠️ Allergies: ${a.allergies}\n`;
@@ -2788,7 +2902,7 @@ client.on("interactionCreate", async (interaction) => {
           await startService(userId);
           await interaction.reply({ content: "✅ Tu as pris ton service ! 🟢", flags: 64 });
           await mettreAJourMessageService();
-          if (io) io.emit('dataUpdated', { type: 'service' });
+          if (io) io.emit("dataUpdated", { type: "service" });
         } else if (subcommand === "stop") {
           const status = getServiceStatus(userId);
           if (!status) {
@@ -2798,19 +2912,16 @@ client.on("interactionCreate", async (interaction) => {
           const duration = Math.floor(result.duration / 60);
           await interaction.reply({
             content: `✅ Tu as déposé ton service après **${duration} minutes** !`,
-            flags: 64
+            flags: 64,
           });
           await mettreAJourMessageService();
-          if (io) io.emit('dataUpdated', { type: 'service' });
+          if (io) io.emit("dataUpdated", { type: "service" });
         } else if (subcommand === "status") {
           const status = getServiceStatus(userId);
           if (!status) {
             return interaction.reply({
-              embeds: [new EmbedBuilder()
-                .setColor(COULEUR_EMBED)
-                .setDescription("❌ Tu n'es pas en service.")
-              ],
-              flags: 64
+              embeds: [new EmbedBuilder().setColor(COULEUR_EMBED).setDescription("❌ Tu n'es pas en service.")],
+              flags: 64,
             });
           }
           const start = new Date(status.startTime);
@@ -2865,16 +2976,18 @@ client.on("interactionCreate", async (interaction) => {
           embed.addFields({
             name: "🟢 Service",
             value: `Total: ${totalHours}h${totalMinutes}\nCette semaine: ${weeklyHours}h${weeklyMinutes}\nSessions: ${(serviceStats.sessions || []).length}`,
-            inline: true
+            inline: true,
           });
 
-          const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
-          const dailyText = jours.map(j => {
-            const seconds = serviceStats.daily?.[j] || 0;
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            return `**${j.charAt(0).toUpperCase() + j.slice(1)}**: ${hours}h${minutes}`;
-          }).join('\n');
+          const jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+          const dailyText = jours
+            .map((j) => {
+              const seconds = serviceStats.daily?.[j] || 0;
+              const hours = Math.floor(seconds / 3600);
+              const minutes = Math.floor((seconds % 3600) / 60);
+              return `**${j.charAt(0).toUpperCase() + j.slice(1)}**: ${hours}h${minutes}`;
+            })
+            .join("\n");
           embed.addFields({ name: "📅 Par jour", value: dailyText, inline: false });
         } else {
           embed.addFields({ name: "🟢 Service", value: "Aucun service enregistré", inline: true });
@@ -2883,13 +2996,13 @@ client.on("interactionCreate", async (interaction) => {
         embed.addFields({
           name: "🚑 Interventions",
           value: `${userInterventions.length} intervention(s)`,
-          inline: true
+          inline: true,
         });
 
         embed.addFields({
           name: "📋 Rapports",
           value: `${userRapports.length} rapport(s)`,
-          inline: true
+          inline: true,
         });
 
         await interaction.reply({ embeds: [embed], flags: 64 });
@@ -2897,7 +3010,18 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       // TICKET COMMANDS
-      if (["rename", "claim", "unclaim", "add", "remove", "priority", "reopen", "transcript"].includes(commandName)) {
+      if (
+        [
+          "rename",
+          "claim",
+          "unclaim",
+          "add",
+          "remove",
+          "priority",
+          "reopen",
+          "transcript",
+        ].includes(commandName)
+      ) {
         if (!interaction.channel.isThread() || interaction.channel.parentId !== config.ticketStaffChannelId) {
           return interaction.reply({ content: "❌ Cette commande n'est disponible que dans un ticket.", flags: 64 });
         }
@@ -2914,7 +3038,8 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (commandName === "claim") {
-          if (ticket.claimedBy) return interaction.reply({ content: `❌ Ce ticket est déjà pris par <@${ticket.claimedBy}>.`, flags: 64 });
+          if (ticket.claimedBy)
+            return interaction.reply({ content: `❌ Ce ticket est déjà pris par <@${ticket.claimedBy}>.`, flags: 64 });
           ticket.claimedBy = interaction.user.id;
           sauverTickets();
           await interaction.reply({ content: `✅ Tu as pris en charge le ticket #${ticket.number}.`, flags: 64 });
@@ -3081,7 +3206,7 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const shouldMention = cfg.mentionUser !== false;
-        const mention = shouldMention ? `<@${userId}>` : '';
+        const mention = shouldMention ? `<@${userId}>` : "";
 
         if (commandName === "valid") {
           if (!estAutoriseCandidature(interaction, cfg.rolesValid)) {
@@ -3103,7 +3228,7 @@ client.on("interactionCreate", async (interaction) => {
             staff: interaction.user.tag,
             ticket: `#${ticket.number}`,
             date: new Date().toLocaleString("fr-FR"),
-            raison: raison
+            raison: raison,
           };
           const msgVal = remplacerVariables(cfg.messageValidation, vars);
           await interaction.channel.send({ content: msgVal });
@@ -3132,7 +3257,7 @@ client.on("interactionCreate", async (interaction) => {
             result: "validee",
             staffTag: interaction.user.tag,
             raison: raison,
-            date: new Date().toISOString()
+            date: new Date().toISOString(),
           });
           sauverCandHistory();
           if (cfg.fermetureAuto) {
@@ -3157,7 +3282,7 @@ client.on("interactionCreate", async (interaction) => {
             staff: interaction.user.tag,
             ticket: `#${ticket.number}`,
             date: new Date().toLocaleString("fr-FR"),
-            raison: raison
+            raison: raison,
           };
           const msgRef = remplacerVariables(cfg.messageRefus, vars);
           await interaction.channel.send({ content: msgRef });
@@ -3187,7 +3312,7 @@ client.on("interactionCreate", async (interaction) => {
             result: "refusee",
             staffTag: interaction.user.tag,
             raison: raison,
-            date: new Date().toISOString()
+            date: new Date().toISOString(),
           });
           sauverCandHistory();
           if (cfg.fermetureAuto) {
@@ -3214,7 +3339,7 @@ client.on("interactionCreate", async (interaction) => {
           reason: raison,
           staffId: interaction.user.id,
           staffTag: interaction.user.tag,
-          date: new Date().toISOString()
+          date: new Date().toISOString(),
         });
         sauverWarns();
         const embed = embedLogModeration({
@@ -3224,7 +3349,7 @@ client.on("interactionCreate", async (interaction) => {
           cibleTag: membre.tag,
           cibleId: membre.id,
           parTag: interaction.user.tag,
-          raison: raison
+          raison: raison,
         });
         await envoyerLogModeration(embed);
         await interaction.reply({ content: `⚠️ ${membre.tag} a été averti pour : ${raison}`, flags: 64 });
@@ -3241,7 +3366,12 @@ client.on("interactionCreate", async (interaction) => {
         if (liste.length === 0) {
           return interaction.reply({ content: `${membre.tag} n'a aucun avertissement.`, flags: 64 });
         }
-        const desc = liste.map((w, i) => `**${i+1}.** ${w.reason} (par ${w.staffTag} le ${new Date(w.date).toLocaleString("fr-FR")})`).join("\n");
+        const desc = liste
+          .map(
+            (w, i) =>
+              `**${i + 1}.** ${w.reason} (par ${w.staffTag} le ${new Date(w.date).toLocaleString("fr-FR")})`
+          )
+          .join("\n");
         const embed = new EmbedBuilder()
           .setColor(COULEUR_EMBED)
           .setTitle(`⚠️ Avertissements de ${membre.tag}`)
@@ -3254,64 +3384,76 @@ client.on("interactionCreate", async (interaction) => {
       console.log(`Commande non implémentée : ${commandName}`);
       await interaction.reply({ content: "❌ Cette commande n'est pas encore implémentée.", flags: 64 });
     }
-
   } catch (error) {
-    console.error('❌ Erreur dans interactionCreate:', error);
+    console.error("❌ Erreur dans interactionCreate:", error);
     if (interaction.replied || interaction.deferred) {
       await interaction.editReply({ content: "❌ Une erreur est survenue. Veuillez réessayer.", flags: 64 }).catch(() => {});
     } else {
       await interaction.reply({
         content: "❌ Une erreur est survenue. Veuillez réessayer.",
-        flags: 64
+        flags: 64,
       }).catch(() => {});
     }
   }
 });
 
 // ==============================
-// PANEL WEB (Express) + Socket.io
+// SERVEUR EXPRESS + PANEL
 // ==============================
 const app = express();
-const http = require('http');
+const http = require("http");
 const server = http.createServer(app);
-const { Server } = require('socket.io');
+const { Server } = require("socket.io");
 io = new Server(server, {
-  cors: { origin: "*" }
+  cors: { origin: "*" },
 });
 
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "10mb" }));
+app.use(express.static(path.join(__dirname, "public")));
 
 app.use(
   session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production", maxAge: 1000 * 60 * 60 * 12, sameSite: 'lax' },
+    cookie: { secure: process.env.NODE_ENV === "production", maxAge: 1000 * 60 * 60 * 12, sameSite: "lax" },
   })
 );
+
+// Rate limiting sur les routes API
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/", apiLimiter);
 
 // Middleware d'authentification
 function authRequis(req, res, next) {
   if (!req.session.user) return res.status(401).json({ erreur: "Non authentifié" });
   const guild = client.guilds.cache.get(GUILD_ID);
   if (!guild) return res.status(500).json({ erreur: "Serveur introuvable" });
-  guild.members.fetch(req.session.user.id).then(member => {
-    if (!member) {
+  guild.members
+    .fetch(req.session.user.id)
+    .then((member) => {
+      if (!member) {
+        req.session.destroy();
+        return res.status(401).json({ erreur: "Membre non trouvé" });
+      }
+      const estAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+      const aRoleAutorise = member.roles.cache.some((role) => ROLES_AUTORISES.includes(role.id));
+      if (!estAdmin && !aRoleAutorise) {
+        req.session.destroy();
+        return res.status(403).json({ erreur: "Rôle insuffisant" });
+      }
+      next();
+    })
+    .catch(() => {
       req.session.destroy();
-      return res.status(401).json({ erreur: "Membre non trouvé" });
-    }
-    const estAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
-    const aRoleAutorise = member.roles.cache.some((role) => ROLES_AUTORISES.includes(role.id));
-    if (!estAdmin && !aRoleAutorise) {
-      req.session.destroy();
-      return res.status(403).json({ erreur: "Rôle insuffisant" });
-    }
-    next();
-  }).catch(() => {
-    req.session.destroy();
-    res.status(401).json({ erreur: "Erreur de vérification" });
-  });
+      res.status(401).json({ erreur: "Erreur de vérification" });
+    });
 }
 
 function getGuild(res) {
@@ -3324,7 +3466,7 @@ function getGuild(res) {
 }
 
 // ==============================
-// ROUTES D'AUTHENTIFICATION
+// ROUTES AUTH
 // ==============================
 app.get("/", (req, res) => {
   if (req.session.user) return res.redirect("/panel");
@@ -3381,7 +3523,8 @@ app.get("/callback", async (req, res) => {
 
     const estAdmin = membre.permissions.has(PermissionsBitField.Flags.Administrator);
     const aRoleAutorise = membre.roles.cache.some((role) => ROLES_AUTORISES.includes(role.id));
-    if (!estAdmin && !aRoleAutorise) return res.status(403).send("Accès refusé : tu n'as pas le rôle requis pour accéder au panel.");
+    if (!estAdmin && !aRoleAutorise)
+      return res.status(403).send("Accès refusé : tu n'as pas le rôle requis pour accéder au panel.");
 
     req.session.user = {
       id: discordUser.id,
@@ -3405,8 +3548,10 @@ app.get("/logout", (req, res) => {
 app.get("/api/me", authRequis, (req, res) => res.json(req.session.user));
 
 // ==============================
-// API STATS
+// ROUTES API (toutes les routes originales sont conservées)
 // ==============================
+
+// /api/stats
 app.get("/api/stats", authRequis, (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -3427,13 +3572,11 @@ app.get("/api/stats", authRequis, (req, res) => {
     servicesActifs: activeServices.length,
     totalInterventions,
     totalRapports,
-    totalServiceTime: Math.floor(totalServiceTime / 3600)
+    totalServiceTime: Math.floor(totalServiceTime / 3600),
   });
 });
 
-// ==============================
-// API SERVICE
-// ==============================
+// /api/service/*
 app.get("/api/service/stats", authRequis, (req, res) => {
   const allStats = {};
   for (const [userId, data] of Object.entries(serviceData)) {
@@ -3444,25 +3587,22 @@ app.get("/api/service/stats", authRequis, (req, res) => {
       sessions: data.sessions || [],
       active: data.active || false,
       startTime: data.startTime || null,
-      userInfo: data.userInfo || null
+      userInfo: data.userInfo || null,
     };
   }
   res.json(allStats);
 });
 
 app.get("/api/service/active", authRequis, (req, res) => {
-  const active = getActiveServices();
-  res.json(active);
+  res.json(getActiveServices());
 });
 
 app.get("/api/service/top", authRequis, (req, res) => {
-  const top = getTopServices(50);
-  res.json(top);
+  res.json(getTopServices(50));
 });
 
 app.get("/api/service/top/weekly", authRequis, (req, res) => {
-  const top = getTopWeeklyServices(50);
-  res.json(top);
+  res.json(getTopWeeklyServices(50));
 });
 
 app.get("/api/service/member/:id", authRequis, (req, res) => {
@@ -3473,68 +3613,63 @@ app.get("/api/service/member/:id", authRequis, (req, res) => {
   res.json(stats || { totalTime: 0, weeklyTime: 0, daily: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 }, sessions: [], active: false, userInfo: null });
 });
 
-// ==============================
-// API INTERVENTIONS
-// ==============================
+// /api/interventions/*
 app.get("/api/interventions/stats", authRequis, (req, res) => {
-  const stats = statsInterventions();
-  res.json(stats);
+  res.json(statsInterventions());
 });
 
 app.get("/api/interventions/top", authRequis, async (req, res) => {
   const top = getTopInterventions(50);
-  const enriched = await Promise.all(top.map(async (item) => {
-    if (!item.userInfo || !item.userInfo.username) {
-      const userInfo = await fetchUserWithCache(item.userId);
-      item.userInfo = userInfo;
-    }
-    return item;
-  }));
+  const enriched = await Promise.all(
+    top.map(async (item) => {
+      if (!item.userInfo || !item.userInfo.username) {
+        const userInfo = await fetchUserWithCache(item.userId);
+        item.userInfo = userInfo;
+      }
+      return item;
+    })
+  );
   res.json(enriched);
 });
 
 app.get("/api/interventions/user/:id", authRequis, (req, res) => {
-  const userInterventions = getInterventionsByUser(req.params.id);
-  res.json(userInterventions);
+  res.json(getInterventionsByUser(req.params.id));
 });
 
 app.get("/api/interventions/recent", authRequis, (req, res) => {
   res.json(interventions.slice(-20).reverse());
 });
 
-// ==============================
-// API RAPPORTS
-// ==============================
+// /api/rapports/*
 app.get("/api/rapports/stats", authRequis, (req, res) => {
   const total = rapports.length;
-  const users = new Set(rapports.map(r => r.userId)).size;
+  const users = new Set(rapports.map((r) => r.userId)).size;
   res.json({ total, users });
 });
 
 app.get("/api/rapports/top", authRequis, async (req, res) => {
   const top = getTopRapports(50);
-  const enriched = await Promise.all(top.map(async (item) => {
-    if (!item.userInfo || !item.userInfo.username) {
-      const userInfo = await fetchUserWithCache(item.userId);
-      item.userInfo = userInfo;
-    }
-    return item;
-  }));
+  const enriched = await Promise.all(
+    top.map(async (item) => {
+      if (!item.userInfo || !item.userInfo.username) {
+        const userInfo = await fetchUserWithCache(item.userId);
+        item.userInfo = userInfo;
+      }
+      return item;
+    })
+  );
   res.json(enriched);
 });
 
 app.get("/api/rapports/user/:id", authRequis, (req, res) => {
-  const userRapports = getRapportsByUser(req.params.id);
-  res.json(userRapports);
+  res.json(getRapportsByUser(req.params.id));
 });
 
 app.get("/api/rapports/recent", authRequis, (req, res) => {
   res.json(rapports.slice(-20).reverse());
 });
 
-// ==============================
-// API SETTINGS
-// ==============================
+// /api/settings
 app.get("/api/settings", authRequis, (req, res) => {
   res.json({
     autoRoleIds: config.autoRoleIds || [],
@@ -3543,11 +3678,12 @@ app.get("/api/settings", authRequis, (req, res) => {
     ticketStaffChannelId: config.ticketStaffChannelId,
     ticketLogsChannelId: config.ticketLogsChannelId,
     modLogsChannelId: config.modLogsChannelId,
+    leaveLogsChannelId: config.leaveLogsChannelId,
     ticketAutoCloseHours: config.ticketAutoCloseHours || 0,
     serviceChannelId: config.serviceChannelId,
     rapportChannelId: config.rapportChannelId,
     interventionChannelId: config.interventionChannelId,
-    autoReset: config.autoReset || { enabled: false, targets: [], frequency: 'daily', customInterval: 1, customTime: '00:00', nextReset: null }
+    autoReset: config.autoReset || { enabled: false, targets: [], frequency: "daily", customInterval: 1, customTime: "00:00", nextReset: null },
   });
 });
 
@@ -3559,6 +3695,7 @@ app.post("/api/settings", authRequis, (req, res) => {
     ticketStaffChannelId,
     ticketLogsChannelId,
     modLogsChannelId,
+    leaveLogsChannelId,
     ticketAutoCloseHours,
     serviceChannelId,
     rapportChannelId,
@@ -3575,6 +3712,7 @@ app.post("/api/settings", authRequis, (req, res) => {
   if (ticketStaffChannelId !== undefined) config.ticketStaffChannelId = ticketStaffChannelId;
   if (ticketLogsChannelId !== undefined) config.ticketLogsChannelId = ticketLogsChannelId;
   if (modLogsChannelId !== undefined) config.modLogsChannelId = modLogsChannelId;
+  if (leaveLogsChannelId !== undefined) config.leaveLogsChannelId = leaveLogsChannelId;
   if (ticketAutoCloseHours !== undefined) config.ticketAutoCloseHours = parseFloat(ticketAutoCloseHours) || 0;
   if (serviceChannelId !== undefined) config.serviceChannelId = serviceChannelId;
   if (rapportChannelId !== undefined) config.rapportChannelId = rapportChannelId;
@@ -3601,9 +3739,7 @@ app.post("/api/settings", authRequis, (req, res) => {
   res.json({ succes: true });
 });
 
-// ==============================
-// API SERVICE CONFIG
-// ==============================
+// /api/service/config (pour réinitialiser les salons depuis le panel)
 app.post("/api/service/config", authRequis, (req, res) => {
   const { channelId } = req.body;
   if (channelId !== undefined) {
@@ -3646,49 +3782,47 @@ app.post("/api/intervention/config", authRequis, (req, res) => {
   res.json({ succes: true });
 });
 
-// ==============================
-// API RESET
-// ==============================
-app.post('/api/reset/interventions', authRequis, async (req, res) => {
+// /api/reset/*
+app.post("/api/reset/interventions", authRequis, async (req, res) => {
   try {
     interventions = [];
     sauverInterventions();
     invalidateCache();
-    logReset('interventions', 'manuel', req.session.user.username);
-    if (io) io.emit('dataUpdated', { type: 'reset' });
+    logReset("interventions", "manuel", req.session.user.username);
+    if (io) io.emit("dataUpdated", { type: "reset" });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/reset/services', authRequis, async (req, res) => {
+app.post("/api/reset/services", authRequis, async (req, res) => {
   try {
     serviceData = {};
     sauverService();
     invalidateCache();
-    logReset('services', 'manuel', req.session.user.username);
-    if (io) io.emit('dataUpdated', { type: 'reset' });
+    logReset("services", "manuel", req.session.user.username);
+    if (io) io.emit("dataUpdated", { type: "reset" });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/reset/rapports', authRequis, async (req, res) => {
+app.post("/api/reset/rapports", authRequis, async (req, res) => {
   try {
     rapports = [];
     sauverRapports();
     invalidateCache();
-    logReset('rapports', 'manuel', req.session.user.username);
-    if (io) io.emit('dataUpdated', { type: 'reset' });
+    logReset("rapports", "manuel", req.session.user.username);
+    if (io) io.emit("dataUpdated", { type: "reset" });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-app.post('/api/reset/all', authRequis, async (req, res) => {
+app.post("/api/reset/all", authRequis, async (req, res) => {
   try {
     interventions = [];
     sauverInterventions();
@@ -3697,30 +3831,28 @@ app.post('/api/reset/all', authRequis, async (req, res) => {
     rapports = [];
     sauverRapports();
     invalidateCache();
-    logReset('all', 'manuel', req.session.user.username);
-    if (io) io.emit('dataUpdated', { type: 'reset' });
+    logReset("all", "manuel", req.session.user.username);
+    if (io) io.emit("dataUpdated", { type: "reset" });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// ==============================
-// API AUTO-RESET
-// ==============================
-app.get('/api/auto-reset/config', authRequis, (req, res) => {
-  const auto = config.autoReset || { enabled: false, targets: [], frequency: 'daily', customInterval: 1, customTime: '00:00', nextReset: null };
+// /api/auto-reset/*
+app.get("/api/auto-reset/config", authRequis, (req, res) => {
+  const auto = config.autoReset || { enabled: false, targets: [], frequency: "daily", customInterval: 1, customTime: "00:00", nextReset: null };
   res.json(auto);
 });
 
-app.post('/api/auto-reset/config', authRequis, (req, res) => {
+app.post("/api/auto-reset/config", authRequis, (req, res) => {
   const { enabled, targets, frequency, customInterval, customTime } = req.body;
   if (!config.autoReset) config.autoReset = {};
   config.autoReset.enabled = enabled === true;
   config.autoReset.targets = Array.isArray(targets) ? targets : [];
-  config.autoReset.frequency = frequency || 'daily';
+  config.autoReset.frequency = frequency || "daily";
   config.autoReset.customInterval = parseInt(customInterval) || 1;
-  config.autoReset.customTime = customTime || '00:00';
+  config.autoReset.customTime = customTime || "00:00";
   const next = calculateNextReset(config.autoReset);
   config.autoReset.nextReset = next.toISOString();
   sauverConfig();
@@ -3728,16 +3860,12 @@ app.post('/api/auto-reset/config', authRequis, (req, res) => {
   res.json({ success: true });
 });
 
-// ==============================
-// API RESET HISTORY
-// ==============================
-app.get('/api/reset-history', authRequis, (req, res) => {
+// /api/reset-history
+app.get("/api/reset-history", authRequis, (req, res) => {
   res.json(resetHistory);
 });
 
-// ==============================
-// API CHANNELS
-// ==============================
+// /api/channels
 app.get("/api/channels", authRequis, (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -3791,9 +3919,7 @@ app.delete("/api/channels/:id", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API ROLES
-// ==============================
+// /api/roles
 app.get("/api/roles", authRequis, (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -3846,9 +3972,7 @@ app.delete("/api/roles/:id", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API MEMBERS SEARCH
-// ==============================
+// /api/members/search
 app.get("/api/members/search", authRequis, async (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -3875,7 +3999,7 @@ app.get("/api/members/search", authRequis, async (req, res) => {
         isOnService: !!getServiceStatus(m.id),
         interventions: getInterventionsByUser(m.id).length,
         rapports: getRapportsByUser(m.id).length,
-        serviceTime: Math.floor((serviceData[m.id]?.totalTime || 0) / 3600)
+        serviceTime: Math.floor((serviceData[m.id]?.totalTime || 0) / 3600),
       }))
     );
   } catch (e) {
@@ -3884,12 +4008,9 @@ app.get("/api/members/search", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API WARNS
-// ==============================
+// /api/members/:id/warns
 app.get("/api/members/:id/warns", authRequis, (req, res) => {
-  const userWarns = warns[req.params.id] || [];
-  res.json(userWarns);
+  res.json(warns[req.params.id] || []);
 });
 
 app.post("/api/members/:id/warn", authRequis, async (req, res) => {
@@ -3902,7 +4023,7 @@ app.post("/api/members/:id/warn", authRequis, async (req, res) => {
     reason,
     staffId: req.session.user.id,
     staffTag: req.session.user.username,
-    date: new Date().toISOString()
+    date: new Date().toISOString(),
   });
   sauverWarns();
 
@@ -3914,7 +4035,7 @@ app.post("/api/members/:id/warn", authRequis, async (req, res) => {
     cibleTag: user?.tag || req.params.id,
     cibleId: req.params.id,
     parTag: req.session.user.username,
-    raison: reason
+    raison: reason,
   });
   await envoyerLogModeration(embed);
 
@@ -3923,14 +4044,12 @@ app.post("/api/members/:id/warn", authRequis, async (req, res) => {
 
 app.delete("/api/members/:userId/warns/:warnId", authRequis, (req, res) => {
   if (!warns[req.params.userId]) return res.status(404).json({ erreur: "Aucun avertissement" });
-  warns[req.params.userId] = warns[req.params.userId].filter(w => w.id !== req.params.warnId);
+  warns[req.params.userId] = warns[req.params.userId].filter((w) => w.id !== req.params.warnId);
   sauverWarns();
   res.json({ succes: true });
 });
 
-// ==============================
-// API MEMBER ROLES
-// ==============================
+// /api/members/:userId/roles/:roleId
 app.post("/api/members/:userId/roles/:roleId", authRequis, async (req, res) => {
   const { userId, roleId } = req.params;
   const { action } = req.body;
@@ -3940,9 +4059,9 @@ app.post("/api/members/:userId/roles/:roleId", authRequis, async (req, res) => {
   try {
     const member = await guild.members.fetch(userId);
     if (!member) return res.status(404).json({ erreur: "Membre introuvable" });
-    if (action === 'add') {
+    if (action === "add") {
       await member.roles.add(roleId);
-    } else if (action === 'remove') {
+    } else if (action === "remove") {
       await member.roles.remove(roleId);
     } else {
       return res.status(400).json({ erreur: "Action invalide (add/remove)" });
@@ -3954,9 +4073,7 @@ app.post("/api/members/:userId/roles/:roleId", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API KICK / BAN / TIMEOUT
-// ==============================
+// /api/members/:userId/kick
 app.post("/api/members/:userId/kick", authRequis, async (req, res) => {
   const { userId } = req.params;
   const { reason } = req.body;
@@ -3973,7 +4090,7 @@ app.post("/api/members/:userId/kick", authRequis, async (req, res) => {
       cibleTag: user?.tag || userId,
       cibleId: userId,
       parTag: req.session.user.username,
-      raison: reason || "Aucune raison"
+      raison: reason || "Aucune raison",
     });
     await envoyerLogModeration(embed);
     res.json({ succes: true });
@@ -3983,6 +4100,7 @@ app.post("/api/members/:userId/kick", authRequis, async (req, res) => {
   }
 });
 
+// /api/members/:userId/ban
 app.post("/api/members/:userId/ban", authRequis, async (req, res) => {
   const { userId } = req.params;
   const { reason } = req.body;
@@ -3999,7 +4117,7 @@ app.post("/api/members/:userId/ban", authRequis, async (req, res) => {
       cibleTag: user?.tag || userId,
       cibleId: userId,
       parTag: req.session.user.username,
-      raison: reason || "Aucune raison"
+      raison: reason || "Aucune raison",
     });
     await envoyerLogModeration(embed);
     res.json({ succes: true });
@@ -4009,6 +4127,7 @@ app.post("/api/members/:userId/ban", authRequis, async (req, res) => {
   }
 });
 
+// /api/members/:userId/timeout
 app.post("/api/members/:userId/timeout", authRequis, async (req, res) => {
   const { userId } = req.params;
   const { minutes } = req.body;
@@ -4026,7 +4145,7 @@ app.post("/api/members/:userId/timeout", authRequis, async (req, res) => {
       cibleTag: user?.tag || userId,
       cibleId: userId,
       parTag: req.session.user.username,
-      raison: `${minutes || 10} minutes`
+      raison: `${minutes || 10} minutes`,
     });
     await envoyerLogModeration(embed);
     res.json({ succes: true });
@@ -4036,9 +4155,7 @@ app.post("/api/members/:userId/timeout", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API CANDIDATURES
-// ==============================
+// /api/settings/candidatures
 app.get("/api/settings/candidatures", authRequis, (req, res) => {
   res.json(config.candidatures || { ...CANDIDATURES_DEFAUT });
 });
@@ -4057,22 +4174,22 @@ app.post("/api/settings/candidatures", authRequis, (req, res) => {
   res.json({ succes: true });
 });
 
+// /api/candidatures/history
 app.get("/api/candidatures/history", authRequis, (req, res) => {
   const q = (req.query.q || "").toLowerCase();
   let resultats = candHistory;
   if (q) {
-    resultats = resultats.filter(h =>
-      h.username?.toLowerCase().includes(q) ||
-      h.staffTag?.toLowerCase().includes(q) ||
-      (h.ticketNumber && h.ticketNumber.includes(q))
+    resultats = resultats.filter(
+      (h) =>
+        h.username?.toLowerCase().includes(q) ||
+        h.staffTag?.toLowerCase().includes(q) ||
+        (h.ticketNumber && h.ticketNumber.includes(q))
     );
   }
   res.json(resultats.slice(0, 200));
 });
 
-// ==============================
-// API TICKETS
-// ==============================
+// /api/tickets
 app.get("/api/tickets", authRequis, (req, res) => {
   const liste = Object.entries(tickets).map(([userId, t]) => ({
     userId,
@@ -4099,9 +4216,11 @@ app.post("/api/tickets/:userId/reply", authRequis, async (req, res) => {
       content: `**${req.session.user.username} (Panel)** :\n${message}`,
     });
     const user = await client.users.fetch(userId);
-    await user.send({
-      content: `**${req.session.user.username} (Staff)** :\n${message}`,
-    }).catch(() => {});
+    await user
+      .send({
+        content: `**${req.session.user.username} (Staff)** :\n${message}`,
+      })
+      .catch(() => {});
     ticket.lastActivity = new Date().toISOString();
     sauverTickets();
     res.json({ succes: true });
@@ -4125,7 +4244,7 @@ app.post("/api/tickets/:userId/close", authRequis, async (req, res) => {
   const { userId } = req.params;
   const ticket = tickets[userId];
   if (!ticket) return res.status(404).json({ erreur: "Ticket introuvable" });
-  
+
   try {
     await fermerTicketParThread(ticket.threadId, req.session.user.username);
     res.json({ succes: true });
@@ -4135,9 +4254,7 @@ app.post("/api/tickets/:userId/close", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API GIVEAWAYS
-// ==============================
+// /api/giveaways
 app.get("/api/giveaways", authRequis, (req, res) => {
   res.json(Object.values(giveaways));
 });
@@ -4195,7 +4312,7 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
   const id = req.params.id;
   const giveaway = giveaways[id];
   if (!giveaway) return res.status(404).json({ erreur: "Giveaway introuvable" });
-  
+
   try {
     await terminerGiveaway(id);
     res.json({ succes: true });
@@ -4205,9 +4322,7 @@ app.post("/api/giveaways/:id/end", authRequis, async (req, res) => {
   }
 });
 
-// ==============================
-// API SEND EMBED
-// ==============================
+// /api/send-embed
 app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, res) => {
   const { channelId, title, description, color, imageUrl, footer } = req.body;
   if (!channelId) return res.status(400).json({ erreur: "Salon requis" });
@@ -4223,7 +4338,7 @@ app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, 
       .setTimestamp();
 
     if (footer) embed.setFooter({ text: footer });
-    
+
     if (req.file) {
       const attachment = { attachment: req.file.buffer, name: req.file.originalname };
       embed.setImage(`attachment://${req.file.originalname}`);
@@ -4242,9 +4357,7 @@ app.post("/api/send-embed", authRequis, upload.single("imageFile"), async (req, 
   }
 });
 
-// ==============================
-// API BACKUP
-// ==============================
+// /api/backup
 app.get("/api/backup", authRequis, (req, res) => {
   const backup = {
     config,
@@ -4260,30 +4373,63 @@ app.get("/api/backup", authRequis, (req, res) => {
     resetHistory,
     date: new Date().toISOString(),
   };
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Disposition', `attachment; filename=backup-${Date.now()}.json`);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename=backup-${Date.now()}.json`);
   res.json(backup);
 });
 
 app.post("/api/backup/import", authRequis, (req, res) => {
   const data = req.body;
   if (!data) return res.status(400).json({ erreur: "Données manquantes" });
-  if (typeof data !== 'object' || Array.isArray(data)) {
+  if (typeof data !== "object" || Array.isArray(data)) {
     return res.status(400).json({ erreur: "Format invalide" });
   }
 
   try {
-    if (data.config) { config = { ...config, ...data.config }; sauverConfig(); }
-    if (data.tickets) { tickets = data.tickets; sauverTickets(); }
-    if (data.giveaways) { giveaways = data.giveaways; sauverGiveaways(); }
-    if (data.closedTickets) { closedTickets = data.closedTickets; sauverClosedTickets(); }
-    if (data.warns) { warns = data.warns; sauverWarns(); }
-    if (data.candHistory) { candHistory = data.candHistory; sauverCandHistory(); }
-    if (data.interventions) { interventions = Array.isArray(data.interventions) ? data.interventions : []; sauverInterventions(); }
-    if (data.serviceData) { serviceData = data.serviceData; sauverService(); }
-    if (data.rapports) { rapports = Array.isArray(data.rapports) ? data.rapports : []; sauverRapports(); }
-    if (data.antecedents) { antecedents = Array.isArray(data.antecedents) ? data.antecedents : []; sauverAntecedents(); }
-    if (data.resetHistory) { resetHistory = Array.isArray(data.resetHistory) ? data.resetHistory : []; sauverResetHistory(); }
+    if (data.config) {
+      config = { ...config, ...data.config };
+      sauverConfig();
+    }
+    if (data.tickets) {
+      tickets = data.tickets;
+      sauverTickets();
+    }
+    if (data.giveaways) {
+      giveaways = data.giveaways;
+      sauverGiveaways();
+    }
+    if (data.closedTickets) {
+      closedTickets = data.closedTickets;
+      sauverClosedTickets();
+    }
+    if (data.warns) {
+      warns = data.warns;
+      sauverWarns();
+    }
+    if (data.candHistory) {
+      candHistory = data.candHistory;
+      sauverCandHistory();
+    }
+    if (data.interventions) {
+      interventions = Array.isArray(data.interventions) ? data.interventions : [];
+      sauverInterventions();
+    }
+    if (data.serviceData) {
+      serviceData = data.serviceData;
+      sauverService();
+    }
+    if (data.rapports) {
+      rapports = Array.isArray(data.rapports) ? data.rapports : [];
+      sauverRapports();
+    }
+    if (data.antecedents) {
+      antecedents = Array.isArray(data.antecedents) ? data.antecedents : [];
+      sauverAntecedents();
+    }
+    if (data.resetHistory) {
+      resetHistory = Array.isArray(data.resetHistory) ? data.resetHistory : [];
+      sauverResetHistory();
+    }
     invalidateCache();
     res.json({ succes: true });
   } catch (e) {
@@ -4292,9 +4438,7 @@ app.post("/api/backup/import", authRequis, (req, res) => {
   }
 });
 
-// ==============================
-// API ANTÉCÉDENTS
-// ==============================
+// /api/antecedents
 app.get("/api/antecedents/config", authRequis, (req, res) => {
   res.json(config.antecedents || { enabled: false, channelId: null, allowedRoles: [] });
 });
@@ -4317,10 +4461,11 @@ app.get("/api/antecedents", authRequis, (req, res) => {
   let resultats = antecedents;
   if (q) {
     const lower = q.toLowerCase();
-    resultats = resultats.filter(a => 
-      a.patientNom.toLowerCase().includes(lower) ||
-      a.id.toLowerCase().includes(lower) ||
-      (a.type && a.type.toLowerCase().includes(lower))
+    resultats = resultats.filter(
+      (a) =>
+        a.patientNom.toLowerCase().includes(lower) ||
+        a.id.toLowerCase().includes(lower) ||
+        (a.type && a.type.toLowerCase().includes(lower))
     );
   }
   const total = resultats.length;
@@ -4335,27 +4480,50 @@ app.get("/api/antecedents/:id", authRequis, (req, res) => {
 });
 
 app.post("/api/antecedents", authRequis, (req, res) => {
-  const { patientNom, type, description, allergies, traitements, maladiesChroniques, operations, observations } = req.body;
+  const {
+    patientNom,
+    type,
+    description,
+    allergies,
+    traitements,
+    maladiesChroniques,
+    operations,
+    observations,
+  } = req.body;
   if (!patientNom || !type) {
     return res.status(400).json({ erreur: "Patient et type sont requis." });
   }
-  const entry = ajouterAntecedent(
-    patientNom,
-    req.session.user.id,
-    req.session.user.username,
-    { type, description, allergies, traitements, maladiesChroniques, operations, observations }
-  );
+  const entry = ajouterAntecedent(patientNom, req.session.user.id, req.session.user.username, {
+    type,
+    description,
+    allergies,
+    traitements,
+    maladiesChroniques,
+    operations,
+    observations,
+  });
   res.status(201).json(entry);
 });
 
 app.put("/api/antecedents/:id", authRequis, (req, res) => {
-  const { type, description, allergies, traitements, maladiesChroniques, operations, observations } = req.body;
-  const updated = modifierAntecedent(
-    req.params.id,
-    req.session.user.id,
-    req.session.user.username,
-    { type, description, allergies, traitements, maladiesChroniques, operations, observations }
-  );
+  const {
+    type,
+    description,
+    allergies,
+    traitements,
+    maladiesChroniques,
+    operations,
+    observations,
+  } = req.body;
+  const updated = modifierAntecedent(req.params.id, req.session.user.id, req.session.user.username, {
+    type,
+    description,
+    allergies,
+    traitements,
+    maladiesChroniques,
+    operations,
+    observations,
+  });
   if (!updated) return res.status(404).json({ erreur: "Antécédent introuvable" });
   res.json(updated);
 });
@@ -4376,12 +4544,16 @@ app.get("/api/antecedents/:id/historique", authRequis, (req, res) => {
 // MIDDLEWARE D'ERREUR
 // ==============================
 app.use((err, req, res, next) => {
-  console.error('❌ Erreur Express:', err);
+  console.error("❌ Erreur Express:", err);
   if (err instanceof multer.MulterError) {
-    return res.status(400).json({ erreur: 'Erreur upload: ' + err.message });
+    return res.status(400).json({ erreur: "Erreur upload: " + err.message });
   }
-  res.status(500).json({ erreur: 'Erreur serveur interne' });
+  res.status(500).json({ erreur: "Erreur serveur interne" });
 });
 
 // ==============================
-server.listen(PORT, () => console.log(`✅ Serveur web + panel + Socket.io actif sur le port ${PORT}`));
+// LANCEMENT DU SERVEUR
+// ==============================
+server.listen(PORT, () =>
+  console.log(`✅ Serveur web + panel + Socket.io actif sur le port ${PORT}`)
+);
