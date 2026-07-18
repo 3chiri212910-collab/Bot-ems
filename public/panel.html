@@ -787,6 +787,8 @@
     <div class="sous-titre">Modération</div>
     <label>Salon des logs de modération</label>
     <select id="param-salon-modlogs"><option value="">Aucun</option></select>
+    <label>Salon des logs de départs (leave/kick/ban)</label>
+    <select id="param-salon-leavelogs"><option value="">Aucun</option></select>
 
     <div class="sous-titre">Service</div>
     <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
@@ -1185,7 +1187,7 @@ document.querySelectorAll('[data-service-tab]').forEach(tab => {
     document.querySelectorAll('[data-service-tab]').forEach(t => t.classList.remove('actif'));
     tab.classList.add('actif');
     document.querySelectorAll('#vue-service .stats-content').forEach(c => c.classList.add('hidden'));
-    document.getElementById('service-' + tab.dataset.serviceTab).classList.remove('hidden');
+    document.getElementById('service-' + tab.dataset.tab).classList.remove('hidden');
   });
 });
 
@@ -1929,7 +1931,7 @@ async function chargerParametres() {
 
     const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
 
-    const selects = ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-service', 'param-salon-rapport', 'param-salon-intervention'];
+    const selects = ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-service', 'param-salon-rapport', 'param-salon-intervention', 'param-salon-leavelogs'];
     selects.forEach(id => {
       document.getElementById(id).innerHTML = optionsSalons;
     });
@@ -1939,6 +1941,7 @@ async function chargerParametres() {
     document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
     document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
     document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
+    document.getElementById('param-salon-leavelogs').value = params.leaveLogsChannelId || '';
     document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
     document.getElementById('param-salon-service').value = params.serviceChannelId || '';
     document.getElementById('param-salon-rapport').value = params.rapportChannelId || '';
@@ -1978,6 +1981,7 @@ async function sauverParametres() {
         ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
         ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
         modLogsChannelId: document.getElementById('param-salon-modlogs').value,
+        leaveLogsChannelId: document.getElementById('param-salon-leavelogs').value,
         ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
         serviceChannelId: document.getElementById('param-salon-service').value,
         rapportChannelId: document.getElementById('param-salon-rapport').value,
