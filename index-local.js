@@ -1572,6 +1572,8 @@ client.on("guildMemberAdd", async (member) => {
 
 // --- guildMemberRemove (départ volontaire ou kick) ---
 client.on("guildMemberRemove", async (member) => {
+  console.log(`🔔 EVENT guildMemberRemove déclenché pour ${member.user?.tag || member.id}`);
+    console.log(`🔧 leaveLogsChannelId actuel : ${config.leaveLogsChannelId}`);
   if (!config.leaveLogsChannelId) return;
 
   try {
