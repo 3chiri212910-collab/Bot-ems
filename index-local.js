@@ -1217,9 +1217,11 @@ app.get('/callback', async (req, res) => {
         redirect_uri: REDIRECT_URI,
       }),
     });
-    const tokenData = await tokenRes.json();
+    
+const tokenData = await tokenRes.json();
+    console.error('Réponse Discord OAuth:', tokenData);
     if (!tokenData.access_token) throw new Error('Pas de token');
-
+    
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
