@@ -1,147 +1,124 @@
+<!-- login.html - Page d'authentification Discord -->
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8" />
-<title>Bot-ems Dashboard</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #07080d;
-    --accent: #ff2d78;
-    --accent-b: #3b82f6;
-    --accent-grad: linear-gradient(135deg, var(--accent), var(--accent-b));
-    --card-bg: rgba(20,23,35,0.68);
-    --border: rgba(148,163,184,0.10);
-    --text: #f2f3f7;
-    --text-dim: #8890a4;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    font-family: 'Inter', -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    position: relative;
-    overflow: hidden;
-  }
-
-  /* même ambiance que le panel : lueur rose/bleue en fond */
-  body::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(circle at 78% 82%, rgba(255,45,120,0.20), transparent 42%),
-      radial-gradient(circle at 15% 15%, rgba(59,130,246,0.14), transparent 46%),
-      var(--bg);
-    animation: emsDrift 24s ease-in-out infinite alternate;
-  }
-  @keyframes emsDrift {
-    0%   { background-position: 0% 0%, 0% 0%; }
-    100% { background-position: 3% 3%, -3% -3%; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    body::before { animation: none; }
-  }
-
-  .carte {
-    position: relative;
-    z-index: 1;
-    width: min(400px, calc(100vw - 48px));
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 40px 36px 34px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 22px 60px -22px rgba(255,45,120,0.28), 0 10px 34px -14px rgba(0,0,0,0.6);
-    text-align: left;
-  }
-
-  .mark {
-    width: 52px; height: 52px; border-radius: 14px;
-    background: var(--accent-grad);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 26px;
-    margin-bottom: 22px;
-    box-shadow: 0 10px 26px -8px rgba(255,45,120,0.55);
-  }
-
-  h1 {
-    font-family: 'Sora', sans-serif;
-    font-size: 26px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    margin: 0 0 10px;
-  }
-
-  p.sous-titre {
-    color: var(--text-dim);
-    font-size: 14px;
-    line-height: 1.5;
-    margin: 0 0 28px;
-  }
-
-  .boutons { display: flex; gap: 10px; }
-
-  a.bouton {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 12px 18px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 600;
-    text-decoration: none;
-    font-family: inherit;
-    cursor: pointer;
-    transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
-  }
-  a.bouton.principal {
-    background: var(--accent-grad);
-    color: #fff;
-    box-shadow: 0 8px 22px -8px rgba(255,45,120,0.5);
-    border: none;
-  }
-  a.bouton.principal:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(255,45,120,0.65); }
-
-  a.bouton.secondaire {
-    background: #10121c;
-    border: 1px solid var(--border);
-    color: var(--text);
-    box-shadow: none;
-    flex: 0 0 auto;
-    padding: 12px 16px;
-  }
-  a.bouton.secondaire:hover { border-color: rgba(255,45,120,0.35); }
-
-  .footer-note {
-    margin-top: 22px;
-    font-size: 12px;
-    color: #545c72;
-    text-align: center;
-  }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard RP · Connexion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* --- Thème sombre élégant --- */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0b0d14;
+      color: #f0f2f8;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 1.5rem;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(88, 101, 242, 0.15), transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(255, 45, 120, 0.10), transparent 50%),
+        #0b0d14;
+      pointer-events: none;
+    }
+    .card {
+      position: relative;
+      z-index: 1;
+      max-width: 420px;
+      width: 100%;
+      background: rgba(20, 24, 38, 0.7);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(148, 163, 184, 0.08);
+      border-radius: 24px;
+      padding: 2.4rem 2rem 2rem;
+      box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(148, 163, 184, 0.04);
+      text-align: left;
+    }
+    .icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, #5865F2, #4752C4);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 1.2rem;
+      box-shadow: 0 8px 24px -6px rgba(88, 101, 242, 0.4);
+    }
+    h1 {
+      font-family: 'Sora', sans-serif;
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.4rem;
+    }
+    .sub {
+      color: #8892b0;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 2rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: linear-gradient(135deg, #5865F2, #4752C4);
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 15px;
+      font-family: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+      box-shadow: 0 8px 24px -8px rgba(88, 101, 242, 0.5);
+      width: 100%;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 32px -8px rgba(88, 101, 242, 0.6);
+    }
+    .btn:active { transform: translateY(0); }
+    .footer {
+      margin-top: 1.5rem;
+      font-size: 12px;
+      color: #545c72;
+      text-align: center;
+    }
+    .footer a {
+      color: #8892b0;
+      text-decoration: none;
+    }
+    .footer a:hover { color: #f0f2f8; }
+  </style>
 </head>
 <body>
-
-  <div class="carte">
-    <div class="mark">🚑</div>
-    <h1>Bot-ems Dashboard</h1>
-    <p class="sous-titre">Gère les paramètres du bot en te connectant avec Discord.</p>
-    <div class="boutons">
-      <a class="bouton principal" href="/auth/discord">Login with Discord</a>
-      <a class="bouton secondaire" href="/login">Refresh</a>
-    </div>
+  <div class="card">
+    <div class="icon">⚙️</div>
+    <h1>Dashboard RP</h1>
+    <p class="sub">
+      Connecte-toi avec Discord pour accéder au panel d'administration complet du serveur.
+    </p>
+    <a href="/auth/discord" class="btn">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.01.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.01.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+      Connexion avec Discord
+    </a>
+    <div class="footer">Panel de gestion · Sécurisé</div>
   </div>
-
-  <div class="footer-note">RoseFA · EMS</div>
-
 </body>
 </html>
