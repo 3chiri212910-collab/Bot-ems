@@ -1217,6 +1217,42 @@ app.get('/callback', async (req, res) => {
         redirect_uri: REDIRECT_URI,
       }),
     });
+
+    const tokenData = await tokenRes.json();
+
+    if (!tokenData.access_token) {
+      console.error('Erreur OAuth Discord:', tokenData.error, tokenData.error_description);
+      return res.redirect('/login?erreur=oauth_expire');
+    }
+
+    const userRes = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const discordUser = await userRes.json();
+
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return res.status(500).send('Bot pas sur le serveur.');
+
+    const membre = await guild.members.fetch(discordUser.id).catch(() => null);
+    if (!membre) return res.status(403).send('Tu n\'es pas membre du serveur.');
+
+    const estAdmin = membre.permissions.has(PermissionsBitField.Flags.Administrator);
+    const aRoleAutorise = membre.roles.cache.some(role => ROLES_AUTORISES.includes(role.id));
+    if (!estAdmin && !aRoleAutorise) return res.status(403).send('Accès refusé : rôle insuffisant.');
+
+    req.session.user = {
+      id: discordUser.id,
+      username: discordUser.username,
+      avatar: discordUser.avatar ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png` : null,
+    };
+    res.redirect('/panel');
+  } catch (e) {
+    console.error('Erreur OAuth:', e.message);
+    res.status(500).send('Erreur lors de la connexion Discord.');
+  }
+});
+      }),
+    });
     
 const tokenData = await tokenRes.json();
     console.error('Réponse Discord OAuth:', tokenData);
