@@ -4,30 +4,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Panel RP · Administration</title>
+  <title>Northside · Panel Administration</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap" />
   <style>
     /* --- Variables & Reset --- */
     :root {
-      --bg: #0b0d14;
-      --bg-card: rgba(20, 24, 38, 0.68);
-      --bg-card-solid: #161a2b;
-      --bg-input: #0f111f;
+      --bg: #050a14;
+      --bg-card: rgba(11, 21, 36, 0.68);
+      --bg-card-solid: #0f1c30;
+      --bg-input: #0a1220;
       --border: rgba(148, 163, 184, 0.08);
-      --border-hover: rgba(88, 101, 242, 0.3);
-      --accent: #5865F2;
-      --accent-dim: rgba(88, 101, 242, 0.12);
-      --text: #f0f2f8;
-      --text-dim: #8892b0;
-      --text-faint: #545c72;
+      --border-hover: rgba(46, 139, 255, 0.35);
+      --accent: #2e8bff;
+      --accent-dim: rgba(46, 139, 255, 0.14);
+      --text: #eaf3ff;
+      --text-dim: #7a92b8;
+      --text-faint: #4d6486;
       --ok: #34d399;
       --err: #fb7185;
       --warn: #f59e0b;
       --radius: 12px;
       --radius-lg: 18px;
       --shadow: 0 10px 34px -14px rgba(0, 0, 0, 0.6);
-      --shadow-glow: 0 0 0 1px rgba(88, 101, 242, 0.06), 0 22px 60px -22px rgba(88, 101, 242, 0.2);
+      --shadow-glow: 0 0 0 1px rgba(46, 139, 255, 0.08), 0 22px 60px -22px rgba(46, 139, 255, 0.22);
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
@@ -39,15 +40,15 @@
       min-height: 100vh;
       position: relative;
     }
-    h1, h2, h3 { font-family: 'Sora', sans-serif; }
+    h1, h2, h3 { font-family: 'Clash Display', sans-serif; }
 
     /* --- Background --- */
     body::before {
       content: '';
       position: fixed; inset: 0; z-index: 0;
       background:
-        radial-gradient(circle at 12% 8%, rgba(88, 101, 242, 0.12), transparent 42%),
-        radial-gradient(circle at 88% 6%, rgba(88, 101, 242, 0.08), transparent 46%),
+        radial-gradient(circle at 12% 8%, rgba(46, 139, 255, 0.14), transparent 42%),
+        radial-gradient(circle at 88% 6%, rgba(46, 139, 255, 0.1), transparent 46%),
         var(--bg);
       pointer-events: none;
     }
@@ -78,14 +79,22 @@
     }
     nav .logo .icon {
       width: 30px; height: 30px;
-      background: linear-gradient(135deg, #5865F2, #4752C4);
+      background: linear-gradient(160deg, #12233f, #0a1220 65%);
+      border: 1px solid rgba(127, 196, 255, 0.35);
       border-radius: 9px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 16px;
       flex-shrink: 0;
-      box-shadow: 0 6px 16px -4px rgba(88, 101, 242, 0.4);
+      position: relative;
+      overflow: hidden;
+    }
+    nav .logo .icon::after{
+      content:''; position:absolute; width:2px; height:40px;
+      background: linear-gradient(180deg, #fff, #7fc4ff);
+      transform: rotate(20deg);
+      box-shadow: 0 0 8px 1px rgba(127,196,255,.7);
     }
     nav .tab {
       padding: 9px 12px;
@@ -102,12 +111,12 @@
     nav .tab.actif {
       color: #fff;
       font-weight: 600;
-      background: linear-gradient(90deg, rgba(88, 101, 242, 0.18), rgba(88, 101, 242, 0.04));
+      background: linear-gradient(90deg, rgba(46, 139, 255, 0.2), rgba(46, 139, 255, 0.05));
     }
     nav .tab.actif::before {
       content: '';
       position: absolute; left: -12px; top: 6px; bottom: 6px; width: 3px;
-      background: linear-gradient(180deg, #5865F2, #4752C4);
+      background: linear-gradient(180deg, #2e8bff, #7fc4ff);
       border-radius: 0 4px 4px 0;
     }
     nav .user {
@@ -181,10 +190,10 @@
     }
     .stat-carte:hover { transform: translateY(-2px); border-color: var(--border-hover); box-shadow: var(--shadow-glow); }
     .stat-carte .valeur {
-      font-family: 'Sora', sans-serif;
+      font-family: 'Clash Display', sans-serif;
       font-size: 26px;
       font-weight: 800;
-      background: linear-gradient(135deg, #5865F2, #4752C4);
+      background: linear-gradient(135deg, #2e8bff, #7fc4ff);
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
@@ -220,13 +229,13 @@
     input:focus, textarea:focus, select:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.14);
+      box-shadow: 0 0 0 3px rgba(46, 139, 255, 0.16);
     }
     textarea { min-height: 80px; resize: vertical; line-height: 1.5; }
     select { cursor: pointer; }
     select[multiple] { min-height: 100px; padding: 6px; }
     select[multiple] option { padding: 5px 10px; border-radius: 4px; margin: 2px 0; }
-    select[multiple] option:checked { background: linear-gradient(135deg, #5865F2, #4752C4); color: #fff; }
+    select[multiple] option:checked { background: linear-gradient(135deg, #2e8bff, #7fc4ff); color: #fff; }
 
     .checkbox-grid {
       display: grid;
@@ -272,7 +281,7 @@
 
     button {
       margin-top: 16px;
-      background: linear-gradient(135deg, #5865F2, #4752C4);
+      background: linear-gradient(135deg, #2e8bff, #7fc4ff);
       color: white;
       border: none;
       padding: 10px 22px;
@@ -281,10 +290,10 @@
       cursor: pointer;
       font-weight: 600;
       font-family: inherit;
-      box-shadow: 0 8px 22px -8px rgba(88, 101, 242, 0.5);
+      box-shadow: 0 8px 22px -8px rgba(46, 139, 255, 0.5);
       transition: transform 0.15s, box-shadow 0.2s;
     }
-    button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(88, 101, 242, 0.6); }
+    button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(46, 139, 255, 0.6); }
     button:active { transform: translateY(0); }
     button.secondaire {
       background: var(--bg-card-solid);
@@ -334,7 +343,7 @@
       font-size: 11.5px;
       font-weight: 600;
       margin: 3px 5px 3px 0;
-      border: 1px solid rgba(88, 101, 242, 0.2);
+      border: 1px solid rgba(46, 139, 255, 0.22);
     }
 
     .rank-item {
@@ -377,10 +386,10 @@
     }
     .tab-stats:hover { border-color: var(--border-hover); color: var(--text); transform: translateY(-1px); }
     .tab-stats.actif {
-      background: linear-gradient(135deg, #5865F2, #4752C4);
+      background: linear-gradient(135deg, #2e8bff, #7fc4ff);
       color: white;
       border-color: transparent;
-      box-shadow: 0 4px 12px rgba(88, 101, 242, 0.3);
+      box-shadow: 0 4px 12px rgba(46, 139, 255, 0.35);
     }
 
     .warn-badge {
@@ -478,8 +487,8 @@
 
 <nav>
   <div class="logo">
-    <span class="icon">⚙️</span>
-    <span>Panel RP</span>
+    <span class="icon"></span>
+    <span>Northside</span>
   </div>
   <div class="tab actif" data-tab="dashboard">📊 Dashboard</div>
   <div class="tab" data-tab="moderation">🛡️ Modération</div>
@@ -536,7 +545,7 @@
       <label>Nouveau rôle</label>
       <input id="role-nom" placeholder="Nom du rôle" />
       <label>Couleur (hex)</label>
-      <input id="role-couleur" value="#5865F2" />
+      <input id="role-couleur" value="#2e8bff" />
       <button onclick="creerRole()">Créer</button>
       <div id="role-statut"></div>
     </div>
@@ -626,7 +635,7 @@
     <select id="embed-salon"></select>
     <label>Titre</label><input id="embed-titre" placeholder="Titre de l'annonce" />
     <label>Description</label><textarea id="embed-description" placeholder="Contenu..."></textarea>
-    <label>Couleur (hex)</label><input id="embed-couleur" value="#5865F2" />
+    <label>Couleur (hex)</label><input id="embed-couleur" value="#2e8bff" />
     <label>Image (fichier)</label><input id="embed-image-fichier" type="file" accept="image/*" />
     <label>OU Image (URL)</label><input id="embed-image" placeholder="https://..." />
     <label>Footer</label><input id="embed-footer" placeholder="Footer..." />
