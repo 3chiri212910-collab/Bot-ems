@@ -1,20 +1,19 @@
 {
-  "name": "ems-bot",
+  "name": "rp-bot",
   "version": "1.0.0",
-  "description": "Bot Discord EMS - panel de gestion complet (moderation, salons, roles, bienvenue, tickets, giveaways)",
-  "main": "index-local.js",
+  "description": "Bot Discord RP - panel de gestion complet (moderation, salons, roles, bienvenue, tickets, candidatures, giveaways, backup)",
+  "main": "index.js",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node index-local.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
     "express-session": "^1.18.0",
-    "multer": "^1.4.5-lts.1",
-    "socket.io": "^4.7.5"
+    "multer": "^1.4.5-lts.1"
   }
 }
