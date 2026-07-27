@@ -1725,29 +1725,33 @@ app.post('/api/members/:userId/timeout', authRequis, async (req, res) => {
   }
 });
 
-// ---- Gestion des erreurs Express ----
-app.use((err, req, res, next) => {
-  console.error('❌ Erreur Express:', err);
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({ erreur: 'Erreur upload: ' + err.message });
-  }
-  res.status(500).json({ erreur: 'Erreur serveur interne' });
+// ---- Démarrage du serveur Express ----
+server.listen(PORT, () => {
+  console.log(`✅ Serveur web + bot actif sur le port ${PORT}`);
 });
 
-// ---- Démarrage ----
-server.listen(PORT, () => console.log(`✅ Serveur web + bot actif sur le port ${PORT}`));
+// ---- Connexion à Discord avec gestion d'erreur ----
+client.login(TOKEN).catch(error => {
+  console.error('❌ Échec de la connexion à Discord :', error);
+  console.error('👉 Vérifie ton TOKEN, CLIENT_ID, GUILD_ID et les intents Discord.');
+  process.exit(1);
+});
 
-// Gestion des signaux d'arrêt
-process.on('unhandledRejection', error => console.error('❌ Unhandled Rejection:', error));
-process.on('uncaughtException', error => console.error('❌ Uncaught Exception:', error));
+// ---- Gestion des erreurs non capturées ----
+process.on('unhandledRejection', error => {
+  console.error('❌ Unhandled Rejection:', error);
+});
 
-// Nettoyage à l'arrêt
+process.on('uncaughtException', error => {
+  console.error('❌ Uncaught Exception:', error);
+});
+
+// ---- Nettoyage à l'arrêt ----
 let cleanupDone = false;
 function cleanup() {
   if (cleanupDone) return;
   cleanupDone = true;
   console.log('🛑 Arrêt en cours...');
-  // Pas de timers persistants supplémentaires
   process.exit(0);
 }
 process.on('SIGINT', cleanup);
