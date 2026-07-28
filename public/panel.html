@@ -567,8 +567,6 @@
     <textarea id="param-message-bienvenue"></textarea>
 
     <div class="sous-titre">Tickets</div>
-    <label>Salon staff pour les tickets (non utilisé avec le nouveau système)</label>
-    <select id="param-salon-tickets"><option value="">Aucun</option></select>
     <label>Salon des logs de tickets</label>
     <select id="param-salon-logs-tickets"><option value="">Aucun</option></select>
     <label>Salon des transcripts</label>
@@ -700,7 +698,7 @@
 
 Votre ticket a bien été créé.
 
-Un membre de notre équipe prendra votre demande en charge dans les plus brefs délais.
+Un membre de notre équipe vous répondra dans les plus brefs délais.
 
 Merci de patienter.</textarea>
       <div class="case-ligne"><input type="checkbox" id="new-cat-active" checked /><label for="new-cat-active">Activer cette catégorie</label></div>
@@ -740,7 +738,7 @@ Merci de patienter.</textarea>
 
 <script>
 // ============================================================
-// PANEL RP - JavaScript corrigé
+// PANEL RP - JavaScript complet avec gestion des catégories de tickets
 // ============================================================
 
 // ---- Utilitaires ----
@@ -1078,13 +1076,12 @@ async function chargerParametres() {
 
     const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
 
-    ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-leavelogs', 'param-salon-transcripts'].forEach(id => {
+    ['param-salon-bienvenue', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-leavelogs', 'param-salon-transcripts'].forEach(id => {
       document.getElementById(id).innerHTML = optionsSalons;
     });
 
     document.getElementById('param-salon-bienvenue').value = params.welcomeChannelId || '';
     document.getElementById('param-message-bienvenue').value = params.welcomeMessage || '';
-    document.getElementById('param-salon-tickets').value = params.ticketStaffChannelId || '';
     document.getElementById('param-salon-logs-tickets').value = params.ticketLogsChannelId || '';
     document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
     document.getElementById('param-salon-leavelogs').value = params.leaveLogsChannelId || '';
@@ -1142,7 +1139,6 @@ async function sauverParametres() {
         autoRoleIds: autoRoleIds,
         welcomeChannelId: document.getElementById('param-salon-bienvenue').value,
         welcomeMessage: document.getElementById('param-message-bienvenue').value,
-        ticketStaffChannelId: document.getElementById('param-salon-tickets').value,
         ticketLogsChannelId: document.getElementById('param-salon-logs-tickets').value,
         modLogsChannelId: document.getElementById('param-salon-modlogs').value,
         leaveLogsChannelId: document.getElementById('param-salon-leavelogs').value,
@@ -1470,14 +1466,14 @@ async function terminerGiveawayPanel(id) {
   }
 }
 
-// ---- CATEGORIES DE TICKETS (CORRIGÉ) ----
+// ---- CATEGORIES DE TICKETS ----
 async function chargerCategories() {
   try {
     // 1. Charger les catégories de tickets existantes
     const res = await fetch('/api/ticket-categories');
     const categories = await res.json();
 
-    // 2. Afficher la liste avec le bon statut (active/inactive)
+    // 2. Afficher la liste avec le bon statut
     const container = document.getElementById('liste-categories');
     if (!categories.length) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune catégorie configurée.</p>';
@@ -1538,7 +1534,6 @@ async function ajouterCategorie() {
         active,
         destinationCategoryId: destination,
         channelNameFormat: format,
-        autoReplyMessage: autoReply || '✅ Merci pour votre message.',
         autoReplyEmbed: { title: '✅ Ticket créé', description: autoReply || 'Votre message a bien été reçu.', color: '#5865F2' }
       })
     });
