@@ -1,4 +1,4 @@
-// index.js – Bot Discord + API REST pour panel RP (système de tickets amélioré)
+// index.js – Bot Discord + API REST pour panel RP (système de tickets avec salons)
 const {
   Client,
   GatewayIntentBits,
@@ -101,7 +101,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'recrutement-{number}',
-    autoReplyMessage: '✅ Merci pour votre message.\n\nVotre ticket a bien été créé.\nUn membre de notre équipe prendra votre demande en charge dans les plus brefs délais.\n\nMerci de patienter.',
     autoReplyEmbed: {
       title: '✅ Ticket créé',
       description: 'Merci pour votre message.\n\nVotre ticket a bien été créé.\nUn membre de notre équipe prendra votre demande en charge dans les plus brefs délais.\n\nMerci de patienter.',
@@ -115,7 +114,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'suggestion-{number}',
-    autoReplyMessage: '✅ Merci pour votre suggestion.',
     autoReplyEmbed: {
       title: '💡 Suggestion reçue',
       description: 'Nous étudierons votre proposition.\n\nMerci de votre contribution.',
@@ -129,7 +127,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'support-{number}',
-    autoReplyMessage: '✅ Nous allons vous aider.',
     autoReplyEmbed: {
       title: '🛠️ Support',
       description: 'Un membre du staff va vous assister.',
@@ -143,7 +140,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'bug-{number}',
-    autoReplyMessage: '✅ Signalement enregistré.',
     autoReplyEmbed: {
       title: '🐞 Bug signalé',
       description: 'Nous allons investiguer.',
@@ -157,7 +153,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'joueur-{number}',
-    autoReplyMessage: '✅ Signalement pris en compte.',
     autoReplyEmbed: {
       title: '🚨 Signalement joueur',
       description: 'Nous allons examiner la situation.',
@@ -171,7 +166,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'staff-{number}',
-    autoReplyMessage: '✅ Signalement enregistré.',
     autoReplyEmbed: {
       title: '👮 Signalement staff',
       description: 'Nous allons traiter en interne.',
@@ -185,7 +179,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'admin-{number}',
-    autoReplyMessage: '✅ Votre demande administrative est prise en charge.',
     autoReplyEmbed: {
       title: '⚖️ Demande administrative',
       description: 'Nous vous répondrons dès que possible.',
@@ -199,7 +192,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'partenariat-{number}',
-    autoReplyMessage: '✅ Nous sommes intéressés par votre proposition.',
     autoReplyEmbed: {
       title: '🤝 Partenariat',
       description: 'Un membre du staff vous contactera.',
@@ -213,7 +205,6 @@ const TICKET_CATEGORIES_DEFAUT = [
     active: true,
     destinationCategoryId: '',
     channelNameFormat: 'autre-{number}',
-    autoReplyMessage: '✅ Nous avons bien reçu votre demande.',
     autoReplyEmbed: {
       title: '🌐 Autre demande',
       description: 'Nous vous répondrons rapidement.',
@@ -748,6 +739,49 @@ async function verifierTicketsInactifs() {
   }
 }
 
+// ---- Giveaways (inchangé) ----
+function tirerGagnants(participants, nombre) {
+  const pool = [...participants];
+  const gagnants = [];
+  while (pool.length && gagnants.length < nombre) {
+    const i = Math.floor(Math.random() * pool.length);
+    gagnants.push(pool.splice(i, 1)[0]);
+  }
+  return gagnants;
+}
+
+async function terminerGiveaway(id) {
+  const g = giveaways[id];
+  if (!g || g.ended) return;
+  g.ended = true;
+  sauverGiveaways();
+
+  try {
+    const channel = await client.channels.fetch(g.channelId).catch(() => null);
+    if (!channel) return;
+    const message = await channel.messages.fetch(g.messageId).catch(() => null);
+
+    const gagnants = tirerGagnants(g.participants, g.winnersCount);
+    const texteGagnants = gagnants.length ? gagnants.map(id => `<@${id}>`).join(', ') : 'Personne n\'a participé 😢';
+
+    const embedFin = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle(`🎉 Giveaway terminé : ${g.prize}`)
+      .setDescription(`Gagnant(s) : ${texteGagnants}`)
+      .setTimestamp();
+
+    if (message) await message.edit({ embeds: [embedFin], components: [] });
+    await channel.send({ content: `🎉 Félicitations ${texteGagnants} ! Vous remportez **${g.prize}**.` });
+  } catch (e) {
+    console.error('Erreur fin giveaway:', e);
+  }
+}
+
+function planifierFinGiveaway(g) {
+  const delai = new Date(g.endsAt).getTime() - Date.now();
+  setTimeout(() => terminerGiveaway(g.id), Math.max(delai, 0));
+}
+
 // ---- Client Discord ----
 const client = new Client({
   intents: [
@@ -916,7 +950,6 @@ client.on('messageCreate', async (message) => {
       }
 
       // Pas de ticket ouvert : envoyer le sélecteur de catégorie
-      // Filtrer les catégories actives ET ayant une destination Discord définie
       const categories = config.ticketCategories.filter(c => c.active && c.destinationCategoryId);
       if (!categories.length) {
         await message.author.send('❌ Aucune catégorie de ticket disponible. Contactez un administrateur.');
@@ -941,8 +974,8 @@ client.on('messageCreate', async (message) => {
 
       const embed = new EmbedBuilder()
         .setColor(COULEUR_EMBED)
-        .setTitle('🎫 Création d’un ticket')
-        .setDescription('Sélectionnez le sujet de votre demande ci-dessous.\n\nVous pourrez ensuite envoyer votre message directement dans ce DM.')
+        .setTitle('📩 Ouverture d\'un ticket')
+        .setDescription('Merci de sélectionner le sujet de votre demande ci-dessous.')
         .setTimestamp();
 
       await message.author.send({ embeds: [embed], components: [row] });
@@ -987,8 +1020,6 @@ client.on('messageCreate', async (message) => {
               .setDescription(category.autoReplyEmbed.description || 'Votre message a bien été reçu.')
               .setTimestamp();
             await message.channel.send({ embeds: [embedReply] });
-          } else if (category && category.autoReplyMessage) {
-            await message.channel.send(category.autoReplyMessage);
           }
         }
       }
@@ -1823,7 +1854,7 @@ app.get('/api/ticket-categories', authRequis, (req, res) => {
 });
 
 app.post('/api/ticket-categories', authRequis, (req, res) => {
-  const { name, emoji, active, destinationCategoryId, channelNameFormat, autoReplyMessage, autoReplyEmbed } = req.body;
+  const { name, emoji, active, destinationCategoryId, channelNameFormat, autoReplyEmbed } = req.body;
   if (!name || !destinationCategoryId) {
     return res.status(400).json({ erreur: 'Nom et catégorie Discord requis' });
   }
@@ -1834,7 +1865,6 @@ app.post('/api/ticket-categories', authRequis, (req, res) => {
     active: active !== undefined ? !!active : true,
     destinationCategoryId,
     channelNameFormat: channelNameFormat || `${name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-{number}`,
-    autoReplyMessage: autoReplyMessage || '✅ Merci pour votre message.',
     autoReplyEmbed: autoReplyEmbed || { title: '✅ Ticket créé', description: 'Votre message a bien été reçu.', color: '#5865F2' }
   };
   config.ticketCategories.push(newCategory);
@@ -1844,7 +1874,7 @@ app.post('/api/ticket-categories', authRequis, (req, res) => {
 
 app.put('/api/ticket-categories/:id', authRequis, (req, res) => {
   const { id } = req.params;
-  const { name, emoji, active, destinationCategoryId, channelNameFormat, autoReplyMessage, autoReplyEmbed } = req.body;
+  const { name, emoji, active, destinationCategoryId, channelNameFormat, autoReplyEmbed } = req.body;
   const index = config.ticketCategories.findIndex(c => c.id === id);
   if (index === -1) return res.status(404).json({ erreur: 'Catégorie introuvable' });
   const cat = config.ticketCategories[index];
@@ -1853,7 +1883,6 @@ app.put('/api/ticket-categories/:id', authRequis, (req, res) => {
   if (active !== undefined) cat.active = !!active;
   if (destinationCategoryId !== undefined) cat.destinationCategoryId = destinationCategoryId;
   if (channelNameFormat !== undefined) cat.channelNameFormat = channelNameFormat;
-  if (autoReplyMessage !== undefined) cat.autoReplyMessage = autoReplyMessage;
   if (autoReplyEmbed !== undefined) cat.autoReplyEmbed = autoReplyEmbed;
   sauverConfig();
   res.json({ succes: true });
