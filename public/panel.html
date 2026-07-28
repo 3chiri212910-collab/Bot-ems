@@ -740,7 +740,7 @@ Merci de patienter.</textarea>
 
 <script>
 // ============================================================
-// PANEL RP - JavaScript complet (avec gestion des catégories de tickets)
+// PANEL RP - JavaScript corrigé
 // ============================================================
 
 // ---- Utilitaires ----
@@ -1477,7 +1477,7 @@ async function chargerCategories() {
     const res = await fetch('/api/ticket-categories');
     const categories = await res.json();
 
-    // Afficher la liste
+    // 2. Afficher la liste avec le bon statut (active/inactive)
     const container = document.getElementById('liste-categories');
     if (!categories.length) {
       container.innerHTML = '<p style="color:var(--text-dim);">Aucune catégorie configurée.</p>';
@@ -1502,8 +1502,7 @@ async function chargerCategories() {
       `).join('');
     }
 
-    // 2. Remplir le sélecteur des catégories Discord de destination
-    // On utilise /api/channels/all pour obtenir toutes les catégories (type 4)
+    // 3. Remplir le sélecteur des catégories Discord de destination
     const allChannels = await fetch('/api/channels/all').then(r => r.json());
     const discordCategories = allChannels.filter(c => c.type === 4); // 4 = GuildCategory
     const select = document.getElementById('new-cat-destination');
@@ -1548,7 +1547,7 @@ async function ajouterCategorie() {
       showNotification('✅ Catégorie ajoutée', 'success');
       document.getElementById('new-cat-nom').value = '';
       document.getElementById('new-cat-emoji').value = '📌';
-      document.getElementById('new-cat-format').value = '';
+      document.getElementById('new-cat-format').value = 'ticket-{number}';
       document.getElementById('new-cat-auto-reply').value = '';
       document.getElementById('new-cat-active').checked = true;
       chargerCategories();
