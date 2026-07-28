@@ -1,4 +1,4 @@
-// index.js – Bot Discord + API REST pour panel RP (avec système de tickets amélioré)
+// index.js – Bot Discord + API REST pour panel RP (système de tickets amélioré)
 const {
   Client,
   GatewayIntentBits,
@@ -334,6 +334,13 @@ function trouverUserIdParSalon(channelId) {
   return null;
 }
 
+// ---- Validation des emojis (correction de l'erreur COMPONENT_INVALID_EMOJI) ----
+function isValidEmoji(emoji) {
+  if (!emoji || typeof emoji !== 'string' || emoji.trim() === '') return false;
+  const emojiRegex = /\p{Extended_Pictographic}/u;
+  return emojiRegex.test(emoji);
+}
+
 // ---- Logs modération / départ ----
 async function envoyerLogModeration(embed) {
   if (!config.modLogsChannelId) return;
@@ -416,7 +423,6 @@ async function genererTranscriptHTML(channel) {
   const echapper = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const guild = client.guilds.cache.get(GUILD_ID);
   const guildIcon = guild?.iconURL({ dynamic: true }) || 'https://cdn.discordapp.com/embed/avatars/0.png';
-  // Récupérer l'utilisateur créateur via le ticket
   const userId = trouverUserIdParSalon(channel.id);
   const user = userId ? await client.users.fetch(userId).catch(() => null) : null;
 
@@ -559,7 +565,6 @@ async function fermerTicketParSalon(channelId, fermePar, raison = '') {
       ],
       components: [boutonReprise()],
     }).catch(() => {});
-    // On lock et on archive le salon (on le rend invisible pour l'utilisateur mais visible pour le staff)
     await channel.permissionOverwrites.edit(userId, { ViewChannel: false }).catch(() => {});
     await channel.setName(`🔒-${channel.name}`.slice(0, 100)).catch(() => {});
   }
@@ -593,7 +598,6 @@ async function reouvrirTicketParSalon(channelId, rouvertPar) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) throw new Error('Salon introuvable.');
 
-  // Rétablir les permissions pour l'utilisateur
   await channel.permissionOverwrites.edit(infos.userId, { ViewChannel: true }).catch(() => {});
   const nomOriginal = channel.name.replace(/^🔒-/, '');
   await channel.setName(nomOriginal.slice(0, 100)).catch(() => {});
@@ -640,6 +644,7 @@ async function reouvrirTicketParSalon(channelId, rouvertPar) {
 async function creerTicketSalon(user, categoryId) {
   const category = config.ticketCategories.find(c => c.id === categoryId);
   if (!category) throw new Error('Catégorie inconnue ou désactivée');
+  if (!category.destinationCategoryId) throw new Error('Catégorie Discord de destination non définie');
 
   const numero = prochainNumeroTicket();
   const nomSalon = category.channelNameFormat.replace('{number}', numero);
@@ -897,38 +902,41 @@ client.on('messageCreate', async (message) => {
         const ticket = tickets[message.author.id];
         const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
         if (channel) {
-          // Envoyer le message dans le salon
           await channel.send({
             content: `**${message.author.tag}** :\n${message.content || '*(pièce jointe / message vide)*'}`,
             files: [...message.attachments.values()],
           });
-          // Mettre à jour l'activité
           ticket.lastActivity = new Date().toISOString();
           sauverTickets();
           return;
         } else {
-          // Si le salon n'existe plus, on supprime le ticket de la mémoire
           delete tickets[message.author.id];
           sauverTickets();
         }
       }
 
       // Pas de ticket ouvert : envoyer le sélecteur de catégorie
+      // Filtrer les catégories actives ET ayant une destination Discord définie
       const categories = config.ticketCategories.filter(c => c.active && c.destinationCategoryId);
       if (!categories.length) {
         await message.author.send('❌ Aucune catégorie de ticket disponible. Contactez un administrateur.');
         return;
       }
 
+      // Construire les options avec validation de l'emoji
+      const options = categories.map(c => {
+        const option = { label: c.name, value: c.id };
+        if (c.emoji && isValidEmoji(c.emoji)) {
+          option.emoji = c.emoji;
+        }
+        return option;
+      });
+
       const row = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('ticket_category_select')
           .setPlaceholder('Choisissez une catégorie')
-          .addOptions(categories.map(c => ({
-            label: c.name,
-            value: c.id,
-            emoji: c.emoji || undefined
-          })))
+          .addOptions(options)
       );
 
       const embed = new EmbedBuilder()
@@ -947,18 +955,14 @@ client.on('messageCreate', async (message) => {
 
   // ---- Message dans un salon de ticket ----
   if (message.channel.type === ChannelType.GuildText) {
-    // Vérifier si c'est un salon de ticket (parmi les tickets ouverts)
     const userId = trouverUserIdParSalon(message.channel.id);
     if (!userId) return;
 
-    // Si le message est du staff, on le transmet en DM à l'utilisateur
-    // On vérifie si l'auteur est le créateur du ticket ou un membre du staff (rôle staff)
     const staffRoles = config.ticketStaffRoleIds || [];
     const isStaff = message.member.roles.cache.some(r => staffRoles.includes(r.id)) || message.member.permissions.has(PermissionsBitField.Flags.Administrator);
     const isCreator = message.author.id === userId;
 
     if (!isCreator && isStaff) {
-      // Envoyer en DM à l'utilisateur
       const user = await client.users.fetch(userId).catch(() => null);
       if (user) {
         await user.send({
@@ -967,21 +971,14 @@ client.on('messageCreate', async (message) => {
         }).catch(() => {});
       }
     } else if (isCreator) {
-      // Le créateur envoie un message, on met à jour l'activité
       const ticket = tickets[userId];
       if (ticket) {
         ticket.lastActivity = new Date().toISOString();
         sauverTickets();
 
-        // Vérifier si c'est le premier message du créateur dans le salon (après la création)
-        // On va compter les messages du créateur dans ce salon (hors messages du bot)
-        // Pour simplifier, on vérifie si le message est le premier après la création.
-        // On va utiliser un flag dans le ticket pour savoir si le message auto a été envoyé.
-        // On stocke dans le ticket un champ `autoReplySent`
         if (!ticket.autoReplySent) {
           ticket.autoReplySent = true;
           sauverTickets();
-          // Envoyer la réponse automatique définie dans la catégorie
           const category = config.ticketCategories.find(c => c.id === ticket.categoryId);
           if (category && category.autoReplyEmbed) {
             const embedReply = new EmbedBuilder()
@@ -1035,7 +1032,6 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: '❌ Cette catégorie n\'est pas disponible.', flags: 64 });
       }
 
-      // Vérifier si l'utilisateur a déjà un ticket
       if (aTicketOuvert(interaction.user.id)) {
         return interaction.reply({ content: '❌ Tu as déjà un ticket ouvert. Utilise-le ou ferme-le avant d\'en ouvrir un nouveau.', flags: 64 });
       }
@@ -1046,13 +1042,12 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.editReply({
           content: `✅ Ton ticket a été créé : <#${channel.id}> (numéro #${numero}).\nTu peux maintenant envoyer ton message dans ce DM, il sera transmis.`
         });
-        // Envoyer un message dans le salon pour indiquer que l'utilisateur peut envoyer son message
         await channel.send({
           content: `👋 ${interaction.user}, tu peux maintenant envoyer ton message ici ou continuer en DM.`
         });
       } catch (e) {
         console.error('Erreur création ticket:', e);
-        await interaction.editReply({ content: '❌ Erreur lors de la création du ticket.' });
+        await interaction.editReply({ content: `❌ Erreur lors de la création du ticket : ${e.message}` });
       }
       return;
     }
@@ -1061,12 +1056,10 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
       const customId = interaction.customId;
       if (['ticket_claim', 'ticket_unclaim', 'ticket_rename', 'ticket_add', 'ticket_remove', 'ticket_transcript', 'ticket_close', 'ticket_delete', 'ticket_reopen', 'ticket_transfer'].includes(customId)) {
-        // Vérifier que c'est un salon de ticket (parmi les salons ouverts)
         const userId = trouverUserIdParSalon(interaction.channel.id);
         if (!userId) {
-          // Peut-être un salon fermé
           if (customId === 'ticket_reopen') {
-            // On autorise la réouverture
+            // on autorise
           } else {
             return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un ticket.', flags: 64 });
           }
@@ -1143,7 +1136,6 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: '❌ Seuls les administrateurs peuvent supprimer un ticket.', flags: 64 });
           }
           await interaction.reply({ content: '🗑️ Suppression du ticket...', flags: 64 });
-          // Envoyer transcript avant suppression
           await envoyerTranscripts(interaction.channel, 'supprimé', interaction.user.tag);
           await interaction.channel.delete().catch(() => {});
           if (userId) { delete tickets[userId]; sauverTickets(); }
@@ -1159,22 +1151,23 @@ client.on('interactionCreate', async (interaction) => {
           await reouvrirTicketParSalon(interaction.channel.id, interaction.user.tag);
           await interaction.editReply({ content: '♻️ Ticket rouvert !' });
         } else if (customId === 'ticket_transfer') {
-          // Transférer vers une autre catégorie
           if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', flags: 64 });
-          // Envoyer un menu déroulant avec les catégories actives
           const categories = config.ticketCategories.filter(c => c.active && c.destinationCategoryId && c.id !== ticket.categoryId);
           if (!categories.length) {
             return interaction.reply({ content: '❌ Aucune autre catégorie disponible.', flags: 64 });
           }
+          const options = categories.map(c => {
+            const option = { label: c.name, value: c.id };
+            if (c.emoji && isValidEmoji(c.emoji)) {
+              option.emoji = c.emoji;
+            }
+            return option;
+          });
           const row = new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
               .setCustomId('ticket_transfer_select')
               .setPlaceholder('Choisissez la nouvelle catégorie')
-              .addOptions(categories.map(c => ({
-                label: c.name,
-                value: c.id,
-                emoji: c.emoji || undefined
-              })))
+              .addOptions(options)
           );
           await interaction.reply({ content: 'Sélectionnez la nouvelle catégorie :', components: [row], flags: 64 });
         }
@@ -1235,16 +1228,13 @@ client.on('interactionCreate', async (interaction) => {
       const newCategory = config.ticketCategories.find(c => c.id === newCategoryId);
       if (!newCategory || !newCategory.active) return interaction.update({ content: '❌ Catégorie invalide.', components: [] });
 
-      // Changer la catégorie du salon (déplacer le salon)
       try {
         const parent = await client.channels.fetch(newCategory.destinationCategoryId);
         if (parent) {
           await interaction.channel.setParent(parent.id);
         }
-        // Mettre à jour le nom selon le nouveau format
         const nouveauNom = newCategory.channelNameFormat.replace('{number}', ticket.number);
         await interaction.channel.setName(nouveauNom.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
-        // Mettre à jour le ticket
         ticket.categoryId = newCategory.id;
         sauverTickets();
         await interaction.update({ content: `✅ Ticket transféré vers la catégorie **${newCategory.emoji} ${newCategory.name}**.`, components: [] });
@@ -1288,9 +1278,8 @@ client.on('interactionCreate', async (interaction) => {
       if (['rename', 'claim', 'unclaim', 'add', 'remove', 'priority', 'reopen', 'transcript'].includes(cmd)) {
         const userId = trouverUserIdParSalon(interaction.channel.id);
         if (!userId) {
-          // Pour reopen, on vérifie si c'est un salon fermé
           if (cmd === 'reopen') {
-            // On autorise
+            // on autorise
           } else {
             return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un ticket.', flags: 64 });
           }
@@ -1450,14 +1439,6 @@ client.on('interactionCreate', async (interaction) => {
 
       // Candidatures (inchangé)
       if (['valid', 'refuser'].includes(cmd)) {
-        if (!interaction.channel.isThread()) {
-          // On permet aussi dans les salons de tickets (mais on garde la compatibilité)
-          // On va vérifier si c'est un salon de ticket
-          const userId = trouverUserIdParSalon(interaction.channel.id);
-          if (!userId) {
-            return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un ticket ou un thread.', flags: 64 });
-          }
-        }
         const userId = trouverUserIdParSalon(interaction.channel.id) || (interaction.channel.isThread() ? trouverUserIdParThread(interaction.channel.id) : null);
         if (!userId) return interaction.reply({ content: '❌ Ticket introuvable.', flags: 64 });
         const ticket = tickets[userId];
