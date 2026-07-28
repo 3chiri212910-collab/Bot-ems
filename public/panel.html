@@ -345,23 +345,6 @@
       border: 1px solid rgba(46, 139, 255, 0.22);
     }
 
-    .rank-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 14px;
-      background: var(--bg-card-solid);
-      border-radius: var(--radius);
-      margin-bottom: 6px;
-      border-left: 3px solid var(--accent);
-      transition: border-color 0.2s;
-    }
-    .rank-item:hover { border-color: var(--accent); }
-    .rank-item .info .nom { font-weight: 600; font-size: 14px; }
-    .rank-item .info .details { font-size: 12px; color: var(--text-dim); }
-    .rank-item .value { font-size: 15px; font-weight: 700; color: var(--accent); }
-    .rank-item .rank-num { font-weight: 700; color: var(--text-faint); margin-right: 12px; min-width: 28px; }
-
     .search-bar {
       display: flex;
       gap: 12px;
@@ -370,26 +353,6 @@
     }
     .search-bar input { flex: 1; min-width: 200px; }
     .search-bar select { width: auto; min-width: 150px; }
-
-    .tab-stats {
-      padding: 6px 16px;
-      background: var(--bg-card-solid);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      color: var(--text-dim);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.15s;
-      font-family: inherit;
-    }
-    .tab-stats:hover { border-color: var(--border-hover); color: var(--text); transform: translateY(-1px); }
-    .tab-stats.actif {
-      background: linear-gradient(135deg, #2e8bff, #7fc4ff);
-      color: white;
-      border-color: transparent;
-      box-shadow: 0 4px 12px rgba(46, 139, 255, 0.35);
-    }
 
     .warn-badge {
       display: inline-flex;
@@ -498,8 +461,9 @@
   <div class="tab" data-tab="historique">🕘 Historique</div>
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
+  <div class="tab" data-tab="ticket-categories">📂 Catégories</div>
+  <div class="tab" data-tab="logs">📋 Logs</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
-  <div class="tab" data-tab="ticket-categories">📂 Catégories de tickets</div>
   <div class="tab" data-tab="backup">💾 Sauvegarde</div>
   <div class="user" id="user-info"><span>Chargement...</span></div>
   <div class="logout"><a href="/logout">↪ Déconnexion</a></div>
@@ -566,29 +530,15 @@
     <label>Message de bienvenue ({user}, {server}, {count})</label>
     <textarea id="param-message-bienvenue"></textarea>
 
-    <div class="sous-titre">Tickets</div>
+    <div class="sous-titre">Tickets (nouveau système)</div>
     <label>Salon des logs de tickets</label>
     <select id="param-salon-logs-tickets"><option value="">Aucun</option></select>
-    <label>Salon des transcripts</label>
+    <label>Salon des transcripts (exports HTML)</label>
     <select id="param-salon-transcripts"><option value="">Aucun</option></select>
-    <label>Auto-fermeture des tickets (heures)</label>
+    <label>Auto-fermeture globale (heures)</label>
     <input id="param-autoclose-heures" type="number" min="0" step="0.5" value="0" />
     <label>Rôles staff ayant accès aux tickets</label>
     <div id="ticket-staff-roles" class="checkbox-grid"><span style="color:var(--text-dim);font-size:13px;">Chargement...</span></div>
-    <div class="case-ligne">
-      <input type="checkbox" id="param-send-transcript-to-user" />
-      <label for="param-send-transcript-to-user">Envoyer le transcript au créateur en DM</label>
-    </div>
-    <label>Format du transcript</label>
-    <select id="param-transcript-format">
-      <option value="html">HTML</option>
-      <option value="txt">TXT</option>
-      <option value="both">Les deux</option>
-    </select>
-    <div class="case-ligne">
-      <input type="checkbox" id="param-ticket-logs-enabled" />
-      <label for="param-ticket-logs-enabled">Activer les logs de tickets</label>
-    </div>
 
     <div class="sous-titre">Modération</div>
     <label>Salon des logs de modération</label>
@@ -659,11 +609,66 @@
     <div id="embed-statut"></div>
   </section>
 
-  <!-- TICKETS -->
+  <!-- TICKETS (nouveau) -->
   <section id="vue-tickets" class="hidden">
-    <h2>🎫 Tickets ouverts</h2>
-    <button class="secondaire" onclick="chargerTickets()">🔄 Rafraîchir</button>
-    <div id="liste-tickets"></div>
+    <h2>🎫 Gestion des tickets</h2>
+    <div class="carte">
+      <div class="search-bar">
+        <input id="ticket-search" placeholder="Rechercher (ID, utilisateur...)" oninput="chargerTickets()" />
+        <select id="ticket-status-filter" onchange="chargerTickets()">
+          <option value="">Tous</option>
+          <option value="open">Ouverts</option>
+          <option value="closed">Fermés</option>
+        </select>
+        <button class="secondaire" onclick="chargerTickets()">🔄 Rafraîchir</button>
+      </div>
+      <div id="liste-tickets"></div>
+    </div>
+  </section>
+
+  <!-- CATEGORIES DE TICKETS (nouveau) -->
+  <section id="vue-ticket-categories" class="hidden">
+    <h2>📂 Catégories de tickets</h2>
+    <div class="carte">
+      <h3>➕ Ajouter une catégorie</h3>
+      <div class="deux-col">
+        <div><label>Nom</label><input id="new-cat-nom" placeholder="Support" /></div>
+        <div><label>Emoji</label><input id="new-cat-emoji" placeholder="🛠️" value="📌" /></div>
+      </div>
+      <label>Description</label><input id="new-cat-description" placeholder="Aide générale" />
+      <label>Catégorie Discord</label>
+      <select id="new-cat-destination"><option value="">Sélectionner</option></select>
+      <label>Couleur (hex)</label><input id="new-cat-couleur" value="#5865F2" />
+      <label>Priorité par défaut</label>
+      <select id="new-cat-priority">
+        <option value="low">🟢 Faible</option>
+        <option value="normal" selected>🟡 Normale</option>
+        <option value="high">🟠 Haute</option>
+        <option value="urgent">🔴 Urgente</option>
+      </select>
+      <label>Rôles à ping (ID, séparés par des virgules)</label>
+      <input id="new-cat-ping-roles" placeholder="123456789,987654321" />
+      <label>Rôles staff ayant accès (ID, séparés par des virgules)</label>
+      <input id="new-cat-staff-roles" placeholder="123456789,987654321" />
+      <label>Formulaire (JSON, facultatif)</label>
+      <textarea id="new-cat-form" placeholder='{"fields":[{"label":"Sujet","type":"text","required":true,"placeholder":"..."}]}'></textarea>
+      <label>Message automatique</label>
+      <textarea id="new-cat-auto-reply" placeholder="Votre ticket a été créé. Un membre de l'équipe vous répondra dans les plus brefs délais."></textarea>
+      <label>Fermeture automatique après (heures, 0 = désactivé)</label>
+      <input id="new-cat-autoclose" type="number" value="0" />
+      <button onclick="ajouterCategorie()">Ajouter</button>
+      <div id="new-cat-statut"></div>
+    </div>
+    <div id="liste-categories"></div>
+  </section>
+
+  <!-- LOGS (nouveau) -->
+  <section id="vue-logs" class="hidden">
+    <h2>📋 Logs des tickets</h2>
+    <div class="carte">
+      <button class="secondaire" onclick="chargerLogs()">🔄 Rafraîchir</button>
+      <div id="liste-logs"></div>
+    </div>
   </section>
 
   <!-- GIVEAWAYS -->
@@ -680,34 +685,6 @@
     <div id="liste-giveaways"></div>
   </section>
 
-  <!-- CATEGORIES DE TICKETS -->
-  <section id="vue-ticket-categories" class="hidden">
-    <h2>📂 Catégories de tickets</h2>
-    <div class="carte">
-      <label>Ajouter une catégorie</label>
-      <div class="deux-col">
-        <div><label>Nom</label><input id="new-cat-nom" placeholder="Ex: Support" /></div>
-        <div><label>Emoji</label><input id="new-cat-emoji" placeholder="🛠️" value="📌" /></div>
-      </div>
-      <label>Catégorie Discord de destination</label>
-      <select id="new-cat-destination"><option value="">Sélectionner une catégorie</option></select>
-      <label>Format du nom du salon ({number} sera remplacé par le numéro)</label>
-      <input id="new-cat-format" placeholder="ex: support-{number}" value="ticket-{number}" />
-      <label>Message de réponse automatique (embed)</label>
-      <textarea id="new-cat-auto-reply" placeholder="Message qui sera envoyé après le premier message de l'utilisateur">✅ Merci pour votre message.
-
-Votre ticket a bien été créé.
-
-Un membre de notre équipe vous répondra dans les plus brefs délais.
-
-Merci de patienter.</textarea>
-      <div class="case-ligne"><input type="checkbox" id="new-cat-active" checked /><label for="new-cat-active">Activer cette catégorie</label></div>
-      <button onclick="ajouterCategorie()">Ajouter</button>
-      <div id="new-cat-statut"></div>
-    </div>
-    <div id="liste-categories"></div>
-  </section>
-
   <!-- BACKUP -->
   <section id="vue-backup" class="hidden">
     <h2>💾 Sauvegarde</h2>
@@ -722,7 +699,7 @@ Merci de patienter.</textarea>
 
 </main>
 
-<!-- MODALE DE CONFIRMATION (reset) -->
+<!-- MODALE DE CONFIRMATION -->
 <div id="resetModal" class="modal-overlay">
   <div class="modal-box" style="max-width:420px;">
     <h3>⚠️ Confirmation</h3>
@@ -738,7 +715,7 @@ Merci de patienter.</textarea>
 
 <script>
 // ============================================================
-// PANEL RP - JavaScript complet avec gestion des catégories de tickets
+// PANEL RP - Version complète (nouveau système de tickets)
 // ============================================================
 
 // ---- Utilitaires ----
@@ -781,7 +758,7 @@ function playTone(freq, duration, type = 'sine', volume = 0.25) {
 const tabs = document.querySelectorAll('.tab');
 const vues = {
   dashboard: chargerStats,
-  moderation: null,
+  moderation: () => document.getElementById('mod-recherche').value ? rechercherMembres(document.getElementById('mod-recherche').value) : null,
   salons: chargerSalonsListe,
   roles: chargerRolesListe,
   bienvenue: chargerParametres,
@@ -789,8 +766,9 @@ const vues = {
   historique: chargerHistorique,
   embed: chargerSalons,
   tickets: chargerTickets,
+  'ticket-categories': () => { chargerCategories(); chargerSalonsPourCategories(); },
+  logs: chargerLogs,
   giveaways: chargerGiveaways,
-  'ticket-categories': chargerCategories,
   backup: null,
 };
 
@@ -827,6 +805,8 @@ async function chargerStats() {
       ['Ping', s.ping + ' ms'],
       ['Uptime', Math.floor(s.uptime/60) + ' min'],
       ['🎫 Tickets ouverts', s.ticketsOuverts || 0],
+      ['🎫 Tickets fermés', s.ticketsFermes || 0],
+      ['⭐ Évaluation moyenne', s.evaluationMoyenne || 'N/A'],
       ['🎉 Giveaways actifs', s.giveawaysActifs || 0],
       ['⚠️ Avertissements', s.warnsTotal || 0],
       ['✅ Candidatures validées', s.candValidees || 0],
@@ -843,23 +823,7 @@ async function chargerStats() {
 // ---- MODERATION ----
 let rechercheTimeout;
 
-async function fetchUser(userId) {
-  try {
-    const res = await fetch(`/api/members/search?q=${userId}`);
-    const data = await res.json();
-    return data.length ? data[0] : null;
-  } catch { return null; }
-}
-
-async function resolveUser(search) {
-  try {
-    const res = await fetch(`/api/members/search?q=${encodeURIComponent(search)}`);
-    const data = await res.json();
-    return data.length ? data[0].id : null;
-  } catch { return null; }
-}
-
-function rechercherMembres(q) {
+async function rechercherMembres(q) {
   clearTimeout(rechercheTimeout);
   rechercheTimeout = setTimeout(async () => {
     if (!q) { document.getElementById('mod-resultats').innerHTML = ''; return; }
@@ -1087,9 +1051,6 @@ async function chargerParametres() {
     document.getElementById('param-salon-leavelogs').value = params.leaveLogsChannelId || '';
     document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
     document.getElementById('param-salon-transcripts').value = params.ticketTranscriptChannelId || '';
-    document.getElementById('param-send-transcript-to-user').checked = !!params.ticketSendTranscriptToUser;
-    document.getElementById('param-transcript-format').value = params.ticketTranscriptFormat || 'both';
-    document.getElementById('param-ticket-logs-enabled').checked = params.ticketLogsEnabled !== undefined ? params.ticketLogsEnabled : true;
 
     // Rôles staff pour les tickets
     const containerStaff = document.getElementById('ticket-staff-roles');
@@ -1145,9 +1106,6 @@ async function sauverParametres() {
         ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
         ticketStaffRoleIds: ticketStaffRoleIds,
         ticketTranscriptChannelId: document.getElementById('param-salon-transcripts').value,
-        ticketSendTranscriptToUser: document.getElementById('param-send-transcript-to-user').checked,
-        ticketTranscriptFormat: document.getElementById('param-transcript-format').value,
-        ticketLogsEnabled: document.getElementById('param-ticket-logs-enabled').checked,
       })
     });
     playSuccessSound();
@@ -1322,61 +1280,100 @@ async function envoyerEmbed() {
   }
 }
 
-// ---- TICKETS ----
+// ---- TICKETS (nouveau) ----
 async function chargerTickets() {
+  const search = document.getElementById('ticket-search').value.trim();
+  const status = document.getElementById('ticket-status-filter').value;
+  let url = '/api/tickets';
+  if (status) url += `?status=${status}`;
   try {
-    const res = await fetch('/api/tickets');
-    const tickets = await res.json();
-    const liste = document.getElementById('liste-tickets');
-    if (!tickets.length) { liste.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket ouvert.</p>'; return; }
-    liste.innerHTML = tickets.map(t => `
-      <div class="carte">
-        <div style="font-weight:600;margin-bottom:2px;">#${escapeHTML(t.number || '?')} — ${escapeHTML(t.username)}</div>
-        ${t.lastActivity ? `<div style="color:var(--text-faint);font-size:11.5px;margin-bottom:8px;">Dernière activité : ${new Date(t.lastActivity).toLocaleString('fr-FR')}</div>` : ''}
-        <textarea id="reply-${t.userId}" placeholder="Réponse..."></textarea>
-        <button onclick="repondreTicket('${t.userId}')">Répondre</button>
-        <button class="secondaire" onclick="fermerTicket('${t.userId}')">Fermer</button>
-        <div id="statut-${t.userId}"></div>
-        <div style="margin-top:10px;">
-          <label style="font-size:12px;color:var(--text-dim);">📝 Note interne</label>
-          <textarea id="note-${t.userId}" placeholder="Note staff..." style="min-height:40px;font-size:12px;">${escapeHTML(t.note || '')}</textarea>
-          <button class="petit secondaire" onclick="sauverNoteTicket('${t.userId}')">Enregistrer la note</button>
-          <span id="note-statut-${t.userId}" style="margin-left:8px;font-size:12px;"></span>
+    const res = await fetch(url);
+    let tickets = await res.json();
+    if (search) {
+      tickets = tickets.filter(t =>
+        t.id.includes(search) ||
+        t.userId.includes(search) ||
+        t.title.includes(search)
+      );
+    }
+    const container = document.getElementById('liste-tickets');
+    if (!tickets.length) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun ticket trouvé.</p>';
+      return;
+    }
+    container.innerHTML = tickets.map(t => `
+      <div class="carte" style="border-left: 4px solid ${getPriorityColor(t.priority)};">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;">
+          <div>
+            <span style="font-weight:600;">#${t.id.slice(0,6)}</span>
+            <span style="margin-left:8px;">${escapeHTML(t.title)}</span>
+            <span class="role-badge" style="background:${getPriorityColor(t.priority)}22;color:${getPriorityColor(t.priority)};">${t.priority}</span>
+            <span class="role-badge">${t.status}</span>
+            ${t.assignedTo ? `<span class="role-badge">👤 <@${t.assignedTo}></span>` : ''}
+            ${t.evaluation ? `<span class="role-badge">⭐ ${t.evaluation}/5</span>` : ''}
+          </div>
+          <div>
+            <button class="petit secondaire" onclick="toggleTicketDetail('${t.id}')">👁️ Détails</button>
+            ${t.status === 'open' ? `<button class="petit danger" onclick="fermerTicketPanel('${t.id}')">🔒 Fermer</button>` : ''}
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">
+          Créé le ${new Date(t.createdAt).toLocaleString('fr-FR')} par <@${t.userId}>
+          ${t.closedAt ? ` · Fermé le ${new Date(t.closedAt).toLocaleString('fr-FR')}` : ''}
+        </div>
+        <div id="ticket-detail-${t.id}" style="display:none;margin-top:8px;">
+          <textarea id="reply-${t.id}" placeholder="Réponse..." rows="2"></textarea>
+          <button onclick="repondreTicket('${t.id}')">Répondre</button>
+          <div id="statut-${t.id}"></div>
+          <div style="margin-top:8px;">
+            <label style="font-size:12px;color:var(--text-dim);">📝 Note privée</label>
+            <textarea id="note-${t.id}" placeholder="Note staff..." style="min-height:40px;font-size:12px;">${escapeHTML(t.notes || '')}</textarea>
+            <button class="petit secondaire" onclick="sauverNoteTicket('${t.id}')">Enregistrer la note</button>
+            <span id="note-statut-${t.id}" style="margin-left:8px;font-size:12px;"></span>
+          </div>
         </div>
       </div>
     `).join('');
-  } catch (e) {
-    console.error('Erreur chargement tickets:', e);
-  }
+  } catch (e) { console.error(e); }
 }
 
-async function repondreTicket(userId) {
-  const message = document.getElementById('reply-' + userId).value;
-  const statut = document.getElementById('statut-' + userId);
-  if (!message) return;
+function getPriorityColor(priority) {
+  const map = { low: '#34d399', normal: '#f59e0b', high: '#fb923c', urgent: '#ef4444' };
+  return map[priority] || '#5865F2';
+}
+
+function toggleTicketDetail(id) {
+  const detail = document.getElementById(`ticket-detail-${id}`);
+  if (detail.style.display === 'block') { detail.style.display = 'none'; return; }
+  detail.style.display = 'block';
+}
+
+async function repondreTicket(id) {
+  const msg = document.getElementById(`reply-${id}`).value;
+  if (!msg) return;
+  const statut = document.getElementById(`statut-${id}`);
   try {
-    const res = await fetch(`/api/tickets/${userId}/reply`, {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message })
+    const res = await fetch(`/api/tickets/${id}/reply`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message: msg })
     });
-    playSuccessSound();
-    statut.textContent = res.ok ? '✅ Envoyé' : '❌ Erreur';
-    statut.className = res.ok ? 'msg-ok' : 'msg-err';
     if (res.ok) {
-      document.getElementById('reply-' + userId).value = '';
+      playSuccessSound();
       showNotification('✅ Réponse envoyée', 'success');
+      document.getElementById(`reply-${id}`).value = '';
+      statut.textContent = '✅ Envoyé';
+      statut.className = 'msg-ok';
+    } else {
+      statut.textContent = '❌ Erreur';
+      statut.className = 'msg-err';
     }
-  } catch (e) {
-    statut.textContent = '❌ Erreur';
-    statut.className = 'msg-err';
-    showNotification('❌ Erreur', 'error');
-  }
+  } catch (e) { statut.textContent = '❌ Erreur'; statut.className = 'msg-err'; }
 }
 
-async function sauverNoteTicket(userId) {
-  const note = document.getElementById('note-' + userId).value;
-  const statut = document.getElementById('note-statut-' + userId);
+async function sauverNoteTicket(id) {
+  const note = document.getElementById(`note-${id}`).value;
+  const statut = document.getElementById(`note-statut-${id}`);
   try {
-    const res = await fetch(`/api/tickets/${userId}/note`, {
+    const res = await fetch(`/api/tickets/${id}/note`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ note })
     });
     playSuccessSound();
@@ -1389,15 +1386,175 @@ async function sauverNoteTicket(userId) {
   }
 }
 
-async function fermerTicket(userId) {
+async function fermerTicketPanel(id) {
+  if (!confirm('Fermer ce ticket ?')) return;
   try {
-    await fetch(`/api/tickets/${userId}/close`, { method: 'POST' });
-    playSuccessSound();
-    showNotification('🔒 Ticket fermé', 'success');
-    chargerTickets();
-  } catch (e) {
-    console.error('Erreur fermeture ticket:', e);
+    const res = await fetch(`/api/tickets/${id}/close`, { method: 'POST' });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('🔒 Ticket fermé', 'success');
+      chargerTickets();
+    } else showNotification('❌ Erreur', 'error');
+  } catch (e) { showNotification('❌ Erreur', 'error'); }
+}
+
+// ---- CATEGORIES DE TICKETS ----
+async function chargerSalonsPourCategories() {
+  try {
+    const res = await fetch('/api/channels/all');
+    const salons = await res.json();
+    const categories = salons.filter(c => c.type === 4);
+    const select = document.getElementById('new-cat-destination');
+    select.innerHTML = '<option value="">Sélectionner</option>' +
+      categories.map(c => `<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
+  } catch (e) { console.error(e); }
+}
+
+async function chargerCategories() {
+  try {
+    const res = await fetch('/api/ticket-categories');
+    const categories = await res.json();
+    const container = document.getElementById('liste-categories');
+    if (!categories.length) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune catégorie configurée.</p>';
+      return;
+    }
+    container.innerHTML = categories.map(c => `
+      <div class="carte" style="border-left: 4px solid ${c.color || '#5865F2'};">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;">
+          <div>
+            <span style="font-size:20px;">${c.emoji || '📌'}</span>
+            <span style="font-weight:600;margin-left:8px;">${escapeHTML(c.name)}</span>
+            <span class="role-badge">${c.active !== false ? '✅ Actif' : '❌ Inactif'}</span>
+            <span style="color:var(--text-dim);font-size:12px;margin-left:4px;">${escapeHTML(c.description || '')}</span>
+          </div>
+          <div>
+            <button class="petit secondaire" onclick="editerCategorie('${c.id}')">✏️</button>
+            <button class="petit danger" onclick="supprimerCategorie('${c.id}')">🗑️</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">
+          Catégorie Discord: ${c.categoryId || 'Non définie'} · Priorité: ${c.defaultPriority || 'normale'}
+          ${c.pingRoles && c.pingRoles.length ? `· Ping: ${c.pingRoles.length} rôles` : ''}
+          ${c.form ? '· Formulaire ✅' : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) { console.error(e); }
+}
+
+async function ajouterCategorie() {
+  const statut = document.getElementById('new-cat-statut');
+  const name = document.getElementById('new-cat-nom').value.trim();
+  const emoji = document.getElementById('new-cat-emoji').value.trim();
+  const description = document.getElementById('new-cat-description').value.trim();
+  const categoryId = document.getElementById('new-cat-destination').value;
+  const color = document.getElementById('new-cat-couleur').value;
+  const defaultPriority = document.getElementById('new-cat-priority').value;
+  const pingRoles = document.getElementById('new-cat-ping-roles').value.split(',').map(s => s.trim()).filter(Boolean);
+  const staffRoles = document.getElementById('new-cat-staff-roles').value.split(',').map(s => s.trim()).filter(Boolean);
+  let form = null;
+  const formRaw = document.getElementById('new-cat-form').value.trim();
+  if (formRaw) {
+    try { form = JSON.parse(formRaw); } catch (e) { form = null; }
   }
+  const autoReply = document.getElementById('new-cat-auto-reply').value.trim();
+  const autoCloseAfter = parseInt(document.getElementById('new-cat-autoclose').value) || 0;
+
+  if (!name || !categoryId) {
+    statut.textContent = '❌ Nom et catégorie Discord requis.';
+    statut.className = 'msg-err';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/ticket-categories', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, emoji, description, categoryId, color, defaultPriority, pingRoles, staffRoles, form, autoReply, autoCloseAfter })
+    });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Catégorie ajoutée', 'success');
+      document.getElementById('new-cat-nom').value = '';
+      document.getElementById('new-cat-emoji').value = '📌';
+      document.getElementById('new-cat-description').value = '';
+      document.getElementById('new-cat-ping-roles').value = '';
+      document.getElementById('new-cat-staff-roles').value = '';
+      document.getElementById('new-cat-form').value = '';
+      document.getElementById('new-cat-auto-reply').value = '';
+      document.getElementById('new-cat-autoclose').value = '0';
+      chargerCategories();
+      statut.textContent = '✅ Ajoutée !';
+      statut.className = 'msg-ok';
+    } else {
+      const err = await res.json();
+      statut.textContent = '❌ ' + (err.erreur || 'Erreur');
+      statut.className = 'msg-err';
+    }
+  } catch (e) {
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
+  }
+}
+
+async function editerCategorie(id) {
+  // Version simplifiée : on utilise un prompt pour le nom
+  const res = await fetch('/api/ticket-categories');
+  const categories = await res.json();
+  const cat = categories.find(c => c.id === id);
+  if (!cat) return showNotification('Catégorie introuvable', 'error');
+  const newName = prompt('Nouveau nom :', cat.name);
+  if (newName === null) return;
+  try {
+    const res = await fetch(`/api/ticket-categories/${id}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: newName })
+    });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Catégorie mise à jour', 'success');
+      chargerCategories();
+    } else showNotification('❌ Erreur', 'error');
+  } catch (e) { showNotification('❌ Erreur', 'error'); }
+}
+
+async function supprimerCategorie(id) {
+  if (!confirm('Supprimer cette catégorie ?')) return;
+  try {
+    const res = await fetch(`/api/ticket-categories/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('🗑️ Catégorie supprimée', 'success');
+      chargerCategories();
+    } else showNotification('❌ Erreur', 'error');
+  } catch (e) { showNotification('❌ Erreur', 'error'); }
+}
+
+// ---- LOGS ----
+async function chargerLogs() {
+  try {
+    const res = await fetch('/api/logs?limit=50');
+    const logs = await res.json();
+    const container = document.getElementById('liste-logs');
+    if (!logs.length) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucun log.</p>';
+      return;
+    }
+    container.innerHTML = logs.map(l => `
+      <div class="carte" style="padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;">
+          <div>
+            <span style="font-weight:600;">${escapeHTML(l.action)}</span>
+            <span style="color:var(--text-dim);font-size:12px;margin-left:8px;">par ${escapeHTML(l.staffTag)}</span>
+            ${l.ticketId ? `<span style="color:var(--text-faint);font-size:11px;margin-left:8px;">#${l.ticketId.slice(0,6)}</span>` : ''}
+          </div>
+          <div style="font-size:12px;color:var(--text-faint);">${new Date(l.timestamp).toLocaleString('fr-FR')}</div>
+        </div>
+        ${l.details ? `<div style="font-size:12px;color:var(--text-dim);margin-top:4px;">${escapeHTML(l.details)}</div>` : ''}
+      </div>
+    `).join('');
+  } catch (e) { console.error(e); }
 }
 
 // ---- GIVEAWAYS ----
@@ -1463,155 +1620,6 @@ async function terminerGiveawayPanel(id) {
     chargerGiveaways();
   } catch (e) {
     console.error('Erreur terminaison giveaway:', e);
-  }
-}
-
-// ---- CATEGORIES DE TICKETS ----
-async function chargerCategories() {
-  try {
-    // 1. Charger les catégories de tickets existantes
-    const res = await fetch('/api/ticket-categories');
-    const categories = await res.json();
-
-    // 2. Afficher la liste avec le bon statut
-    const container = document.getElementById('liste-categories');
-    if (!categories.length) {
-      container.innerHTML = '<p style="color:var(--text-dim);">Aucune catégorie configurée.</p>';
-    } else {
-      container.innerHTML = categories.map(c => `
-        <div class="carte" style="border-left: 4px solid ${c.active ? 'var(--ok)' : 'var(--err)'};">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
-            <div>
-              <span style="font-size:20px;">${c.emoji || '📌'}</span>
-              <span style="font-weight:600;margin-left:8px;">${escapeHTML(c.name)}</span>
-              <span style="color:var(--text-dim);font-size:12px;margin-left:12px;">${c.active ? '✅ Actif' : '❌ Inactif'}</span>
-            </div>
-            <div>
-              <button class="petit secondaire" onclick="editerCategorie('${c.id}')">✏️ Modifier</button>
-              <button class="petit danger" onclick="supprimerCategorie('${c.id}')">🗑️ Supprimer</button>
-            </div>
-          </div>
-          <div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">
-            Salon : ${c.channelNameFormat || 'non défini'} — Catégorie Discord : ${c.destinationCategoryId || 'non définie'}
-          </div>
-        </div>
-      `).join('');
-    }
-
-    // 3. Remplir le sélecteur des catégories Discord de destination
-    const allChannels = await fetch('/api/channels/all').then(r => r.json());
-    const discordCategories = allChannels.filter(c => c.type === 4); // 4 = GuildCategory
-    const select = document.getElementById('new-cat-destination');
-    select.innerHTML = '<option value="">Sélectionner une catégorie</option>' +
-      discordCategories.map(c => `<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
-
-  } catch (e) {
-    console.error('Erreur chargement catégories:', e);
-  }
-}
-
-async function ajouterCategorie() {
-  const statut = document.getElementById('new-cat-statut');
-  const nom = document.getElementById('new-cat-nom').value.trim();
-  const emoji = document.getElementById('new-cat-emoji').value.trim();
-  const destination = document.getElementById('new-cat-destination').value;
-  const format = document.getElementById('new-cat-format').value.trim() || 'ticket-{number}';
-  const autoReply = document.getElementById('new-cat-auto-reply').value.trim();
-  const active = document.getElementById('new-cat-active').checked;
-
-  if (!nom || !destination) {
-    statut.textContent = '❌ Nom et catégorie Discord requis.';
-    statut.className = 'msg-err';
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/ticket-categories', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        name: nom,
-        emoji: emoji || '📌',
-        active,
-        destinationCategoryId: destination,
-        channelNameFormat: format,
-        autoReplyEmbed: { title: '✅ Ticket créé', description: autoReply || 'Votre message a bien été reçu.', color: '#5865F2' }
-      })
-    });
-    if (res.ok) {
-      playSuccessSound();
-      showNotification('✅ Catégorie ajoutée', 'success');
-      document.getElementById('new-cat-nom').value = '';
-      document.getElementById('new-cat-emoji').value = '📌';
-      document.getElementById('new-cat-format').value = 'ticket-{number}';
-      document.getElementById('new-cat-auto-reply').value = '';
-      document.getElementById('new-cat-active').checked = true;
-      chargerCategories();
-      statut.textContent = '✅ Ajoutée !';
-      statut.className = 'msg-ok';
-    } else {
-      const err = await res.json();
-      statut.textContent = '❌ ' + (err.erreur || 'Erreur');
-      statut.className = 'msg-err';
-    }
-  } catch (e) {
-    statut.textContent = '❌ Erreur';
-    statut.className = 'msg-err';
-    showNotification('❌ Erreur', 'error');
-  }
-}
-
-async function editerCategorie(id) {
-  const res = await fetch('/api/ticket-categories');
-  const categories = await res.json();
-  const cat = categories.find(c => c.id === id);
-  if (!cat) return showNotification('Catégorie introuvable', 'error');
-
-  const newName = prompt('Nouveau nom :', cat.name);
-  if (newName === null) return;
-  const newEmoji = prompt('Nouvel emoji :', cat.emoji || '📌');
-  if (newEmoji === null) return;
-  const newActive = confirm('Activer cette catégorie ? (OK = actif, Annuler = inactif)');
-  const newDest = prompt('ID de la catégorie Discord de destination :', cat.destinationCategoryId);
-  if (newDest === null) return;
-  const newFormat = prompt('Format du nom du salon (utilisez {number}) :', cat.channelNameFormat || 'ticket-{number}');
-  if (newFormat === null) return;
-
-  try {
-    const res = await fetch(`/api/ticket-categories/${id}`, {
-      method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        name: newName,
-        emoji: newEmoji,
-        active: newActive,
-        destinationCategoryId: newDest,
-        channelNameFormat: newFormat,
-      })
-    });
-    if (res.ok) {
-      playSuccessSound();
-      showNotification('✅ Catégorie mise à jour', 'success');
-      chargerCategories();
-    } else {
-      showNotification('❌ Erreur mise à jour', 'error');
-    }
-  } catch (e) {
-    showNotification('❌ Erreur', 'error');
-  }
-}
-
-async function supprimerCategorie(id) {
-  if (!confirm('Supprimer cette catégorie ?')) return;
-  try {
-    const res = await fetch(`/api/ticket-categories/${id}`, { method: 'DELETE' });
-    if (res.ok) {
-      playSuccessSound();
-      showNotification('🗑️ Catégorie supprimée', 'success');
-      chargerCategories();
-    } else {
-      showNotification('❌ Erreur suppression', 'error');
-    }
-  } catch (e) {
-    showNotification('❌ Erreur', 'error');
   }
 }
 
