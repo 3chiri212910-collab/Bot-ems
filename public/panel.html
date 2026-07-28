@@ -1,4 +1,3 @@
-<!-- panel.html - Interface d'administration complète -->
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -500,6 +499,7 @@
   <div class="tab" data-tab="embed">📢 Annonces</div>
   <div class="tab" data-tab="tickets">🎫 Tickets</div>
   <div class="tab" data-tab="giveaways">🎉 Giveaways</div>
+  <div class="tab" data-tab="ticket-categories">📂 Catégories de tickets</div>
   <div class="tab" data-tab="backup">💾 Sauvegarde</div>
   <div class="user" id="user-info"><span>Chargement...</span></div>
   <div class="logout"><a href="/logout">↪ Déconnexion</a></div>
@@ -567,12 +567,30 @@
     <textarea id="param-message-bienvenue"></textarea>
 
     <div class="sous-titre">Tickets</div>
-    <label>Salon staff pour les tickets</label>
+    <label>Salon staff pour les tickets (non utilisé avec le nouveau système)</label>
     <select id="param-salon-tickets"><option value="">Aucun</option></select>
     <label>Salon des logs de tickets</label>
     <select id="param-salon-logs-tickets"><option value="">Aucun</option></select>
+    <label>Salon des transcripts</label>
+    <select id="param-salon-transcripts"><option value="">Aucun</option></select>
     <label>Auto-fermeture des tickets (heures)</label>
     <input id="param-autoclose-heures" type="number" min="0" step="0.5" value="0" />
+    <label>Rôles staff ayant accès aux tickets</label>
+    <div id="ticket-staff-roles" class="checkbox-grid"><span style="color:var(--text-dim);font-size:13px;">Chargement...</span></div>
+    <div class="case-ligne">
+      <input type="checkbox" id="param-send-transcript-to-user" />
+      <label for="param-send-transcript-to-user">Envoyer le transcript au créateur en DM</label>
+    </div>
+    <label>Format du transcript</label>
+    <select id="param-transcript-format">
+      <option value="html">HTML</option>
+      <option value="txt">TXT</option>
+      <option value="both">Les deux</option>
+    </select>
+    <div class="case-ligne">
+      <input type="checkbox" id="param-ticket-logs-enabled" />
+      <label for="param-ticket-logs-enabled">Activer les logs de tickets</label>
+    </div>
 
     <div class="sous-titre">Modération</div>
     <label>Salon des logs de modération</label>
@@ -664,6 +682,34 @@
     <div id="liste-giveaways"></div>
   </section>
 
+  <!-- CATEGORIES DE TICKETS -->
+  <section id="vue-ticket-categories" class="hidden">
+    <h2>📂 Catégories de tickets</h2>
+    <div class="carte">
+      <label>Ajouter une catégorie</label>
+      <div class="deux-col">
+        <div><label>Nom</label><input id="new-cat-nom" placeholder="Ex: Support" /></div>
+        <div><label>Emoji</label><input id="new-cat-emoji" placeholder="🛠️" value="📌" /></div>
+      </div>
+      <label>Catégorie Discord de destination</label>
+      <select id="new-cat-destination"><option value="">Sélectionner une catégorie</option></select>
+      <label>Format du nom du salon ({number} sera remplacé par le numéro)</label>
+      <input id="new-cat-format" placeholder="ex: support-{number}" value="ticket-{number}" />
+      <label>Message de réponse automatique (embed)</label>
+      <textarea id="new-cat-auto-reply" placeholder="Message qui sera envoyé après le premier message de l'utilisateur">✅ Merci pour votre message.
+
+Votre ticket a bien été créé.
+
+Un membre de notre équipe prendra votre demande en charge dans les plus brefs délais.
+
+Merci de patienter.</textarea>
+      <div class="case-ligne"><input type="checkbox" id="new-cat-active" checked /><label for="new-cat-active">Activer cette catégorie</label></div>
+      <button onclick="ajouterCategorie()">Ajouter</button>
+      <div id="new-cat-statut"></div>
+    </div>
+    <div id="liste-categories"></div>
+  </section>
+
   <!-- BACKUP -->
   <section id="vue-backup" class="hidden">
     <h2>💾 Sauvegarde</h2>
@@ -694,7 +740,7 @@
 
 <script>
 // ============================================================
-// PANEL RP - JavaScript complet (sans EMS)
+// PANEL RP - JavaScript complet (avec gestion des catégories de tickets)
 // ============================================================
 
 // ---- Utilitaires ----
@@ -746,6 +792,7 @@ const vues = {
   embed: chargerSalons,
   tickets: chargerTickets,
   giveaways: chargerGiveaways,
+  'ticket-categories': chargerCategories,
   backup: null,
 };
 
@@ -1031,7 +1078,7 @@ async function chargerParametres() {
 
     const optionsSalons = '<option value="">Aucun</option>' + salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
 
-    ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-leavelogs'].forEach(id => {
+    ['param-salon-bienvenue', 'param-salon-tickets', 'param-salon-logs-tickets', 'param-salon-modlogs', 'param-salon-leavelogs', 'param-salon-transcripts'].forEach(id => {
       document.getElementById(id).innerHTML = optionsSalons;
     });
 
@@ -1042,15 +1089,35 @@ async function chargerParametres() {
     document.getElementById('param-salon-modlogs').value = params.modLogsChannelId || '';
     document.getElementById('param-salon-leavelogs').value = params.leaveLogsChannelId || '';
     document.getElementById('param-autoclose-heures').value = params.ticketAutoCloseHours ?? 0;
+    document.getElementById('param-salon-transcripts').value = params.ticketTranscriptChannelId || '';
+    document.getElementById('param-send-transcript-to-user').checked = !!params.ticketSendTranscriptToUser;
+    document.getElementById('param-transcript-format').value = params.ticketTranscriptFormat || 'both';
+    document.getElementById('param-ticket-logs-enabled').checked = params.ticketLogsEnabled !== undefined ? params.ticketLogsEnabled : true;
 
-    const container = document.getElementById('auto-role-checkboxes');
-    const selected = params.autoRoleIds || [];
+    // Rôles staff pour les tickets
+    const containerStaff = document.getElementById('ticket-staff-roles');
+    const selectedStaff = params.ticketStaffRoleIds || [];
     if (!roles.length) {
-      container.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+      containerStaff.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
     } else {
-      container.innerHTML = roles.map(r => `
+      containerStaff.innerHTML = roles.map(r => `
         <label>
-          <input type="checkbox" value="${r.id}" ${selected.includes(r.id) ? 'checked' : ''} />
+          <input type="checkbox" value="${r.id}" ${selectedStaff.includes(r.id) ? 'checked' : ''} />
+          <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
+          ${escapeHTML(r.name)}
+        </label>
+      `).join('');
+    }
+
+    // Auto-roles
+    const containerAuto = document.getElementById('auto-role-checkboxes');
+    const selectedAuto = params.autoRoleIds || [];
+    if (!roles.length) {
+      containerAuto.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Aucun rôle disponible</span>';
+    } else {
+      containerAuto.innerHTML = roles.map(r => `
+        <label>
+          <input type="checkbox" value="${r.id}" ${selectedAuto.includes(r.id) ? 'checked' : ''} />
           <span class="role-color" style="background:${r.color !== '#000000' ? r.color : '#8890a4'};"></span>
           ${escapeHTML(r.name)}
         </label>
@@ -1063,8 +1130,10 @@ async function chargerParametres() {
 
 async function sauverParametres() {
   const statut = document.getElementById('param-statut');
-  const checkboxes = document.querySelectorAll('#auto-role-checkboxes input[type="checkbox"]:checked');
-  const autoRoleIds = Array.from(checkboxes).map(cb => cb.value);
+  const checkboxesAuto = document.querySelectorAll('#auto-role-checkboxes input[type="checkbox"]:checked');
+  const autoRoleIds = Array.from(checkboxesAuto).map(cb => cb.value);
+  const checkboxesStaff = document.querySelectorAll('#ticket-staff-roles input[type="checkbox"]:checked');
+  const ticketStaffRoleIds = Array.from(checkboxesStaff).map(cb => cb.value);
 
   try {
     const res = await fetch('/api/settings', {
@@ -1078,6 +1147,11 @@ async function sauverParametres() {
         modLogsChannelId: document.getElementById('param-salon-modlogs').value,
         leaveLogsChannelId: document.getElementById('param-salon-leavelogs').value,
         ticketAutoCloseHours: document.getElementById('param-autoclose-heures').value,
+        ticketStaffRoleIds: ticketStaffRoleIds,
+        ticketTranscriptChannelId: document.getElementById('param-salon-transcripts').value,
+        ticketSendTranscriptToUser: document.getElementById('param-send-transcript-to-user').checked,
+        ticketTranscriptFormat: document.getElementById('param-transcript-format').value,
+        ticketLogsEnabled: document.getElementById('param-ticket-logs-enabled').checked,
       })
     });
     playSuccessSound();
@@ -1221,6 +1295,11 @@ async function chargerSalons() {
     const html = salons.map(s => `<option value="${s.id}">#${escapeHTML(s.name)}</option>`).join('');
     document.getElementById('embed-salon').innerHTML = html;
     document.getElementById('giveaway-salon').innerHTML = html;
+    // Pour les catégories de tickets, on utilise les catégories Discord (salons de type 4)
+    const allChannels = await fetch('/api/channels/all').then(r => r.json());
+    const categories = allChannels.filter(c => c.type === 4); // type 4 = GuildCategory
+    const htmlCat = categories.map(c => `<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('');
+    document.getElementById('new-cat-destination').innerHTML = htmlCat;
   } catch (e) { console.error(e); }
 }
 
@@ -1393,6 +1472,146 @@ async function terminerGiveawayPanel(id) {
     chargerGiveaways();
   } catch (e) {
     console.error('Erreur terminaison giveaway:', e);
+  }
+}
+
+// ---- CATEGORIES DE TICKETS ----
+async function chargerCategories() {
+  try {
+    const res = await fetch('/api/ticket-categories');
+    const categories = await res.json();
+    const container = document.getElementById('liste-categories');
+    if (!categories.length) {
+      container.innerHTML = '<p style="color:var(--text-dim);">Aucune catégorie configurée.</p>';
+      return;
+    }
+    container.innerHTML = categories.map(c => `
+      <div class="carte" style="border-left: 4px solid ${c.active ? 'var(--ok)' : 'var(--err)'};">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+          <div>
+            <span style="font-size:20px;">${c.emoji || '📌'}</span>
+            <span style="font-weight:600;margin-left:8px;">${escapeHTML(c.name)}</span>
+            <span style="color:var(--text-dim);font-size:12px;margin-left:12px;">${c.active ? '✅ Actif' : '❌ Inactif'}</span>
+          </div>
+          <div>
+            <button class="petit secondaire" onclick="editerCategorie('${c.id}')">✏️ Modifier</button>
+            <button class="petit danger" onclick="supprimerCategorie('${c.id}')">🗑️ Supprimer</button>
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">
+          Salon : ${c.channelNameFormat || 'non défini'} — Catégorie Discord : ${c.destinationCategoryId || 'non définie'}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Erreur chargement catégories:', e);
+  }
+}
+
+async function ajouterCategorie() {
+  const statut = document.getElementById('new-cat-statut');
+  const nom = document.getElementById('new-cat-nom').value.trim();
+  const emoji = document.getElementById('new-cat-emoji').value.trim();
+  const destination = document.getElementById('new-cat-destination').value;
+  const format = document.getElementById('new-cat-format').value.trim() || 'ticket-{number}';
+  const autoReply = document.getElementById('new-cat-auto-reply').value.trim();
+  const active = document.getElementById('new-cat-active').checked;
+
+  if (!nom || !destination) {
+    statut.textContent = '❌ Nom et catégorie Discord requis.';
+    statut.className = 'msg-err';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/ticket-categories', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: nom,
+        emoji: emoji || '📌',
+        active,
+        destinationCategoryId: destination,
+        channelNameFormat: format,
+        autoReplyMessage: autoReply || '✅ Merci pour votre message.',
+        autoReplyEmbed: { title: '✅ Ticket créé', description: autoReply || 'Votre message a bien été reçu.', color: '#5865F2' }
+      })
+    });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Catégorie ajoutée', 'success');
+      document.getElementById('new-cat-nom').value = '';
+      document.getElementById('new-cat-emoji').value = '📌';
+      document.getElementById('new-cat-format').value = '';
+      document.getElementById('new-cat-auto-reply').value = '';
+      document.getElementById('new-cat-active').checked = true;
+      chargerCategories();
+      statut.textContent = '✅ Ajoutée !';
+      statut.className = 'msg-ok';
+    } else {
+      const err = await res.json();
+      statut.textContent = '❌ ' + (err.erreur || 'Erreur');
+      statut.className = 'msg-err';
+    }
+  } catch (e) {
+    statut.textContent = '❌ Erreur';
+    statut.className = 'msg-err';
+    showNotification('❌ Erreur', 'error');
+  }
+}
+
+async function editerCategorie(id) {
+  // On peut ouvrir un modal pour modifier, ici on simplifie avec des prompts
+  const res = await fetch('/api/ticket-categories');
+  const categories = await res.json();
+  const cat = categories.find(c => c.id === id);
+  if (!cat) return showNotification('Catégorie introuvable', 'error');
+
+  const newName = prompt('Nouveau nom :', cat.name);
+  if (newName === null) return;
+  const newEmoji = prompt('Nouvel emoji :', cat.emoji || '📌');
+  if (newEmoji === null) return;
+  const newActive = confirm('Activer cette catégorie ? (OK = actif, Annuler = inactif)');
+  const newDest = prompt('ID de la catégorie Discord de destination :', cat.destinationCategoryId);
+  if (newDest === null) return;
+  const newFormat = prompt('Format du nom du salon (utilisez {number}) :', cat.channelNameFormat || 'ticket-{number}');
+  if (newFormat === null) return;
+
+  try {
+    const res = await fetch(`/api/ticket-categories/${id}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: newName,
+        emoji: newEmoji,
+        active: newActive,
+        destinationCategoryId: newDest,
+        channelNameFormat: newFormat,
+      })
+    });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('✅ Catégorie mise à jour', 'success');
+      chargerCategories();
+    } else {
+      showNotification('❌ Erreur mise à jour', 'error');
+    }
+  } catch (e) {
+    showNotification('❌ Erreur', 'error');
+  }
+}
+
+async function supprimerCategorie(id) {
+  if (!confirm('Supprimer cette catégorie ?')) return;
+  try {
+    const res = await fetch(`/api/ticket-categories/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      playSuccessSound();
+      showNotification('🗑️ Catégorie supprimée', 'success');
+      chargerCategories();
+    } else {
+      showNotification('❌ Erreur suppression', 'error');
+    }
+  } catch (e) {
+    showNotification('❌ Erreur', 'error');
   }
 }
 
