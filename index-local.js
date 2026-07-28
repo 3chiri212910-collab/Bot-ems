@@ -88,9 +88,9 @@ const CONFIG_DEFAUT = {
   modLogsChannelId: null,
   leaveLogsChannelId: null,
   // Tickets
-  ticketLogsChannelId: null,        // salon pour les logs d'actions
-  ticketTranscriptChannelId: null,  // salon pour les exports
-  ticketAutoCloseHours: 0,          // 0 = désactivé
+  ticketLogsChannelId: null,
+  ticketTranscriptChannelId: null,
+  ticketAutoCloseHours: 0,
   ticketStaffRoleIds: [],
   ticketCategories: [],
   // Candidatures
@@ -110,7 +110,6 @@ const CONFIG_DEFAUT = {
     mpValidation: 'Bonjour **{username}**,\nTa candidature sur **{server}** a été **validée** par {staff}.\n📅 {date}',
     mpRefus: 'Bonjour **{username}**,\nTa candidature sur **{server}** a été **refusée** par {staff}.\n📅 {date}',
   },
-  // Blacklist
   blacklist: [],
 };
 
@@ -154,7 +153,7 @@ async function fetchUserWithCache(userId) {
 }
 
 // ---- Utilitaires ----
-const ROLES_AUTORISES = ['1524935532914933837', '1524975599460814888']; // à adapter
+const ROLES_AUTORISES = ['1524935532914933837', '1524975599460814888']; // À adapter
 const NOM_SERVEUR = 'Mon Serveur RP';
 const COULEUR_EMBED = '#5865F2';
 
@@ -255,7 +254,6 @@ function getTicketByChannelId(channelId) {
 }
 
 function getTicketByUserId(userId) {
-  // Un utilisateur ne peut avoir qu'un ticket ouvert à la fois (on vérifie le status 'open')
   return Object.values(tickets).find(t => t.userId === userId && t.status === 'open');
 }
 
@@ -273,7 +271,6 @@ async function addLog(action, staffId, staffTag, ticketId, details = '') {
     timestamp: new Date().toISOString(),
   });
   sauverLogs();
-  // Envoyer dans le salon de logs si configuré
   if (config.ticketLogsChannelId) {
     const channel = await client.channels.fetch(config.ticketLogsChannelId).catch(() => null);
     if (channel) {
@@ -289,7 +286,6 @@ async function addLog(action, staffId, staffTag, ticketId, details = '') {
 
 // ---- Création d'un ticket ----
 async function createTicket(user, categoryId, formData = {}) {
-  // Vérifier si l'utilisateur a déjà un ticket ouvert
   const existing = getTicketByUserId(user.id);
   if (existing) {
     throw new Error('Vous avez déjà un ticket ouvert. Veuillez le fermer avant d\'en ouvrir un nouveau.');
@@ -302,10 +298,9 @@ async function createTicket(user, categoryId, formData = {}) {
   if (!category) throw new Error('Catégorie inconnue ou désactivée.');
   if (!category.categoryId) throw new Error('La catégorie Discord de destination n\'est pas définie.');
 
-  // Générer un nom de salon
   const baseName = sanitizeChannelName(`${category.name}-${user.username}`);
   const ticketId = generateTicketId();
-  const channelName = `${baseName}-${ticketId.slice(0, 4)}`; // ajouter un suffixe pour éviter les collisions
+  const channelName = `${baseName}-${ticketId.slice(0, 4)}`;
 
   const guild = client.guilds.cache.get(GUILD_ID);
   if (!guild) throw new Error('Serveur introuvable.');
@@ -313,7 +308,6 @@ async function createTicket(user, categoryId, formData = {}) {
   const parent = guild.channels.cache.get(category.categoryId);
   if (!parent) throw new Error('Catégorie Discord de destination introuvable.');
 
-  // Permissions
   const overwrites = [
     {
       id: guild.roles.everyone.id,
@@ -324,7 +318,6 @@ async function createTicket(user, categoryId, formData = {}) {
       allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
     }
   ];
-  // Ajouter les rôles staff ayant accès (config.ticketStaffRoleIds)
   for (const roleId of config.ticketStaffRoleIds) {
     overwrites.push({
       id: roleId,
@@ -332,7 +325,6 @@ async function createTicket(user, categoryId, formData = {}) {
     });
   }
 
-  // Créer le salon
   const channel = await guild.channels.create({
     name: channelName,
     type: ChannelType.GuildText,
@@ -340,7 +332,6 @@ async function createTicket(user, categoryId, formData = {}) {
     permissionOverwrites: overwrites,
   });
 
-  // Enregistrer le ticket
   const ticket = {
     id: ticketId,
     userId: user.id,
@@ -356,11 +347,11 @@ async function createTicket(user, categoryId, formData = {}) {
     closedAt: null,
     closedBy: null,
     evaluation: null,
+    embedMessageId: null,
   };
   tickets[ticketId] = ticket;
   sauverTickets();
 
-  // Ajouter le message initial (les réponses du formulaire)
   const embedFields = [];
   if (formData && Object.keys(formData).length > 0) {
     for (const [key, value] of Object.entries(formData)) {
@@ -368,7 +359,6 @@ async function createTicket(user, categoryId, formData = {}) {
     }
   }
 
-  // Embed du ticket
   const embed = new EmbedBuilder()
     .setColor(category.color || COULEUR_EMBED)
     .setTitle(`🎫 Ticket #${ticketId.slice(0, 6)} - ${category.emoji} ${category.name}`)
@@ -383,23 +373,22 @@ async function createTicket(user, categoryId, formData = {}) {
     .setThumbnail(user.displayAvatarURL({ dynamic: true }))
     .setTimestamp();
 
-  // Ping des rôles
   let pingContent = '';
   if (category.pingRoles && category.pingRoles.length > 0) {
     pingContent = category.pingRoles.map(id => `<@&${id}>`).join(' ');
   }
 
-  // Envoyer le message dans le salon
-  const components = createTicketActionRows(ticket.id);
+  const components = createTicketActionRows(ticketId);
   const messageOptions = {
     embeds: [embed],
     components: components,
   };
   if (pingContent) messageOptions.content = pingContent;
 
-  await channel.send(messageOptions);
+  const sentMsg = await channel.send(messageOptions);
+  ticket.embedMessageId = sentMsg.id;
+  sauverTickets();
 
-  // Envoyer le message automatique si configuré
   if (category.autoReply) {
     await channel.send({
       embeds: [new EmbedBuilder()
@@ -409,7 +398,6 @@ async function createTicket(user, categoryId, formData = {}) {
     });
   }
 
-  // Notifier l'utilisateur en DM
   try {
     await user.send({
       embeds: [new EmbedBuilder()
@@ -420,24 +408,16 @@ async function createTicket(user, categoryId, formData = {}) {
     });
   } catch (e) {}
 
-  // Log
   await addLog('Création ticket', user.id, user.tag, ticketId, `Catégorie: ${category.name}`);
 
   return ticket;
 }
 
-// ---- Récupérer l'emoji de priorité ----
 function getPriorityEmoji(priority) {
-  const map = {
-    low: '🟢',
-    normal: '🟡',
-    high: '🟠',
-    urgent: '🔴'
-  };
+  const map = { low: '🟢', normal: '🟡', high: '🟠', urgent: '🔴' };
   return map[priority] || '🟡';
 }
 
-// ---- Boutons d'actions pour les tickets ----
 function createTicketActionRows(ticketId) {
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`ticket_close_${ticketId}`).setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
@@ -458,7 +438,7 @@ function createTicketActionRows(ticketId) {
   return [row1, row2, row3];
 }
 
-// ---- Mise à jour de l'embed du ticket ----
+// ---- Mise à jour de l'embed ----
 async function updateTicketEmbed(channelId) {
   const ticket = getTicketByChannelId(channelId);
   if (!ticket) return;
@@ -467,34 +447,21 @@ async function updateTicketEmbed(channelId) {
   const user = await client.users.fetch(ticket.userId).catch(() => null);
   if (!user) return;
 
-  // Récupérer le message principal (le premier) pour le mettre à jour
-  // On va chercher le message d'embed original (on suppose qu'il est le premier message du salon)
-  const messages = await channelId.messages?.fetch({ limit: 10 }).catch(() => null);
-  // En réalité, on ne peut pas facilement retrouver le message d'embed. On pourrait stocker son ID dans le ticket.
-  // Pour simplifier, on va supprimer l'embed précédent et en renvoyer un nouveau, ou on utilise une approche avec un message pin.
-  // Nous allons plutôt ajouter un embed de mise à jour.
-  // Mais pour une solution robuste, on peut stocker l'ID du message d'embed dans le ticket.
-  // Je vais ajouter un champ `embedMessageId` dans le ticket.
-  if (!ticket.embedMessageId) {
-    // On crée un nouveau message d'embed
-    const channel = await client.channels.fetch(channelId);
-    const embed = buildTicketEmbed(ticket, user, category);
-    const msg = await channel.send({ embeds: [embed] });
-    ticket.embedMessageId = msg.id;
-    sauverTickets();
-  } else {
-    // Mettre à jour l'embed existant
-    const channel = await client.channels.fetch(channelId);
-    const embed = buildTicketEmbed(ticket, user, category);
+  const embed = buildTicketEmbed(ticket, user, category);
+  const channel = await client.channels.fetch(channelId);
+  if (ticket.embedMessageId) {
     const msg = await channel.messages.fetch(ticket.embedMessageId).catch(() => null);
     if (msg) {
       await msg.edit({ embeds: [embed] });
     } else {
-      // Si le message a été supprimé, en créer un nouveau
       const newMsg = await channel.send({ embeds: [embed] });
       ticket.embedMessageId = newMsg.id;
       sauverTickets();
     }
+  } else {
+    const newMsg = await channel.send({ embeds: [embed] });
+    ticket.embedMessageId = newMsg.id;
+    sauverTickets();
   }
 }
 
@@ -514,7 +481,7 @@ function buildTicketEmbed(ticket, user, category) {
   return embed;
 }
 
-// ---- Fermeture d'un ticket ----
+// ---- Fermeture ----
 async function closeTicket(ticketId, staffId, staffTag, reason = '') {
   const ticket = tickets[ticketId];
   if (!ticket) throw new Error('Ticket introuvable.');
@@ -527,16 +494,13 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
 
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
-    // Verrouiller le salon
     await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: false }).catch(() => {});
-    // Envoyer un message de fermeture
     const embed = new EmbedBuilder()
       .setColor('#fb7185')
       .setTitle('🔒 Ticket fermé')
       .setDescription(`Fermé par **${staffTag}**${reason ? `\nRaison: ${reason}` : ''}\nMerci d'avoir utilisé notre support.`)
       .setTimestamp();
     await channel.send({ embeds: [embed] });
-    // Proposer une évaluation
     const evalRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`eval_1_${ticketId}`).setLabel('⭐').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`eval_2_${ticketId}`).setLabel('⭐⭐').setStyle(ButtonStyle.Secondary),
@@ -547,7 +511,6 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
     await channel.send({ components: [evalRow] });
   }
 
-  // Notifier l'utilisateur en DM
   const user = await client.users.fetch(ticket.userId).catch(() => null);
   if (user) {
     const dmEmbed = new EmbedBuilder()
@@ -558,7 +521,6 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
     await user.send({ embeds: [dmEmbed] }).catch(() => {});
   }
 
-  // Log
   await addLog('Fermeture ticket', staffId, staffTag, ticketId, `Raison: ${reason || 'Aucune'}`);
 }
 
@@ -627,7 +589,7 @@ async function assignTicket(ticketId, assigneeId, staffId, staffTag) {
   await updateTicketEmbed(ticket.channelId);
 }
 
-// ---- Changer priorité ----
+// ---- Priorité ----
 async function setPriority(ticketId, priority, staffId, staffTag) {
   const ticket = tickets[ticketId];
   if (!ticket) throw new Error('Ticket introuvable.');
@@ -652,7 +614,6 @@ async function changeCategory(ticketId, newCategoryId, staffId, staffTag) {
   ticket.categoryId = newCategoryId;
   sauverTickets();
 
-  // Déplacer le salon
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
     const parent = await client.channels.fetch(category.categoryId).catch(() => null);
@@ -681,7 +642,6 @@ async function exportTicketHTML(ticketId, staffId, staffTag) {
   const ticket = tickets[ticketId];
   if (!ticket) throw new Error('Ticket introuvable.');
 
-  // Récupérer tous les messages du salon
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (!channel) throw new Error('Salon introuvable.');
 
@@ -693,12 +653,10 @@ async function exportTicketHTML(ticketId, staffId, staffTag) {
     allMessages.push(...msgs.values());
     lastId = msgs.last().id;
   }
-  allMessages.reverse(); // du plus ancien au plus récent
+  allMessages.reverse();
 
-  // Générer le HTML
   const user = await client.users.fetch(ticket.userId).catch(() => null);
   const category = config.ticketCategories.find(c => c.id === ticket.categoryId);
-  const guild = client.guilds.cache.get(GUILD_ID);
 
   let html = `<!DOCTYPE html>
 <html>
@@ -751,7 +709,6 @@ async function exportTicketHTML(ticketId, staffId, staffTag) {
 </body>
 </html>`;
 
-  // Envoyer le fichier dans le salon de transcript
   const transcriptChannelId = config.ticketTranscriptChannelId || config.ticketLogsChannelId;
   if (transcriptChannelId) {
     const transcriptChannel = await client.channels.fetch(transcriptChannelId).catch(() => null);
@@ -777,7 +734,6 @@ async function blacklistUser(ticketId, staffId, staffTag) {
   config.blacklist.push(userId);
   sauverConfig();
 
-  // Fermer le ticket
   await closeTicket(ticketId, staffId, staffTag, 'Utilisateur blacklisté');
 
   await addLog('Blacklist utilisateur', staffId, staffTag, ticketId, `Utilisateur <@${userId}> blacklisté.`);
@@ -790,13 +746,10 @@ async function handleDM(message) {
 
   const user = message.author;
 
-  // Vérifier si l'utilisateur a un ticket ouvert
   const existingTicket = getTicketByUserId(user.id);
   if (existingTicket) {
-    // Transférer le message dans le salon
     const channel = await client.channels.fetch(existingTicket.channelId).catch(() => null);
     if (channel) {
-      // Ajouter le message au ticket
       existingTicket.messages.push({
         authorId: user.id,
         authorTag: user.tag,
@@ -806,7 +759,6 @@ async function handleDM(message) {
       });
       sauverTickets();
 
-      // Envoyer dans le salon
       const files = [];
       for (const att of message.attachments.values()) {
         files.push({ attachment: att.url, name: att.name });
@@ -819,14 +771,12 @@ async function handleDM(message) {
     return;
   }
 
-  // Pas de ticket ouvert : proposer les catégories
   const categories = config.ticketCategories.filter(c => c.categoryId && c.active !== false);
   if (!categories.length) {
     await message.reply('❌ Aucune catégorie de ticket disponible pour le moment. Contactez un administrateur.');
     return;
   }
 
-  // Construire le menu
   const options = categories.map(c => ({
     label: c.name,
     value: c.id,
@@ -840,7 +790,6 @@ async function handleDM(message) {
       .addOptions(options)
   );
 
-  // Message de bienvenue
   const embed = new EmbedBuilder()
     .setColor(COULEUR_EMBED)
     .setTitle('📩 Ouverture d\'un ticket')
@@ -874,12 +823,10 @@ async function handleInteraction(interaction) {
 
   if (interaction.isButton()) {
     const customId = interaction.customId;
-    // Boutons d'évaluation
     if (customId.startsWith('eval_')) {
       await handleEvaluation(interaction);
       return;
     }
-    // Actions de tickets
     if (customId.startsWith('ticket_')) {
       await handleTicketButton(interaction);
       return;
@@ -918,9 +865,7 @@ async function handleCategorySelect(interaction) {
     return interaction.editReply('❌ Catégorie invalide.');
   }
 
-  // Vérifier si un formulaire est configuré
   if (category.form && category.form.fields && category.form.fields.length > 0) {
-    // Ouvrir un modal
     const modal = new ModalBuilder()
       .setCustomId(`ticket_form_${categoryId}`)
       .setTitle(`Formulaire: ${category.name}`);
@@ -936,7 +881,6 @@ async function handleCategorySelect(interaction) {
     }
     await interaction.showModal(modal);
   } else {
-    // Créer directement le ticket
     try {
       const ticket = await createTicket(interaction.user, categoryId, {});
       await interaction.editReply(`✅ Votre ticket a été créé : <#${ticket.channelId}> (ID: #${ticket.id.slice(0, 6)})`);
@@ -946,7 +890,7 @@ async function handleCategorySelect(interaction) {
   }
 }
 
-// ---- Gestion du formulaire modal ----
+// ---- Formulaire modal ----
 async function handleTicketForm(interaction) {
   await interaction.deferReply({ ephemeral: true });
   const categoryId = interaction.customId.replace('ticket_form_', '');
@@ -969,9 +913,8 @@ async function handleTicketForm(interaction) {
   }
 }
 
-// ---- Gestion des boutons de ticket ----
+// ---- Boutons de ticket ----
 async function handleTicketButton(interaction) {
-  // Extraire l'action et l'ID du ticket
   const parts = interaction.customId.split('_');
   const action = parts[1];
   const ticketId = parts.slice(2).join('_');
@@ -981,7 +924,6 @@ async function handleTicketButton(interaction) {
     return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
 
-  // Vérifier que l'utilisateur a le droit d'agir sur ce ticket (staff)
   const member = interaction.member;
   const isStaff = member.permissions.has(PermissionsBitField.Flags.Administrator) ||
                   member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id));
@@ -1015,8 +957,6 @@ async function handleTicketButton(interaction) {
         .setStyle(TextInputStyle.Short)
         .setValue(ticket.title || '');
       modal.addComponents(new ActionRowBuilder().addComponents(input));
-      // Stocker temporairement l'ID du ticket dans la session (ou dans un cache)
-      // On va utiliser un cache simple
       if (!global.ticketRenameCache) global.ticketRenameCache = {};
       global.ticketRenameCache[interaction.user.id] = ticketId;
       await interaction.showModal(modal);
@@ -1085,7 +1025,6 @@ async function handleTicketButton(interaction) {
         .setStyle(TextInputStyle.Paragraph)
         .setValue(ticket.notes || '');
       modal.addComponents(new ActionRowBuilder().addComponents(input));
-      // Stocker l'ID du ticket
       if (!global.ticketNoteCache) global.ticketNoteCache = {};
       global.ticketNoteCache[interaction.user.id] = ticketId;
       await interaction.showModal(modal);
@@ -1109,52 +1048,48 @@ async function handleTicketButton(interaction) {
   }
 }
 
-// ---- Gestion des sélecteurs d'assignation ----
+// ---- Sélecteurs ----
 async function handleAssignSelect(interaction) {
   const userId = interaction.values[0];
-  const ticketId = getTicketByChannelId(interaction.channel.id)?.id;
-  if (!ticketId) {
+  const ticket = getTicketByChannelId(interaction.channel.id);
+  if (!ticket) {
     return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
-  await assignTicket(ticketId, userId, interaction.user.id, interaction.user.tag);
+  await assignTicket(ticket.id, userId, interaction.user.id, interaction.user.tag);
   await interaction.reply({ content: `✅ Ticket assigné à <@${userId}>.`, ephemeral: true });
 }
 
-// ---- Gestion du transfert ----
 async function handleTransferSelect(interaction) {
   const targetId = interaction.values[0];
-  const ticketId = getTicketByChannelId(interaction.channel.id)?.id;
-  if (!ticketId) {
+  const ticket = getTicketByChannelId(interaction.channel.id);
+  if (!ticket) {
     return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
-  // On va simplement assigner le ticket au nouveau staff
-  await assignTicket(ticketId, targetId, interaction.user.id, interaction.user.tag);
+  await assignTicket(ticket.id, targetId, interaction.user.id, interaction.user.tag);
   await interaction.reply({ content: `✅ Ticket transféré à <@${targetId}>.`, ephemeral: true });
 }
 
-// ---- Gestion de la priorité ----
 async function handlePrioritySelect(interaction) {
   const priority = interaction.values[0];
-  const ticketId = getTicketByChannelId(interaction.channel.id)?.id;
-  if (!ticketId) {
+  const ticket = getTicketByChannelId(interaction.channel.id);
+  if (!ticket) {
     return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
-  await setPriority(ticketId, priority, interaction.user.id, interaction.user.tag);
+  await setPriority(ticket.id, priority, interaction.user.id, interaction.user.tag);
   await interaction.reply({ content: `✅ Priorité définie sur ${priority}.`, ephemeral: true });
 }
 
-// ---- Gestion du changement de catégorie (déplacement) ----
 async function handleCategorySelectMove(interaction) {
   const newCategoryId = interaction.values[0];
-  const ticketId = getTicketByChannelId(interaction.channel.id)?.id;
-  if (!ticketId) {
+  const ticket = getTicketByChannelId(interaction.channel.id);
+  if (!ticket) {
     return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
-  await changeCategory(ticketId, newCategoryId, interaction.user.id, interaction.user.tag);
+  await changeCategory(ticket.id, newCategoryId, interaction.user.id, interaction.user.tag);
   await interaction.reply({ content: `✅ Catégorie changée.`, ephemeral: true });
 }
 
-// ---- Gestion des modals de renommage ----
+// ---- Modals ----
 async function handleRenameModal(interaction) {
   const newName = interaction.fields.getTextInputValue('new_name');
   const ticketId = global.ticketRenameCache?.[interaction.user.id];
@@ -1170,7 +1105,6 @@ async function handleRenameModal(interaction) {
   delete global.ticketRenameCache[interaction.user.id];
 }
 
-// ---- Gestion des modals de note ----
 async function handleNoteModal(interaction) {
   const note = interaction.fields.getTextInputValue('note_content');
   const ticketId = global.ticketNoteCache?.[interaction.user.id];
@@ -1186,7 +1120,7 @@ async function handleNoteModal(interaction) {
   delete global.ticketNoteCache[interaction.user.id];
 }
 
-// ---- Gestion de l'évaluation ----
+// ---- Évaluation ----
 async function handleEvaluation(interaction) {
   const parts = interaction.customId.split('_');
   const rating = parseInt(parts[1]);
@@ -1198,7 +1132,6 @@ async function handleEvaluation(interaction) {
   sauverTickets();
 
   await interaction.reply({ content: `⭐ Merci pour votre évaluation de ${rating}/5 !`, ephemeral: true });
-  // Envoyer un message de remerciement dans le salon
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
     const embed = new EmbedBuilder()
@@ -1210,7 +1143,7 @@ async function handleEvaluation(interaction) {
   }
 }
 
-// ---- Synchronisation des messages du salon vers DM ----
+// ---- Sync des messages du salon vers DM ----
 async function handleChannelMessage(message) {
   if (message.author.bot) return;
   if (message.channel.type !== ChannelType.GuildText) return;
@@ -1218,14 +1151,11 @@ async function handleChannelMessage(message) {
   const ticket = getTicketByChannelId(message.channel.id);
   if (!ticket) return;
 
-  // Vérifier si l'auteur est staff ou l'utilisateur
   const isStaff = message.member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id)) ||
                   message.member.permissions.has(PermissionsBitField.Flags.Administrator);
   const isUser = message.author.id === ticket.userId;
 
   if (isUser) {
-    // L'utilisateur envoie un message dans le salon => le transmettre en DM (déjà fait via la synchronisation inverse)
-    // On va juste l'ajouter aux messages du ticket
     ticket.messages.push({
       authorId: message.author.id,
       authorTag: message.author.tag,
@@ -1237,7 +1167,6 @@ async function handleChannelMessage(message) {
   }
 
   if (isStaff) {
-    // Envoyer le message en DM à l'utilisateur
     const user = await client.users.fetch(ticket.userId).catch(() => null);
     if (user) {
       const files = [];
@@ -1249,7 +1178,6 @@ async function handleChannelMessage(message) {
         files: files.length ? files : undefined,
       }).catch(() => {});
     }
-    // Ajouter aux messages
     ticket.messages.push({
       authorId: message.author.id,
       authorTag: message.author.tag,
@@ -1261,88 +1189,47 @@ async function handleChannelMessage(message) {
   }
 }
 
-// ---- Commande slash pour fermer un ticket (staff) ----
+// ---- Commandes slash ----
 const closeCommand = new SlashCommandBuilder()
   .setName('close')
   .setDescription('Fermer le ticket actuel')
-  .addStringOption(option =>
-    option.setName('raison')
-      .setDescription('Raison de la fermeture (optionnelle)')
-      .setRequired(false)
-  );
-
-// ---- Commande slash pour réouvrir un ticket (staff) ----
+  .addStringOption(option => option.setName('raison').setDescription('Raison de la fermeture').setRequired(false));
 const reopenCommand = new SlashCommandBuilder()
   .setName('reopen')
   .setDescription('Réouvrir le ticket actuel');
-
-// ---- Commande slash pour renommer un ticket (staff) ----
 const renameCommand = new SlashCommandBuilder()
   .setName('rename')
   .setDescription('Renommer le ticket actuel')
-  .addStringOption(option =>
-    option.setName('nom')
-      .setDescription('Nouveau nom')
-      .setRequired(true)
-  );
-
-// ---- Commande slash pour assigner un ticket (staff) ----
+  .addStringOption(option => option.setName('nom').setDescription('Nouveau nom').setRequired(true));
 const assignCommand = new SlashCommandBuilder()
   .setName('assign')
   .setDescription('Assigner un staff au ticket actuel')
-  .addUserOption(option =>
-    option.setName('staff')
-      .setDescription('Staff à assigner')
-      .setRequired(true)
-  );
-
-// ---- Commande slash pour changer la priorité (staff) ----
+  .addUserOption(option => option.setName('staff').setDescription('Staff à assigner').setRequired(true));
 const priorityCommand = new SlashCommandBuilder()
   .setName('priority')
   .setDescription('Changer la priorité du ticket actuel')
-  .addStringOption(option =>
-    option.setName('niveau')
-      .setDescription('Priorité')
-      .setRequired(true)
-      .addChoices(
-        { name: '🟢 Faible', value: 'low' },
-        { name: '🟡 Normale', value: 'normal' },
-        { name: '🟠 Haute', value: 'high' },
-        { name: '🔴 Urgente', value: 'urgent' }
-      )
-  );
-
-// ---- Commande slash pour changer la catégorie (staff) ----
+  .addStringOption(option => option.setName('niveau').setDescription('Priorité').setRequired(true)
+    .addChoices(
+      { name: '🟢 Faible', value: 'low' },
+      { name: '🟡 Normale', value: 'normal' },
+      { name: '🟠 Haute', value: 'high' },
+      { name: '🔴 Urgente', value: 'urgent' }
+    ));
 const categoryCommand = new SlashCommandBuilder()
   .setName('category')
   .setDescription('Changer la catégorie du ticket actuel')
-  .addStringOption(option =>
-    option.setName('categorie')
-      .setDescription('ID de la catégorie')
-      .setRequired(true)
-  );
-
-// ---- Commande slash pour ajouter une note privée (staff) ----
+  .addStringOption(option => option.setName('categorie').setDescription('ID de la catégorie').setRequired(true));
 const noteCommand = new SlashCommandBuilder()
   .setName('note')
   .setDescription('Ajouter une note privée au ticket actuel')
-  .addStringOption(option =>
-    option.setName('contenu')
-      .setDescription('Note')
-      .setRequired(true)
-  );
-
-// ---- Commande slash pour exporter le ticket (staff) ----
+  .addStringOption(option => option.setName('contenu').setDescription('Note').setRequired(true));
 const exportCommand = new SlashCommandBuilder()
   .setName('export')
   .setDescription('Exporter le ticket actuel en HTML');
-
-// ---- Commande slash pour blacklister (staff) ----
 const blacklistCommand = new SlashCommandBuilder()
   .setName('blacklist')
   .setDescription('Blacklister l\'utilisateur du ticket actuel');
 
-// ---- Enregistrement des commandes ----
 const slashCommands = [
   closeCommand,
   reopenCommand,
@@ -1353,18 +1240,12 @@ const slashCommands = [
   noteCommand,
   exportCommand,
   blacklistCommand,
-  // Garder les commandes de modération existantes (warn, warns, clear, etc.)
-  // On va les ajouter plus tard, elles sont déjà définies ailleurs.
 ].map(cmd => cmd.toJSON());
 
-// ---- Intégration avec le reste du bot ----
-// On va garder les autres commandes (modération, candidatures) mais on les adapte.
-
 // ============================================================
-//  FIN NOUVEAU SYSTÈME DE TICKETS
+//  CLIENT DISCORD
 // ============================================================
 
-// ---- Client Discord ----
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -1377,59 +1258,49 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
 
-// ---- REST pour les commandes ----
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-// ---- Événements Discord ----
 client.once('ready', async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
   try {
-    // Enregistrer les commandes slash (on fusionne avec les existantes)
-    const allCommands = [
-      ...slashCommands,
-      // Ajouter les autres commandes (warn, warns, clear, lock, unlock, slowmode, nuke, valid, refuser)
-      // On va les définir plus bas, mais pour l'instant on les garde telles quelles
-    ];
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: allCommands });
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: slashCommands });
     console.log('Commandes slash enregistrées avec succès.');
   } catch (error) { console.error(error); }
 
-  // Planifier les giveaways (si existants)
-  // ... (code existant)
+  // Giveaways (si existants)
+  for (const g of Object.values(giveaways)) {
+    if (!g.ended) {
+      const delai = new Date(g.endsAt).getTime() - Date.now();
+      setTimeout(() => terminerGiveaway(g.id), Math.max(delai, 0));
+    }
+  }
+
   console.log('✅ Bot prêt.');
 });
 
-// ---- Gestion des messages (DM et salon) ----
+// ---- Événements ----
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-
-  // Gestion des DM
   if (message.channel.type === ChannelType.DM) {
     await handleDM(message);
     return;
   }
-
-  // Gestion des messages dans les salons de tickets
   if (message.channel.type === ChannelType.GuildText) {
     await handleChannelMessage(message);
   }
 });
 
-// ---- Gestion des interactions ----
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isChatInputCommand()) {
-    // Gérer les nouvelles commandes slash
     const cmd = interaction.commandName;
     if (['close', 'reopen', 'rename', 'assign', 'priority', 'category', 'note', 'export', 'blacklist'].includes(cmd)) {
       await handleSlashCommand(interaction);
       return;
     }
-    // Autres commandes (modération, candidatures) - on les garde
+    // Autres commandes (modération, candidatures, etc.) – à conserver
     // ...
     return;
   }
-
-  // Gérer les interactions de tickets (boutons, menus, modals)
   await handleInteraction(interaction);
 });
 
@@ -1445,7 +1316,6 @@ async function handleSlashCommand(interaction) {
     return interaction.reply({ content: '❌ Ce salon n\'est pas un ticket valide.', ephemeral: true });
   }
 
-  // Vérifier les permissions staff
   const isStaff = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
                   interaction.member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id));
   if (!isStaff) {
@@ -1515,7 +1385,42 @@ async function handleSlashCommand(interaction) {
 }
 
 // ---- Giveaways (inchangé) ----
-// ... (le code des giveaways reste inchangé, je le laisse)
+function tirerGagnants(participants, nombre) {
+  const pool = [...participants];
+  const gagnants = [];
+  while (pool.length && gagnants.length < nombre) {
+    const i = Math.floor(Math.random() * pool.length);
+    gagnants.push(pool.splice(i, 1)[0]);
+  }
+  return gagnants;
+}
+
+async function terminerGiveaway(id) {
+  const g = giveaways[id];
+  if (!g || g.ended) return;
+  g.ended = true;
+  sauverGiveaways();
+
+  try {
+    const channel = await client.channels.fetch(g.channelId).catch(() => null);
+    if (!channel) return;
+    const message = await channel.messages.fetch(g.messageId).catch(() => null);
+
+    const gagnants = tirerGagnants(g.participants, g.winnersCount);
+    const texteGagnants = gagnants.length ? gagnants.map(id => `<@${id}>`).join(', ') : 'Personne n\'a participé 😢';
+
+    const embedFin = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle(`🎉 Giveaway terminé : ${g.prize}`)
+      .setDescription(`Gagnant(s) : ${texteGagnants}`)
+      .setTimestamp();
+
+    if (message) await message.edit({ embeds: [embedFin], components: [] });
+    await channel.send({ content: `🎉 Félicitations ${texteGagnants} ! Vous remportez **${g.prize}**.` });
+  } catch (e) {
+    console.error('Erreur fin giveaway:', e);
+  }
+}
 
 // ---- Serveur Express + API ----
 const app = express();
@@ -1550,7 +1455,7 @@ function authRequis(req, res, next) {
   }).catch(() => { req.session.destroy(); res.status(401).json({ erreur: 'Erreur de vérification' }); });
 }
 
-// ---- Routes d'authentification (inchangées) ----
+// ---- Routes d'authentification ----
 app.get('/', (req, res) => {
   if (req.session.user) return res.redirect('/panel');
   res.redirect('/login');
@@ -1563,10 +1468,69 @@ app.get('/panel', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
   res.sendFile(path.join(__dirname, 'public', 'panel.html'));
 });
-// ... (autres routes d'auth)
 
-// ---- Routes API pour le nouveau système de tickets ----
-// Statistiques
+app.get('/auth/discord', (req, res) => {
+  const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify`;
+  res.redirect(url);
+});
+
+app.get('/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.redirect('/login');
+  try {
+    const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+      }),
+    });
+
+    const tokenData = await tokenRes.json();
+
+    if (!tokenData.access_token) {
+      console.error('Erreur OAuth Discord:', tokenData.error, tokenData.error_description);
+      return res.redirect('/login?erreur=oauth_expire');
+    }
+
+    const userRes = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const discordUser = await userRes.json();
+
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return res.status(500).send('Bot pas sur le serveur.');
+
+    const membre = await guild.members.fetch(discordUser.id).catch(() => null);
+    if (!membre) return res.status(403).send('Tu n\'es pas membre du serveur.');
+
+    const estAdmin = membre.permissions.has(PermissionsBitField.Flags.Administrator);
+    const aRoleAutorise = membre.roles.cache.some(role => ROLES_AUTORISES.includes(role.id));
+    if (!estAdmin && !aRoleAutorise) return res.status(403).send('Accès refusé : rôle insuffisant.');
+
+    req.session.user = {
+      id: discordUser.id,
+      username: discordUser.username,
+      avatar: discordUser.avatar ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png` : null,
+    };
+    res.redirect('/panel');
+  } catch (e) {
+    console.error('Erreur OAuth:', e.message);
+    res.status(500).send('Erreur lors de la connexion Discord.');
+  }
+});
+
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/'));
+});
+
+app.get('/api/me', authRequis, (req, res) => res.json(req.session.user));
+
+// ---- Routes API pour les tickets ----
 app.get('/api/stats', authRequis, (req, res) => {
   const guild = getGuild(res);
   if (!guild) return;
@@ -1594,23 +1558,19 @@ app.get('/api/stats', authRequis, (req, res) => {
   });
 });
 
-// Récupérer tous les tickets
 app.get('/api/tickets', authRequis, (req, res) => {
-  const list = Object.values(tickets);
-  // On peut filtrer par statut si besoin
   const { status } = req.query;
+  const list = Object.values(tickets);
   const filtered = status ? list.filter(t => t.status === status) : list;
   res.json(filtered);
 });
 
-// Récupérer un ticket spécifique
 app.get('/api/tickets/:id', authRequis, (req, res) => {
   const ticket = tickets[req.params.id];
   if (!ticket) return res.status(404).json({ erreur: 'Ticket introuvable' });
   res.json(ticket);
 });
 
-// Répondre à un ticket (envoyer un message dans le salon et en DM)
 app.post('/api/tickets/:id/reply', authRequis, async (req, res) => {
   const ticket = tickets[req.params.id];
   if (!ticket) return res.status(404).json({ erreur: 'Ticket introuvable' });
@@ -1622,7 +1582,6 @@ app.post('/api/tickets/:id/reply', authRequis, async (req, res) => {
     await channel.send(`**${req.session.user.username} (Panel)** : ${message}`);
     const user = await client.users.fetch(ticket.userId);
     await user.send(`**${req.session.user.username} (Staff)** : ${message}`).catch(() => {});
-    // Ajouter aux messages
     ticket.messages.push({
       authorId: req.session.user.id,
       authorTag: req.session.user.username,
@@ -1638,7 +1597,6 @@ app.post('/api/tickets/:id/reply', authRequis, async (req, res) => {
   }
 });
 
-// Mettre à jour la note privée
 app.post('/api/tickets/:id/note', authRequis, (req, res) => {
   const ticket = tickets[req.params.id];
   if (!ticket) return res.status(404).json({ erreur: 'Ticket introuvable' });
@@ -1647,7 +1605,6 @@ app.post('/api/tickets/:id/note', authRequis, (req, res) => {
   res.json({ succes: true });
 });
 
-// Fermer un ticket
 app.post('/api/tickets/:id/close', authRequis, async (req, res) => {
   const ticket = tickets[req.params.id];
   if (!ticket) return res.status(404).json({ erreur: 'Ticket introuvable' });
@@ -1660,7 +1617,7 @@ app.post('/api/tickets/:id/close', authRequis, async (req, res) => {
   }
 });
 
-// ---- Routes pour les catégories de tickets ----
+// ---- Routes pour les catégories ----
 app.get('/api/ticket-categories', authRequis, (req, res) => {
   res.json(config.ticketCategories || []);
 });
@@ -1728,18 +1685,58 @@ app.get('/api/logs', authRequis, (req, res) => {
   res.json(logsToSend);
 });
 
-// ---- Routes pour les statistiques des tickets ----
-app.get('/api/tickets/stats', authRequis, (req, res) => {
-  const total = Object.keys(tickets).length;
-  const open = Object.values(tickets).filter(t => t.status === 'open').length;
-  const closed = Object.values(tickets).filter(t => t.status === 'closed').length;
-  const avgRating = Object.values(tickets)
-    .filter(t => t.evaluation !== null)
-    .reduce((acc, t) => acc + t.evaluation, 0) / (Object.values(tickets).filter(t => t.evaluation !== null).length || 1);
-  res.json({ total, open, closed, avgRating: avgRating.toFixed(1) });
+// ---- Routes pour les giveaways ----
+app.get('/api/giveaways', authRequis, (req, res) => {
+  res.json(Object.values(giveaways));
 });
 
-// ---- Sauvegarde (backup) ----
+app.post('/api/giveaways', authRequis, async (req, res) => {
+  const { channelId, prize, durationMinutes, winnersCount } = req.body;
+  if (!channelId || !prize) return res.status(400).json({ erreur: 'Paramètres manquants' });
+  const duration = parseInt(durationMinutes);
+  const winners = parseInt(winnersCount) || 1;
+  if (isNaN(duration) || duration <= 0) return res.status(400).json({ erreur: 'Durée invalide' });
+  if (isNaN(winners) || winners <= 0) return res.status(400).json({ erreur: 'Nombre de gagnants invalide' });
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    const embed = new EmbedBuilder()
+      .setColor(COULEUR_EMBED)
+      .setTitle(`🎉 Giveaway : ${prize}`)
+      .setDescription(`Réagissez avec 🎉 pour participer !\nDurée : ${duration} min\nGagnants : ${winners}`)
+      .setTimestamp();
+
+    const message = await channel.send({ embeds: [embed] });
+    await message.react('🎉');
+
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const endsAt = new Date(Date.now() + duration * 60 * 1000).toISOString();
+
+    giveaways[id] = { id, channelId, messageId: message.id, prize, winnersCount: winners, endsAt, participants: [], ended: false };
+    sauverGiveaways();
+    const delai = duration * 60 * 1000;
+    setTimeout(() => terminerGiveaway(id), delai);
+    res.json({ succes: true, id });
+  } catch (e) {
+    console.error('Erreur création giveaway:', e);
+    res.status(500).json({ erreur: 'Erreur lors de la création' });
+  }
+});
+
+app.post('/api/giveaways/:id/end', authRequis, async (req, res) => {
+  const id = req.params.id;
+  const giveaway = giveaways[id];
+  if (!giveaway) return res.status(404).json({ erreur: 'Giveaway introuvable' });
+  try {
+    await terminerGiveaway(id);
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur terminaison giveaway:', e);
+    res.status(500).json({ erreur: 'Erreur lors de la terminaison' });
+  }
+});
+
+// ---- Backup ----
 app.get('/api/backup', authRequis, (req, res) => {
   const backup = {
     config,
@@ -1775,20 +1772,342 @@ app.post('/api/backup/import', authRequis, (req, res) => {
 });
 
 // ---- Routes pour les salons et rôles (inchangées) ----
-// ... (je garde les routes existantes pour les salons, rôles, membres, etc.)
+app.get('/api/channels', authRequis, (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const salons = guild.channels.cache
+    .filter(c => c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement)
+    .map(c => ({ id: c.id, name: c.name, type: c.type }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  res.json(salons);
+});
 
-// ---- Démarrage du serveur Express ----
+app.get('/api/channels/all', authRequis, (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const salons = guild.channels.cache
+    .map(c => ({ id: c.id, name: c.name, type: c.type }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  res.json(salons);
+});
+
+app.post('/api/channels', authRequis, async (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const { name, type } = req.body;
+  if (!name || name.length < 1 || name.length > 100) {
+    return res.status(400).json({ erreur: 'nom requis (1-100 caractères)' });
+  }
+  try {
+    const channel = await guild.channels.create({
+      name,
+      type: type === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText,
+    });
+    res.json({ succes: true, id: channel.id });
+  } catch (e) {
+    console.error('Erreur création salon:', e);
+    res.status(500).json({ erreur: 'Échec de la création' });
+  }
+});
+
+app.delete('/api/channels/:id', authRequis, async (req, res) => {
+  try {
+    const channel = await client.channels.fetch(req.params.id);
+    await channel.delete();
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur suppression salon:', e);
+    res.status(500).json({ erreur: 'Échec de la suppression' });
+  }
+});
+
+app.get('/api/roles', authRequis, (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const roles = guild.roles.cache
+    .filter(r => r.id !== guild.id)
+    .map(r => ({ id: r.id, name: r.name, color: r.hexColor, position: r.position }))
+    .sort((a, b) => b.position - a.position);
+  res.json(roles);
+});
+
+app.post('/api/roles', authRequis, async (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const { name, color, hoist, mentionable } = req.body;
+  if (!name || name.length < 1 || name.length > 100) {
+    return res.status(400).json({ erreur: 'nom requis (1-100 caractères)' });
+  }
+  let colorNum;
+  if (color) {
+    const hex = color.replace('#', '');
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return res.status(400).json({ erreur: 'couleur hex invalide' });
+    colorNum = parseInt(hex, 16);
+  }
+  try {
+    const role = await guild.roles.create({ name, color: colorNum, hoist: !!hoist, mentionable: !!mentionable });
+    res.json({ succes: true, id: role.id });
+  } catch (e) {
+    console.error('Erreur création rôle:', e);
+    res.status(500).json({ erreur: 'Échec de la création' });
+  }
+});
+
+app.delete('/api/roles/:id', authRequis, async (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  try {
+    const role = await guild.roles.fetch(req.params.id);
+    await role.delete();
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur suppression rôle:', e);
+    res.status(500).json({ erreur: 'Échec de la suppression' });
+  }
+});
+
+app.get('/api/members/search', authRequis, async (req, res) => {
+  const guild = getGuild(res);
+  if (!guild) return;
+  const q = req.query.q || '';
+  if (!q) return res.json([]);
+  try {
+    let resultats;
+    if (/^\d{17,20}$/.test(q)) {
+      const member = await guild.members.fetch(q).catch(() => null);
+      resultats = member ? [member] : [];
+    } else {
+      resultats = await guild.members.fetch({ query: q, limit: 15 });
+    }
+    res.json(resultats.map(m => ({
+      id: m.id,
+      username: m.user.username,
+      tag: m.user.tag,
+      avatar: m.user.displayAvatarURL(),
+      roles: m.roles.cache.filter(r => r.id !== guild.id).map(r => ({ id: r.id, name: r.name })),
+      joinedAt: m.joinedAt,
+      warnCount: (warns[m.id] || []).length,
+      interventions: 0,
+      rapports: 0,
+    })));
+  } catch (e) {
+    console.error('Erreur recherche membre:', e);
+    res.status(500).json({ erreur: 'Échec de la recherche' });
+  }
+});
+
+app.get('/api/members/:id/warns', authRequis, (req, res) => {
+  res.json(warns[req.params.id] || []);
+});
+
+app.post('/api/members/:id/warn', authRequis, async (req, res) => {
+  const { reason } = req.body;
+  if (!reason) return res.status(400).json({ erreur: 'Raison requise' });
+  if (!warns[req.params.id]) warns[req.params.id] = [];
+  warns[req.params.id].push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    reason,
+    staffId: req.session.user.id,
+    staffTag: req.session.user.username,
+    date: new Date().toISOString(),
+  });
+  sauverWarns();
+
+  const user = await client.users.fetch(req.params.id).catch(() => null);
+  const embed = embedLogModeration({
+    action: 'Avertissement', couleur: '#f59e0b', emoji: '⚠️',
+    cibleTag: user?.tag || req.params.id, cibleId: req.params.id,
+    parTag: req.session.user.username, raison,
+  });
+  await envoyerLogModeration(embed);
+  res.json({ succes: true });
+});
+
+app.delete('/api/members/:userId/warns/:warnId', authRequis, (req, res) => {
+  if (!warns[req.params.userId]) return res.status(404).json({ erreur: 'Aucun avertissement' });
+  warns[req.params.userId] = warns[req.params.userId].filter(w => w.id !== req.params.warnId);
+  sauverWarns();
+  res.json({ succes: true });
+});
+
+app.post('/api/members/:userId/roles/:roleId', authRequis, async (req, res) => {
+  const { userId, roleId } = req.params;
+  const { action } = req.body;
+  const guild = getGuild(res);
+  if (!guild) return;
+  try {
+    const member = await guild.members.fetch(userId);
+    if (!member) return res.status(404).json({ erreur: 'Membre introuvable' });
+    if (action === 'add') await member.roles.add(roleId);
+    else if (action === 'remove') await member.roles.remove(roleId);
+    else return res.status(400).json({ erreur: 'Action invalide (add/remove)' });
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur modification rôle:', e);
+    res.status(500).json({ erreur: 'Erreur lors de la modification' });
+  }
+});
+
+app.post('/api/members/:userId/kick', authRequis, async (req, res) => {
+  const { userId } = req.params;
+  const { reason } = req.body;
+  const guild = getGuild(res);
+  if (!guild) return;
+  try {
+    const member = await guild.members.fetch(userId);
+    await member.kick(reason || 'Aucune raison spécifiée');
+    const user = await client.users.fetch(userId).catch(() => null);
+    const embed = embedLogModeration({
+      action: 'Kick', couleur: '#f59e0b', emoji: '👢',
+      cibleTag: user?.tag || userId, cibleId: userId,
+      parTag: req.session.user.username, raison: reason || 'Aucune raison',
+    });
+    await envoyerLogModeration(embed);
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur kick:', e);
+    res.status(500).json({ erreur: 'Erreur lors du kick' });
+  }
+});
+
+app.post('/api/members/:userId/ban', authRequis, async (req, res) => {
+  const { userId } = req.params;
+  const { reason } = req.body;
+  const guild = getGuild(res);
+  if (!guild) return;
+  try {
+    const member = await guild.members.fetch(userId);
+    await member.ban({ reason: reason || 'Aucune raison spécifiée' });
+    const user = await client.users.fetch(userId).catch(() => null);
+    const embed = embedLogModeration({
+      action: 'Ban', couleur: '#ef4444', emoji: '⛔',
+      cibleTag: user?.tag || userId, cibleId: userId,
+      parTag: req.session.user.username, raison: reason || 'Aucune raison',
+    });
+    await envoyerLogModeration(embed);
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur ban:', e);
+    res.status(500).json({ erreur: 'Erreur lors du ban' });
+  }
+});
+
+app.post('/api/members/:userId/timeout', authRequis, async (req, res) => {
+  const { userId } = req.params;
+  const { minutes } = req.body;
+  const guild = getGuild(res);
+  if (!guild) return;
+  try {
+    const member = await guild.members.fetch(userId);
+    const duration = (parseInt(minutes) || 10) * 60 * 1000;
+    await member.timeout(duration, 'Timeout via panel');
+    const user = await client.users.fetch(userId).catch(() => null);
+    const embed = embedLogModeration({
+      action: 'Timeout', couleur: '#3b82f6', emoji: '⏰',
+      cibleTag: user?.tag || userId, cibleId: userId,
+      parTag: req.session.user.username, raison: `${minutes || 10} minutes`,
+    });
+    await envoyerLogModeration(embed);
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur timeout:', e);
+    res.status(500).json({ erreur: 'Erreur lors du timeout' });
+  }
+});
+
+// ---- Embed ----
+app.post('/api/send-embed', authRequis, upload.single('imageFile'), async (req, res) => {
+  const { channelId, title, description, color, imageUrl, footer } = req.body;
+  if (!channelId) return res.status(400).json({ erreur: 'Salon requis' });
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel) return res.status(404).json({ erreur: 'Salon introuvable' });
+
+    const embed = new EmbedBuilder()
+      .setColor(color || COULEUR_EMBED)
+      .setTitle(title || 'Annonce')
+      .setDescription(description || '')
+      .setTimestamp();
+    if (footer) embed.setFooter({ text: footer });
+
+    if (req.file) {
+      const attachment = { attachment: req.file.buffer, name: req.file.originalname };
+      embed.setImage(`attachment://${req.file.originalname}`);
+      await channel.send({ embeds: [embed], files: [attachment] });
+    } else if (imageUrl) {
+      embed.setImage(imageUrl);
+      await channel.send({ embeds: [embed] });
+    } else {
+      await channel.send({ embeds: [embed] });
+    }
+    res.json({ succes: true });
+  } catch (e) {
+    console.error('Erreur envoi embed:', e);
+    res.status(500).json({ erreur: 'Erreur lors de l\'envoi' });
+  }
+});
+
+// ---- Candidatures ----
+app.get('/api/settings/candidatures', authRequis, (req, res) => {
+  res.json(config.candidatures || {});
+});
+
+app.post('/api/settings/candidatures', authRequis, (req, res) => {
+  const data = req.body;
+  config.candidatures = { ...config.candidatures, ...data };
+  sauverConfig();
+  res.json({ succes: true });
+});
+
+app.get('/api/candidatures/history', authRequis, (req, res) => {
+  const q = (req.query.q || '').toLowerCase();
+  let resultats = candHistory;
+  if (q) {
+    resultats = resultats.filter(h => h.username?.toLowerCase().includes(q) || h.staffTag?.toLowerCase().includes(q) || (h.ticketNumber && h.ticketNumber.includes(q)));
+  }
+  res.json(resultats.slice(0, 200));
+});
+
+// ---- Paramètres généraux ----
+app.get('/api/settings', authRequis, (req, res) => {
+  res.json({
+    autoRoleIds: config.autoRoleIds || [],
+    welcomeChannelId: config.welcomeChannelId,
+    welcomeMessage: config.welcomeMessage,
+    modLogsChannelId: config.modLogsChannelId,
+    leaveLogsChannelId: config.leaveLogsChannelId,
+    ticketLogsChannelId: config.ticketLogsChannelId,
+    ticketTranscriptChannelId: config.ticketTranscriptChannelId,
+    ticketAutoCloseHours: config.ticketAutoCloseHours || 0,
+    ticketStaffRoleIds: config.ticketStaffRoleIds || [],
+  });
+});
+
+app.post('/api/settings', authRequis, (req, res) => {
+  const { autoRoleIds, welcomeChannelId, welcomeMessage, modLogsChannelId, leaveLogsChannelId, ticketLogsChannelId, ticketTranscriptChannelId, ticketAutoCloseHours, ticketStaffRoleIds } = req.body;
+  if (autoRoleIds !== undefined) config.autoRoleIds = Array.isArray(autoRoleIds) ? autoRoleIds : [];
+  if (welcomeChannelId !== undefined) config.welcomeChannelId = welcomeChannelId;
+  if (welcomeMessage !== undefined) config.welcomeMessage = welcomeMessage;
+  if (modLogsChannelId !== undefined) config.modLogsChannelId = modLogsChannelId;
+  if (leaveLogsChannelId !== undefined) config.leaveLogsChannelId = leaveLogsChannelId;
+  if (ticketLogsChannelId !== undefined) config.ticketLogsChannelId = ticketLogsChannelId;
+  if (ticketTranscriptChannelId !== undefined) config.ticketTranscriptChannelId = ticketTranscriptChannelId;
+  if (ticketAutoCloseHours !== undefined) config.ticketAutoCloseHours = parseFloat(ticketAutoCloseHours) || 0;
+  if (ticketStaffRoleIds !== undefined) config.ticketStaffRoleIds = Array.isArray(ticketStaffRoleIds) ? ticketStaffRoleIds : [];
+  sauverConfig();
+  res.json({ succes: true });
+});
+
+// ---- Démarrage ----
 server.listen(PORT, () => {
   console.log(`✅ Serveur web + bot actif sur le port ${PORT}`);
 });
 
-// ---- Connexion à Discord ----
 client.login(TOKEN).catch(error => {
   console.error('❌ Échec de la connexion à Discord :', error);
   process.exit(1);
 });
 
-// ---- Gestion des erreurs non capturées ----
 process.on('unhandledRejection', error => {
   console.error('❌ Unhandled Rejection:', error);
 });
@@ -1797,7 +2116,6 @@ process.on('uncaughtException', error => {
   console.error('❌ Uncaught Exception:', error);
 });
 
-// ---- Nettoyage ----
 let cleanupDone = false;
 function cleanup() {
   if (cleanupDone) return;
@@ -1807,5 +2125,3 @@ function cleanup() {
 }
 process.on('SIGINT', cleanup);
 process.on('SIGTERM', cleanup);
-
-// ---- Fin du fichier ----
