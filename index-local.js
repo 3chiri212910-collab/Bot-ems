@@ -242,11 +242,12 @@ function generateTicketId() {
 }
 
 function sanitizeChannelName(name) {
-  return name
+  const cleaned = String(name || '')
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
+  return cleaned || 'ticket';
 }
 
 function getTicketByChannelId(channelId) {
@@ -858,11 +859,10 @@ async function handleInteraction(interaction) {
 
 // ---- Gestion des sélections de catégorie ----
 async function handleCategorySelect(interaction) {
-  await interaction.deferReply({ ephemeral: true });
   const categoryId = interaction.values[0];
   const category = config.ticketCategories.find(c => c.id === categoryId);
   if (!category) {
-    return interaction.editReply('❌ Catégorie invalide.');
+    return interaction.reply({ content: '❌ Catégorie invalide.', ephemeral: true });
   }
 
   if (category.form && category.form.fields && category.form.fields.length > 0) {
@@ -880,13 +880,15 @@ async function handleCategorySelect(interaction) {
       modal.addComponents(new ActionRowBuilder().addComponents(input));
     }
     await interaction.showModal(modal);
-  } else {
-    try {
-      const ticket = await createTicket(interaction.user, categoryId, {});
-      await interaction.editReply(`✅ Votre ticket a été créé : <#${ticket.channelId}> (ID: #${ticket.id.slice(0, 6)})`);
-    } catch (error) {
-      await interaction.editReply(`❌ Erreur: ${error.message}`);
-    }
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  try {
+    const ticket = await createTicket(interaction.user, categoryId, {});
+    await interaction.editReply(`✅ Votre ticket a été créé : <#${ticket.channelId}> (ID: #${ticket.id.slice(0, 6)})`);
+  } catch (error) {
+    await interaction.editReply(`❌ Erreur: ${error.message}`);
   }
 }
 
