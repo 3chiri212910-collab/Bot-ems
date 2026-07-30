@@ -8,7 +8,6 @@ const {
   Partials,
   ChannelType,
   PermissionsBitField,
-  InteractionResponseFlags,
   SlashCommandBuilder,
   ModalBuilder,
   TextInputBuilder,
@@ -894,7 +893,7 @@ async function handleCategorySelect(interaction) {
   const categoryId = interaction.values[0];
   const category = config.ticketCategories.find(c => c.id === categoryId);
   if (!category) {
-    return interaction.reply({ content: '❌ Catégorie invalide.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Catégorie invalide.', ephemeral: true });
   }
 
   if (category.form && category.form.fields && category.form.fields.length > 0) {
@@ -915,7 +914,7 @@ async function handleCategorySelect(interaction) {
     return;
   }
 
-  await interaction.deferReply({ flags: InteractionResponseFlags.Ephemeral });
+  await interaction.deferReply({ ephemeral: true });
   try {
     await createTicket(interaction.user, categoryId, {});
     const successEmbed = new EmbedBuilder()
@@ -931,7 +930,7 @@ async function handleCategorySelect(interaction) {
 
 // ---- Formulaire modal ----
 async function handleTicketForm(interaction) {
-  await interaction.deferReply({ flags: InteractionResponseFlags.Ephemeral });
+  await interaction.deferReply({ ephemeral: true });
   const categoryId = interaction.customId.replace('ticket_form_', '');
   const category = config.ticketCategories.find(c => c.id === categoryId);
   if (!category) {
@@ -965,14 +964,14 @@ async function handleTicketButton(interaction) {
 
   const ticket = tickets[ticketId];
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
 
   const member = interaction.member;
   const isStaff = member.permissions.has(PermissionsBitField.Flags.Administrator) ||
                   member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id));
   if (!isStaff) {
-    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'effectuer cette action.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'effectuer cette action.', ephemeral: true });
   }
 
   const staffId = interaction.user.id;
@@ -980,13 +979,13 @@ async function handleTicketButton(interaction) {
 
   switch (action) {
     case 'close': {
-      await interaction.reply({ content: '🔒 Fermeture du ticket...', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '🔒 Fermeture du ticket...', ephemeral: true });
       await closeTicket(ticketId, staffId, staffTag, 'Fermé par staff');
       await interaction.editReply('✅ Ticket fermé.');
       break;
     }
     case 'reopen': {
-      await interaction.reply({ content: '🔓 Réouverture du ticket...', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '🔓 Réouverture du ticket...', ephemeral: true });
       await reopenTicket(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Ticket réouvert.');
       break;
@@ -1012,7 +1011,7 @@ async function handleTicketButton(interaction) {
           .setCustomId('ticket_assign_select')
           .setPlaceholder('Sélectionnez un membre du staff')
       );
-      await interaction.reply({ content: 'Choisissez le staff à assigner :', components: [row], flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: 'Choisissez le staff à assigner :', components: [row], ephemeral: true });
       break;
     }
     case 'priority': {
@@ -1027,13 +1026,13 @@ async function handleTicketButton(interaction) {
             { label: '🔴 Urgente', value: 'urgent' }
           ])
       );
-      await interaction.reply({ content: 'Choisissez la priorité :', components: [row], flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: 'Choisissez la priorité :', components: [row], ephemeral: true });
       break;
     }
     case 'category': {
       const categories = config.ticketCategories.filter(c => c.categoryId && c.id !== ticket.categoryId);
       if (!categories.length) {
-        return interaction.reply({ content: '❌ Aucune autre catégorie disponible.', flags: InteractionResponseFlags.Ephemeral });
+        return interaction.reply({ content: '❌ Aucune autre catégorie disponible.', ephemeral: true });
       }
       const options = categories.map(c => {
         const option = {
@@ -1050,7 +1049,7 @@ async function handleTicketButton(interaction) {
           .setPlaceholder('Choisissez une catégorie')
           .addOptions(options)
       );
-      await interaction.reply({ content: 'Choisissez la nouvelle catégorie :', components: [row], flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: 'Choisissez la nouvelle catégorie :', components: [row], ephemeral: true });
       break;
     }
     case 'transfer': {
@@ -1059,7 +1058,7 @@ async function handleTicketButton(interaction) {
           .setCustomId('ticket_transfer_select')
           .setPlaceholder('Sélectionnez le staff destinataire')
       );
-      await interaction.reply({ content: 'Choisissez le staff à qui transférer :', components: [row], flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: 'Choisissez le staff à qui transférer :', components: [row], ephemeral: true });
       break;
     }
     case 'note': {
@@ -1078,19 +1077,19 @@ async function handleTicketButton(interaction) {
       break;
     }
     case 'export': {
-      await interaction.reply({ content: '📄 Export en cours...', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '📄 Export en cours...', ephemeral: true });
       await exportTicketHTML(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Export HTML envoyé dans le salon de logs.');
       break;
     }
     case 'blacklist': {
-      await interaction.reply({ content: '🚫 Blacklist de l\'utilisateur...', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '🚫 Blacklist de l\'utilisateur...', ephemeral: true });
       await blacklistUser(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Utilisateur blacklisté et ticket fermé.');
       break;
     }
     default: {
-      await interaction.reply({ content: '❌ Action inconnue.', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '❌ Action inconnue.', ephemeral: true });
     }
   }
 }
@@ -1100,40 +1099,40 @@ async function handleAssignSelect(interaction) {
   const userId = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
   await assignTicket(ticket.id, userId, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Ticket assigné à <@${userId}>.`, flags: InteractionResponseFlags.Ephemeral });
+  await interaction.reply({ content: `✅ Ticket assigné à <@${userId}>.`, ephemeral: true });
 }
 
 async function handleTransferSelect(interaction) {
   const targetId = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
   await assignTicket(ticket.id, targetId, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Ticket transféré à <@${targetId}>.`, flags: InteractionResponseFlags.Ephemeral });
+  await interaction.reply({ content: `✅ Ticket transféré à <@${targetId}>.`, ephemeral: true });
 }
 
 async function handlePrioritySelect(interaction) {
   const priority = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
   await setPriority(ticket.id, priority, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Priorité définie sur ${priority}.`, flags: InteractionResponseFlags.Ephemeral });
+  await interaction.reply({ content: `✅ Priorité définie sur ${priority}.`, ephemeral: true });
 }
 
 async function handleCategorySelectMove(interaction) {
   const newCategoryId = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
   }
   await changeCategory(ticket.id, newCategoryId, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Catégorie changée.`, flags: InteractionResponseFlags.Ephemeral });
+  await interaction.reply({ content: `✅ Catégorie changée.`, ephemeral: true });
 }
 
 // ---- Modals ----
@@ -1141,13 +1140,13 @@ async function handleRenameModal(interaction) {
   const newName = interaction.fields.getTextInputValue('new_name');
   const ticketId = global.ticketRenameCache?.[interaction.user.id];
   if (!ticketId) {
-    return interaction.reply({ content: '❌ Erreur: session expirée.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Erreur: session expirée.', ephemeral: true });
   }
   try {
     await renameTicket(ticketId, newName, interaction.user.id, interaction.user.tag);
-    await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, flags: InteractionResponseFlags.Ephemeral });
+    await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, ephemeral: true });
   } catch (error) {
-    await interaction.reply({ content: `❌ Erreur: ${error.message}`, flags: InteractionResponseFlags.Ephemeral });
+    await interaction.reply({ content: `❌ Erreur: ${error.message}`, ephemeral: true });
   }
   delete global.ticketRenameCache[interaction.user.id];
 }
@@ -1156,13 +1155,13 @@ async function handleNoteModal(interaction) {
   const note = interaction.fields.getTextInputValue('note_content');
   const ticketId = global.ticketNoteCache?.[interaction.user.id];
   if (!ticketId) {
-    return interaction.reply({ content: '❌ Erreur: session expirée.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Erreur: session expirée.', ephemeral: true });
   }
   try {
     await setPrivateNote(ticketId, note, interaction.user.id, interaction.user.tag);
-    await interaction.reply({ content: `✅ Note privée enregistrée.`, flags: InteractionResponseFlags.Ephemeral });
+    await interaction.reply({ content: `✅ Note privée enregistrée.`, ephemeral: true });
   } catch (error) {
-    await interaction.reply({ content: `❌ Erreur: ${error.message}`, flags: InteractionResponseFlags.Ephemeral });
+    await interaction.reply({ content: `❌ Erreur: ${error.message}`, ephemeral: true });
   }
   delete global.ticketNoteCache[interaction.user.id];
 }
@@ -1173,12 +1172,12 @@ async function handleEvaluation(interaction) {
   const rating = parseInt(parts[1]);
   const ticketId = parts[2];
   const ticket = tickets[ticketId];
-  if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
+  if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
 
   ticket.evaluation = rating;
   sauverTickets();
 
-  await interaction.reply({ content: `⭐ Merci pour votre évaluation de ${rating}/5 !`, flags: InteractionResponseFlags.Ephemeral });
+  await interaction.reply({ content: `⭐ Merci pour votre évaluation de ${rating}/5 !`, ephemeral: true });
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
     const embed = new EmbedBuilder()
@@ -1397,18 +1396,18 @@ client.on('interactionCreate', async (interaction) => {
 async function handleSlashCommand(interaction) {
   const channel = interaction.channel;
   if (channel.type !== ChannelType.GuildText) {
-    return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un salon de ticket.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un salon de ticket.', ephemeral: true });
   }
 
   const ticket = getTicketByChannelId(channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ce salon n\'est pas un ticket valide.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Ce salon n\'est pas un ticket valide.', ephemeral: true });
   }
 
   const isStaff = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
                   interaction.member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id));
   if (!isStaff) {
-    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'utiliser cette commande.', flags: InteractionResponseFlags.Ephemeral });
+    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'utiliser cette commande.', ephemeral: true });
   }
 
   const staffId = interaction.user.id;
@@ -1419,56 +1418,56 @@ async function handleSlashCommand(interaction) {
     case 'close': {
       const reason = interaction.options.getString('raison') || '';
       await closeTicket(ticketId, staffId, staffTag, reason);
-      await interaction.reply({ content: '🔒 Ticket fermé.', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '🔒 Ticket fermé.', ephemeral: true });
       break;
     }
     case 'reopen': {
       await reopenTicket(ticketId, staffId, staffTag);
-      await interaction.reply({ content: '🔓 Ticket réouvert.', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '🔓 Ticket réouvert.', ephemeral: true });
       break;
     }
     case 'rename': {
       const newName = interaction.options.getString('nom');
       await renameTicket(ticketId, newName, staffId, staffTag);
-      await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, ephemeral: true });
       break;
     }
     case 'assign': {
       const user = interaction.options.getUser('staff');
       await assignTicket(ticketId, user.id, staffId, staffTag);
-      await interaction.reply({ content: `✅ Ticket assigné à ${user.tag}.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `✅ Ticket assigné à ${user.tag}.`, ephemeral: true });
       break;
     }
     case 'priority': {
       const level = interaction.options.getString('niveau');
       await setPriority(ticketId, level, staffId, staffTag);
-      await interaction.reply({ content: `✅ Priorité définie sur ${level}.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `✅ Priorité définie sur ${level}.`, ephemeral: true });
       break;
     }
     case 'category': {
       const catId = interaction.options.getString('categorie');
       await changeCategory(ticketId, catId, staffId, staffTag);
-      await interaction.reply({ content: `✅ Catégorie changée.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `✅ Catégorie changée.`, ephemeral: true });
       break;
     }
     case 'note': {
       const content = interaction.options.getString('contenu');
       await setPrivateNote(ticketId, content, staffId, staffTag);
-      await interaction.reply({ content: `✅ Note privée enregistrée.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `✅ Note privée enregistrée.`, ephemeral: true });
       break;
     }
     case 'export': {
       await exportTicketHTML(ticketId, staffId, staffTag);
-      await interaction.reply({ content: `📄 Export HTML envoyé dans le salon de logs.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `📄 Export HTML envoyé dans le salon de logs.`, ephemeral: true });
       break;
     }
     case 'blacklist': {
       await blacklistUser(ticketId, staffId, staffTag);
-      await interaction.reply({ content: `🚫 Utilisateur blacklisté et ticket fermé.`, flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: `🚫 Utilisateur blacklisté et ticket fermé.`, ephemeral: true });
       break;
     }
     default: {
-      await interaction.reply({ content: '❌ Commande inconnue.', flags: InteractionResponseFlags.Ephemeral });
+      await interaction.reply({ content: '❌ Commande inconnue.', ephemeral: true });
     }
   }
 }
