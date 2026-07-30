@@ -153,9 +153,15 @@ async function fetchUserWithCache(userId) {
 }
 
 // ---- Utilitaires ----
-const ROLES_AUTORISES = ['1524935532914933837', '1524975599460814888']; // À adapter
+const ROLES_AUTORISES = ['1524935532914933837', '1524975599460814888']; // À adapter (fallback)
 const NOM_SERVEUR = 'Mon Serveur RP';
 const COULEUR_EMBED = '#5865F2';
+
+function getModerationRoleIds() {
+  return Array.isArray(config.moderationRoleIds) && config.moderationRoleIds.length
+    ? config.moderationRoleIds
+    : ROLES_AUTORISES;
+}
 
 function remplacerVariables(texte, vars) {
   return String(texte || '')
@@ -296,7 +302,7 @@ async function createTicket(user, categoryId, formData = {}) {
   }
 
   const category = config.ticketCategories.find(c => c.id === categoryId);
-  if (!category) throw new Error('Catégorie inconnue ou désactivée.');
+  if (!category || category.active === false) throw new Error('Catégorie inconnue ou désactivée.');
   if (!category.categoryId) throw new Error('La catégorie Discord de destination n\'est pas définie.');
 
   const baseName = sanitizeChannelName(`${category.name}-${user.username}`);
@@ -319,7 +325,10 @@ async function createTicket(user, categoryId, formData = {}) {
       allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
     }
   ];
-  for (const roleId of config.ticketStaffRoleIds) {
+
+  const supportRoleIds = new Set([...(config.ticketStaffRoleIds || []), ...(category.staffRoles || [])]);
+  for (const roleId of supportRoleIds) {
+    if (!roleId) continue;
     overwrites.push({
       id: roleId,
       allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
@@ -512,6 +521,10 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
     await channel.send({ components: [evalRow] });
   }
 
+  if (config.ticketTranscriptChannelId || config.ticketLogsChannelId) {
+    await exportTicketHTML(ticketId, staffId, staffTag).catch(() => {});
+  }
+
   const user = await client.users.fetch(ticket.userId).catch(() => null);
   if (user) {
     const dmEmbed = new EmbedBuilder()
@@ -520,6 +533,10 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
       .setDescription(`Votre ticket **#${ticket.id.slice(0, 6)}** a été fermé par **${staffTag}**.${reason ? `\nRaison: ${reason}` : ''}\nMerci de votre confiance.`)
       .setTimestamp();
     await user.send({ embeds: [dmEmbed] }).catch(() => {});
+  }
+
+  if (config.ticketTranscriptChannelId || config.ticketLogsChannelId) {
+    await exportTicketHTML(ticketId, staffId, staffTag).catch(() => {});
   }
 
   await addLog('Fermeture ticket', staffId, staffTag, ticketId, `Raison: ${reason || 'Aucune'}`);
@@ -751,11 +768,13 @@ async function handleDM(message) {
   if (existingTicket) {
     const channel = await client.channels.fetch(existingTicket.channelId).catch(() => null);
     if (channel) {
+      const stickers = message.stickers?.map(st => st.name || st.id) || [];
       existingTicket.messages.push({
         authorId: user.id,
         authorTag: user.tag,
         content: message.content || '',
         attachments: message.attachments.map(a => a.url),
+        stickers,
         timestamp: new Date().toISOString(),
       });
       sauverTickets();
@@ -764,8 +783,10 @@ async function handleDM(message) {
       for (const att of message.attachments.values()) {
         files.push({ attachment: att.url, name: att.name });
       }
+      let content = `**${user.tag}** : ${message.content || ''}`;
+      if (stickers.length) content += `\nStickers: ${stickers.join(', ')}`;
       await channel.send({
-        content: `**${user.tag}** : ${message.content || ''}`,
+        content,
         files: files.length ? files : undefined,
       });
     }
@@ -1175,8 +1196,11 @@ async function handleChannelMessage(message) {
       for (const att of message.attachments.values()) {
         files.push({ attachment: att.url, name: att.name });
       }
+      const stickers = message.stickers?.map(st => st.name || st.id) || [];
+      let content = `**${message.author.tag} (Staff)** : ${message.content || ''}`;
+      if (stickers.length) content += `\nStickers: ${stickers.join(', ')}`;
       await user.send({
-        content: `**${message.author.tag} (Staff)** : ${message.content || ''}`,
+        content,
         files: files.length ? files : undefined,
       }).catch(() => {});
     }
@@ -1185,6 +1209,7 @@ async function handleChannelMessage(message) {
       authorTag: message.author.tag,
       content: message.content || '',
       attachments: message.attachments.map(a => a.url),
+      stickers: message.stickers?.map(st => st.name || st.id) || [],
       timestamp: new Date().toISOString(),
     });
     sauverTickets();
@@ -1262,6 +1287,22 @@ const client = new Client({
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
+function checkTicketAutoClose() {
+  const now = Date.now();
+  for (const ticket of Object.values(tickets)) {
+    if (ticket.status !== 'open') continue;
+    const category = config.ticketCategories.find(c => c.id === ticket.categoryId);
+    if (!category) continue;
+    const autoCloseHours = category.autoCloseAfter > 0 ? category.autoCloseAfter : (config.ticketAutoCloseHours || 0);
+    if (!autoCloseHours) continue;
+    const created = new Date(ticket.createdAt).getTime();
+    if (isNaN(created)) continue;
+    if (now - created >= autoCloseHours * 60 * 60 * 1000) {
+      closeTicket(ticket.id, 'auto', 'Système', 'Fermeture automatique').catch(() => {});
+    }
+  }
+}
+
 client.once('ready', async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
   try {
@@ -1277,6 +1318,9 @@ client.once('ready', async () => {
     }
   }
 
+  setInterval(checkTicketAutoClose, 5 * 60 * 1000);
+  checkTicketAutoClose();
+
   console.log('✅ Bot prêt.');
 });
 
@@ -1289,6 +1333,25 @@ client.on('messageCreate', async (message) => {
   }
   if (message.channel.type === ChannelType.GuildText) {
     await handleChannelMessage(message);
+  }
+});
+
+client.on('guildMemberAdd', async (member) => {
+  if (member.guild.id !== GUILD_ID) return;
+  if (Array.isArray(config.autoRoleIds) && config.autoRoleIds.length) {
+    await member.roles.add(config.autoRoleIds.filter(Boolean)).catch(() => {});
+  }
+  if (config.welcomeChannelId) {
+    const salon = await member.guild.channels.fetch(config.welcomeChannelId).catch(() => null);
+    if (salon) {
+      const message = remplacerVariables(config.welcomeMessage || '', {
+        user: `<@${member.id}>`,
+        username: member.user.username,
+        server: member.guild.name,
+        count: member.guild.memberCount,
+      });
+      salon.send({ content: message }).catch(() => {});
+    }
   }
 });
 
@@ -1451,7 +1514,7 @@ function authRequis(req, res, next) {
   guild.members.fetch(req.session.user.id).then(member => {
     if (!member) { req.session.destroy(); return res.status(401).json({ erreur: 'Membre non trouvé' }); }
     const estAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
-    const aRoleAutorise = member.roles.cache.some(role => ROLES_AUTORISES.includes(role.id));
+    const aRoleAutorise = member.roles.cache.some(role => getModerationRoleIds().includes(role.id));
     if (!estAdmin && !aRoleAutorise) { req.session.destroy(); return res.status(403).json({ erreur: 'Rôle insuffisant' }); }
     next();
   }).catch(() => { req.session.destroy(); res.status(401).json({ erreur: 'Erreur de vérification' }); });
@@ -1511,7 +1574,7 @@ app.get('/callback', async (req, res) => {
     if (!membre) return res.status(403).send('Tu n\'es pas membre du serveur.');
 
     const estAdmin = membre.permissions.has(PermissionsBitField.Flags.Administrator);
-    const aRoleAutorise = membre.roles.cache.some(role => ROLES_AUTORISES.includes(role.id));
+    const aRoleAutorise = membre.roles.cache.some(role => getModerationRoleIds().includes(role.id));
     if (!estAdmin && !aRoleAutorise) return res.status(403).send('Accès refusé : rôle insuffisant.');
 
     req.session.user = {
@@ -1625,7 +1688,7 @@ app.get('/api/ticket-categories', authRequis, (req, res) => {
 });
 
 app.post('/api/ticket-categories', authRequis, (req, res) => {
-  const { name, emoji, description, categoryId, color, defaultPriority, pingRoles, staffRoles, form, autoReply, autoCloseAfter } = req.body;
+  const { name, emoji, description, categoryId, color, defaultPriority, pingRoles, staffRoles, form, autoReply, autoCloseAfter, active } = req.body;
   if (!name || !categoryId) {
     return res.status(400).json({ erreur: 'Nom et catégorie Discord requis' });
   }
@@ -1642,7 +1705,7 @@ app.post('/api/ticket-categories', authRequis, (req, res) => {
     form: form || null,
     autoReply: autoReply || '',
     autoCloseAfter: autoCloseAfter || 0,
-    active: true,
+    active: active !== false,
   };
   config.ticketCategories.push(newCategory);
   sauverConfig();
@@ -2082,11 +2145,12 @@ app.get('/api/settings', authRequis, (req, res) => {
     ticketTranscriptChannelId: config.ticketTranscriptChannelId,
     ticketAutoCloseHours: config.ticketAutoCloseHours || 0,
     ticketStaffRoleIds: config.ticketStaffRoleIds || [],
+    moderationRoleIds: config.moderationRoleIds || [],
   });
 });
 
 app.post('/api/settings', authRequis, (req, res) => {
-  const { autoRoleIds, welcomeChannelId, welcomeMessage, modLogsChannelId, leaveLogsChannelId, ticketLogsChannelId, ticketTranscriptChannelId, ticketAutoCloseHours, ticketStaffRoleIds } = req.body;
+  const { autoRoleIds, welcomeChannelId, welcomeMessage, modLogsChannelId, leaveLogsChannelId, ticketLogsChannelId, ticketTranscriptChannelId, ticketAutoCloseHours, ticketStaffRoleIds, moderationRoleIds } = req.body;
   if (autoRoleIds !== undefined) config.autoRoleIds = Array.isArray(autoRoleIds) ? autoRoleIds : [];
   if (welcomeChannelId !== undefined) config.welcomeChannelId = welcomeChannelId;
   if (welcomeMessage !== undefined) config.welcomeMessage = welcomeMessage;
@@ -2096,6 +2160,7 @@ app.post('/api/settings', authRequis, (req, res) => {
   if (ticketTranscriptChannelId !== undefined) config.ticketTranscriptChannelId = ticketTranscriptChannelId;
   if (ticketAutoCloseHours !== undefined) config.ticketAutoCloseHours = parseFloat(ticketAutoCloseHours) || 0;
   if (ticketStaffRoleIds !== undefined) config.ticketStaffRoleIds = Array.isArray(ticketStaffRoleIds) ? ticketStaffRoleIds : [];
+  if (moderationRoleIds !== undefined) config.moderationRoleIds = Array.isArray(moderationRoleIds) ? moderationRoleIds : [];
   sauverConfig();
   res.json({ succes: true });
 });
