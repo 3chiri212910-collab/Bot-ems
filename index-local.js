@@ -71,10 +71,23 @@ const LOGS_FILE = path.join(DATA_DIR, 'logs.json');
 const GIVEAWAYS_FILE = path.join(DATA_DIR, 'giveaways.json');
 const WARNS_FILE = path.join(DATA_DIR, 'warns.json');
 const CAND_HISTORY_FILE = path.join(DATA_DIR, 'candidatures-history.json');
+const EVALUATIONS_FILE = path.join(DATA_DIR, 'evaluations.json');
 
 // ---- Fonctions de lecture/écriture ----
 function lire(fichier, defaut) {
-  try { return JSON.parse(fs.readFileSync(fichier, 'utf8')); } catch { return defaut; }
+  try {
+    const raw = fs.readFileSync(fichier, 'utf8');
+    const data = JSON.parse(raw);
+    if (fichier === CONFIG_FILE) {
+      data.ticketCategories = Array.isArray(data.ticketCategories) ? data.ticketCategories : [];
+    }
+    return data;
+  } catch (e) {
+    if (fs.existsSync(fichier)) {
+      console.warn(`⚠️ Lecture impossible de ${fichier}, utilisation des valeurs par défaut :`, e.message);
+    }
+    return defaut;
+  }
 }
 function ecrire(fichier, data) {
   try { fs.writeFileSync(fichier, JSON.stringify(data, null, 2)); } catch (e) { console.error(`Erreur écriture ${fichier}:`, e); }
@@ -93,6 +106,9 @@ const CONFIG_DEFAUT = {
   ticketAutoCloseHours: 0,
   ticketStaffRoleIds: [],
   ticketCategories: [],
+  ticketClaimPingEnabled: false,
+  ticketClaimPingRoleId: null,
+  ticketClaimPingDelay: 5,
   // Candidatures
   candidatures: {
     actif: false,
@@ -114,11 +130,13 @@ const CONFIG_DEFAUT = {
 };
 
 let config = lire(CONFIG_FILE, CONFIG_DEFAUT);
+config.ticketCategories = Array.isArray(config.ticketCategories) ? config.ticketCategories : [];
 let tickets = lire(TICKETS_FILE, {});
 let logs = lire(LOGS_FILE, []);
 let giveaways = lire(GIVEAWAYS_FILE, {});
-let warns = lire(WARNS_FILE, {});
+let warns = lire(WARNS_FILE, []);
 let candHistory = lire(CAND_HISTORY_FILE, []);
+let evaluations = lire(EVALUATIONS_FILE, []);
 
 function sauverConfig() { ecrire(CONFIG_FILE, config); }
 function sauverTickets() { ecrire(TICKETS_FILE, tickets); }
@@ -126,6 +144,7 @@ function sauverLogs() { ecrire(LOGS_FILE, logs); }
 function sauverGiveaways() { ecrire(GIVEAWAYS_FILE, giveaways); }
 function sauverWarns() { ecrire(WARNS_FILE, warns); }
 function sauverCandHistory() { ecrire(CAND_HISTORY_FILE, candHistory); }
+function sauverEvaluations() { ecrire(EVALUATIONS_FILE, evaluations); }
 
 // ---- Cache utilisateurs ----
 const userCache = new Map();
@@ -354,6 +373,10 @@ async function createTicket(user, categoryId, formData = {}) {
     closedBy: null,
     evaluation: null,
     embedMessageId: null,
+    claimAt: null,
+    claimedBy: null,
+    pingSent: false,
+    pingTimerId: null,
   };
   tickets[ticketId] = ticket;
   sauverTickets();
@@ -386,7 +409,7 @@ async function createTicket(user, categoryId, formData = {}) {
     pingContent = category.pingRoles.map(id => `<@&${id}>`).join(' ');
   }
 
-  const components = createTicketActionRows(ticketId);
+  const components = createTicketActionRows(ticketId, ticket);
   const messageOptions = {
     embeds: [staffEmbed],
     components,
@@ -395,7 +418,9 @@ async function createTicket(user, categoryId, formData = {}) {
 
   const sentMsg = await channel.send(messageOptions);
   ticket.embedMessageId = sentMsg.id;
+  tickets[ticketId] = ticket;
   sauverTickets();
+  scheduleClaimPing(ticket);
 
   if (category.autoReply) {
     await channel.send({
@@ -405,6 +430,37 @@ async function createTicket(user, categoryId, formData = {}) {
         .setTimestamp()]
     });
   }
+
+function scheduleClaimPing(ticket) {
+  if (!config.ticketClaimPingEnabled || !config.ticketClaimPingRoleId) return;
+  if (ticket.pingTimerId) return;
+
+  const delay = (parseInt(config.ticketClaimPingDelay, 10) || 5) * 60 * 1000;
+  ticket.pingTimerId = setTimeout(async () => {
+    try {
+      if (ticket.status !== 'open' || ticket.claimedBy || ticket.pingSent) return;
+      const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
+      if (!channel) return;
+      await channel.send({ content: `⚠️ Ce ticket est toujours en attente de prise en charge.
+
+<@&${config.ticketClaimPingRoleId}>, merci de prendre ce ticket dès que possible.` });
+      ticket.pingSent = true;
+      ticket.pingTimerId = null;
+      tickets[ticket.id] = ticket;
+      sauverTickets();
+      await addLog('Ping claim envoyé', 'system', 'Système', ticket.id, `Ping rôle ${config.ticketClaimPingRoleId}`);
+    } catch (e) {
+      console.error('Erreur ping claim:', e);
+    }
+  }, delay);
+}
+
+function clearClaimPing(ticket) {
+  if (!ticket || !ticket.pingTimerId) return;
+  clearTimeout(ticket.pingTimerId);
+  ticket.pingTimerId = null;
+  ticket.pingSent = false;
+}
 
   const userEmbed = new EmbedBuilder()
     .setColor('#2E8BFF')
@@ -434,11 +490,21 @@ function getPriorityEmoji(priority) {
   return map[priority] || '🟡';
 }
 
-function createTicketActionRows(ticketId) {
+function createTicketActionRows(ticketId, ticket = null) {
+  const claimButton = new ButtonBuilder()
+    .setCustomId(`ticket_claim_${ticketId}`)
+    .setLabel('📌 Claim')
+    .setEmoji('📌')
+    .setStyle(ButtonStyle.Primary);
+
+  if (ticket && ticket.assignedTo) {
+    claimButton.setLabel(`✅ Assigné à`).setStyle(ButtonStyle.Success).setDisabled(true);
+  }
+
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`ticket_close_${ticketId}`).setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`ticket_reopen_${ticketId}`).setLabel('Réouvrir').setEmoji('🔓').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`ticket_rename_${ticketId}`).setLabel('Renommer').setEmoji('✏️').setStyle(ButtonStyle.Secondary),
+    claimButton,
     new ButtonBuilder().setCustomId(`ticket_assign_${ticketId}`).setLabel('Assigner').setEmoji('👤').setStyle(ButtonStyle.Primary),
   );
   const row2 = new ActionRowBuilder().addComponents(
@@ -464,6 +530,7 @@ async function updateTicketEmbed(channelId) {
   if (!user) return;
 
   const embed = buildTicketEmbed(ticket, user, category);
+  const components = createTicketActionRows(ticket.id, ticket);
   const channel = await client.channels.fetch(channelId);
   if (ticket.embedMessageId) {
     const msg = await channel.messages.fetch(ticket.embedMessageId).catch(() => null);
@@ -472,11 +539,13 @@ async function updateTicketEmbed(channelId) {
     } else {
       const newMsg = await channel.send({ embeds: [embed] });
       ticket.embedMessageId = newMsg.id;
+      tickets[ticket.id] = ticket;
       sauverTickets();
     }
   } else {
     const newMsg = await channel.send({ embeds: [embed] });
     ticket.embedMessageId = newMsg.id;
+    tickets[ticket.id] = ticket;
     sauverTickets();
   }
 }
@@ -517,14 +586,6 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
       .setDescription(`Fermé par **${staffTag}**${reason ? `\nRaison: ${reason}` : ''}\nMerci d'avoir utilisé notre support.`)
       .setTimestamp();
     await channel.send({ embeds: [embed] });
-    const evalRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`eval_1_${ticketId}`).setLabel('⭐').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`eval_2_${ticketId}`).setLabel('⭐⭐').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`eval_3_${ticketId}`).setLabel('⭐⭐⭐').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`eval_4_${ticketId}`).setLabel('⭐⭐⭐⭐').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`eval_5_${ticketId}`).setLabel('⭐⭐⭐⭐⭐').setStyle(ButtonStyle.Success),
-    );
-    await channel.send({ components: [evalRow] });
   }
 
   if (config.ticketTranscriptChannelId || config.ticketLogsChannelId) {
@@ -534,11 +595,19 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
   const user = await client.users.fetch(ticket.userId).catch(() => null);
   if (user) {
     const dmEmbed = new EmbedBuilder()
-      .setColor('#fb7185')
-      .setTitle('🔒 Ticket fermé')
-      .setDescription(`Votre ticket **#${ticket.id.slice(0, 6)}** a été fermé par **${staffTag}**.${reason ? `\nRaison: ${reason}` : ''}\nMerci de votre confiance.`)
+      .setColor('#0d6efd')
+      .setTitle('⭐ Évaluez votre expérience')
+      .setDescription('Merci d\'avoir utilisé notre support.\n\nVotre ticket est maintenant fermé.\n\nVotre avis nous aide à améliorer la qualité du support.\n\nVeuillez attribuer une note de **1 à 5 étoiles**.')
       .setTimestamp();
-    await user.send({ embeds: [dmEmbed] }).catch(() => {});
+
+    const evalRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`rating_1_${ticketId}`).setLabel('⭐').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`rating_2_${ticketId}`).setLabel('⭐⭐').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`rating_3_${ticketId}`).setLabel('⭐⭐⭐').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`rating_4_${ticketId}`).setLabel('⭐⭐⭐⭐').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`rating_5_${ticketId}`).setLabel('⭐⭐⭐⭐⭐').setStyle(ButtonStyle.Success),
+    );
+    await user.send({ embeds: [dmEmbed], components: [evalRow] }).catch(() => {});
   }
 
   if (config.ticketTranscriptChannelId || config.ticketLogsChannelId) {
@@ -825,7 +894,7 @@ async function handleDM(message) {
     .setColor('#2E8BFF')
     .setTitle('📩 Ouvrir un ticket')
     .setDescription('Bienvenue sur le support. Sélectionnez la catégorie correspondant à votre demande pour ouvrir un ticket privé avec le staff.')
-    .setFooter({ text: 'PulseBot-style ticket system', iconURL: client.user.displayAvatarURL({ dynamic: true }) })
+    .setFooter({ text: 'Northside Bot', iconURL: client.user.displayAvatarURL({ dynamic: true }) })
     .setTimestamp();
 
   await message.reply({ embeds: [embed], components: [row] });
@@ -1196,6 +1265,7 @@ async function handleChannelMessage(message) {
 
   const ticket = getTicketByChannelId(message.channel.id);
   if (!ticket) return;
+  if (ticket.status === 'closed') return;
 
   const isStaff = message.member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id)) ||
                   message.member.permissions.has(PermissionsBitField.Flags.Administrator);
