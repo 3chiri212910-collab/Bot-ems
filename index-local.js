@@ -431,6 +431,29 @@ async function createTicket(user, categoryId, formData = {}) {
     });
   }
 
+  const userEmbed = new EmbedBuilder()
+    .setColor('#2E8BFF')
+    .setTitle('📩 Nouveau Ticket')
+    .setDescription(`Bonjour **${user.username}**,\n\nVotre demande a bien été prise en compte.\n\nUn membre du staff va vous répondre dès que possible.\n\nContinuez simplement à envoyer vos messages ici.\n\nTous vos messages seront automatiquement transmis à l'équipe du serveur.\n\nMerci de ne pas spam.`)
+    .addFields(
+      { name: '🆔 ID du ticket', value: `\`${ticketId}\``, inline: true },
+      { name: '📂 Catégorie', value: category.name, inline: true },
+      { name: '📅 Date d\'ouverture', value: `<t:${Math.floor(Date.now()/1000)}:F>`, inline: true },
+      { name: '⏳ Statut', value: 'Ouvert', inline: true }
+    )
+    .setThumbnail(client.user.displayAvatarURL({ dynamic: true }))
+    .setFooter({ text: `${guild.name}`, iconURL: client.user.displayAvatarURL({ dynamic: true }) })
+    .setTimestamp();
+
+  try {
+    await user.send({ embeds: [userEmbed] });
+  } catch (e) {}
+
+  await addLog('Création ticket', user.id, user.tag, ticketId, `Catégorie: ${category.name}`);
+
+  return ticket;
+}
+
 function scheduleClaimPing(ticket) {
   if (!config.ticketClaimPingEnabled || !config.ticketClaimPingRoleId) return;
   if (ticket.pingTimerId) return;
@@ -462,29 +485,6 @@ function clearClaimPing(ticket) {
   ticket.pingSent = false;
 }
 
-  const userEmbed = new EmbedBuilder()
-    .setColor('#2E8BFF')
-    .setTitle('📩 Nouveau Ticket')
-    .setDescription(`Bonjour **${user.username}**,\n\nVotre demande a bien été prise en compte.\n\nUn membre du staff va vous répondre dès que possible.\n\nContinuez simplement à envoyer vos messages ici.\n\nTous vos messages seront automatiquement transmis à l'équipe du serveur.\n\nMerci de ne pas spam.`)
-    .addFields(
-      { name: '🆔 ID du ticket', value: `\`${ticketId}\``, inline: true },
-      { name: '📂 Catégorie', value: category.name, inline: true },
-      { name: '📅 Date d\'ouverture', value: `<t:${Math.floor(Date.now()/1000)}:F>`, inline: true },
-      { name: '⏳ Statut', value: 'Ouvert', inline: true }
-    )
-    .setThumbnail(client.user.displayAvatarURL({ dynamic: true }))
-    .setFooter({ text: `${guild.name}`, iconURL: client.user.displayAvatarURL({ dynamic: true }) })
-    .setTimestamp();
-
-  try {
-    await user.send({ embeds: [userEmbed] });
-  } catch (e) {}
-
-  await addLog('Création ticket', user.id, user.tag, ticketId, `Catégorie: ${category.name}`);
-
-  return ticket;
-}
-
 function getPriorityEmoji(priority) {
   const map = { low: '🟢', normal: '🟡', high: '🟠', urgent: '🔴' };
   return map[priority] || '🟡';
@@ -497,15 +497,20 @@ function createTicketActionRows(ticketId, ticket = null) {
     .setEmoji('📌')
     .setStyle(ButtonStyle.Primary);
 
-  if (ticket && ticket.assignedTo) {
-    claimButton.setLabel(`✅ Assigné à`).setStyle(ButtonStyle.Success).setDisabled(true);
+  if (ticket) {
+    if (ticket.assignedTo) {
+      claimButton.setLabel(`✅ Assigné à`).setStyle(ButtonStyle.Success).setDisabled(true);
+    }
+    if (ticket.status === 'closed') {
+      claimButton.setDisabled(true);
+    }
   }
 
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`ticket_close_${ticketId}`).setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId(`ticket_reopen_${ticketId}`).setLabel('Réouvrir').setEmoji('🔓').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`ticket_close_${ticketId}`).setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger).setDisabled(ticket?.status === 'closed'),
+    new ButtonBuilder().setCustomId(`ticket_reopen_${ticketId}`).setLabel('Réouvrir').setEmoji('🔓').setStyle(ButtonStyle.Success).setDisabled(ticket?.status !== 'closed'),
     claimButton,
-    new ButtonBuilder().setCustomId(`ticket_assign_${ticketId}`).setLabel('Assigner').setEmoji('👤').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`ticket_assign_${ticketId}`).setLabel('Assigner').setEmoji('👤').setStyle(ButtonStyle.Primary).setDisabled(ticket?.status === 'closed'),
   );
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`ticket_priority_${ticketId}`).setLabel('Priorité').setEmoji('📌').setStyle(ButtonStyle.Secondary),
@@ -579,7 +584,8 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
 
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
-    await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: false }).catch(() => {});
+    await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: false, SendMessages: false, ReadMessageHistory: false }).catch(() => {});
+    await channel.setName(`closed-${channel.name}`).catch(() => {});
     const embed = new EmbedBuilder()
       .setColor('#fb7185')
       .setTitle('🔒 Ticket fermé')
@@ -588,8 +594,14 @@ async function closeTicket(ticketId, staffId, staffTag, reason = '') {
     await channel.send({ embeds: [embed] });
   }
 
+  clearClaimPing(ticket);
+
   if (config.ticketTranscriptChannelId || config.ticketLogsChannelId) {
     await exportTicketHTML(ticketId, staffId, staffTag).catch(() => {});
+  }
+
+  if (channel) {
+    await channel.delete().catch(() => {});
   }
 
   const user = await client.users.fetch(ticket.userId).catch(() => null);
@@ -676,6 +688,9 @@ async function assignTicket(ticketId, assigneeId, staffId, staffTag) {
   const ticket = tickets[ticketId];
   if (!ticket) throw new Error('Ticket introuvable.');
   ticket.assignedTo = assigneeId;
+  ticket.claimedBy = assigneeId;
+  ticket.claimAt = new Date().toISOString();
+  clearClaimPing(ticket);
   sauverTickets();
 
   await addLog('Assignation ticket', staffId, staffTag, ticketId, `Assigné à <@${assigneeId}>`);
@@ -920,11 +935,15 @@ async function handleInteraction(interaction) {
       await handleNoteModal(interaction);
       return;
     }
+    if (interaction.customId.startsWith('rating_comment_')) {
+      await handleRatingCommentModal(interaction);
+      return;
+    }
   }
 
   if (interaction.isButton()) {
     const customId = interaction.customId;
-    if (customId.startsWith('eval_')) {
+    if (customId.startsWith('eval_') || customId.startsWith('rating_')) {
       await handleEvaluation(interaction);
       return;
     }
@@ -1057,6 +1076,14 @@ async function handleTicketButton(interaction) {
       await interaction.reply({ content: '🔓 Réouverture du ticket...', ephemeral: true });
       await reopenTicket(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Ticket réouvert.');
+      break;
+    }
+    case 'claim': {
+      if (ticket.assignedTo) {
+        return interaction.reply({ content: '❌ Ce ticket est déjà assigné.', ephemeral: true });
+      }
+      await assignTicket(ticketId, staffId, staffId, staffTag);
+      await interaction.reply({ content: `✅ Ticket claimé par <@${staffId}>.`, ephemeral: true });
       break;
     }
     case 'rename': {
@@ -1243,16 +1270,41 @@ async function handleEvaluation(interaction) {
   const ticket = tickets[ticketId];
   if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
 
+  const modal = new ModalBuilder()
+    .setCustomId(`rating_comment_${rating}_${ticketId}`)
+    .setTitle('Ajouter un commentaire');
+  const input = new TextInputBuilder()
+    .setCustomId('rating_comment')
+    .setLabel('Souhaitez-vous ajouter un commentaire ? (facultatif)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false)
+    .setPlaceholder('Votre commentaire...');
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+
+  await interaction.showModal(modal);
+}
+
+async function handleRatingCommentModal(interaction) {
+  const parts = interaction.customId.split('_');
+  const rating = parseInt(parts[2], 10);
+  const ticketId = parts.slice(3).join('_');
+  const ticket = tickets[ticketId];
+  if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+
+  const comment = interaction.fields.getTextInputValue('rating_comment') || '';
   ticket.evaluation = rating;
+  ticket.evaluationComment = comment;
+  if (!ticket.evaluations) ticket.evaluations = [];
+  ticket.evaluations.push({ rating, comment, date: new Date().toISOString() });
   sauverTickets();
 
-  await interaction.reply({ content: `⭐ Merci pour votre évaluation de ${rating}/5 !`, ephemeral: true });
+  await interaction.reply({ content: `✅ Merci, votre avis a bien été enregistré.`, ephemeral: true });
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
     const embed = new EmbedBuilder()
       .setColor('#34d399')
       .setTitle('⭐ Évaluation reçue')
-      .setDescription(`L'utilisateur a évalué le support à **${rating}/5**.`)
+      .setDescription(`L'utilisateur a évalué le support à **${rating}/5**${comment ? `\n\nCommentaire : ${comment}` : ''}`)
       .setTimestamp();
     await channel.send({ embeds: [embed] });
   }
