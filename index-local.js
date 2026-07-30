@@ -8,6 +8,7 @@ const {
   Partials,
   ChannelType,
   PermissionsBitField,
+  InteractionResponseFlags,
   SlashCommandBuilder,
   ModalBuilder,
   TextInputBuilder,
@@ -319,10 +320,6 @@ async function createTicket(user, categoryId, formData = {}) {
     {
       id: guild.roles.everyone.id,
       deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-    {
-      id: user.id,
-      allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
     }
   ];
 
@@ -369,18 +366,20 @@ async function createTicket(user, categoryId, formData = {}) {
     }
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(category.color || COULEUR_EMBED)
-    .setTitle(`🎫 Ticket #${ticketId.slice(0, 6)} - ${category.emoji} ${category.name}`)
-    .setDescription(`Créé par **${user.tag}** (\`${user.id}\`)`)
+  const staffEmbed = new EmbedBuilder()
+    .setColor(category.color || '#2E8BFF')
+    .setTitle(`🎫 Ticket #${ticketId.slice(0, 6)} - ${category.emoji || ''} ${category.name}`)
+    .setDescription(`Nouveau ticket ouvert par **${user.tag}**`)
     .addFields(
-      { name: '📅 Date', value: `<t:${Math.floor(Date.now()/1000)}:F>`, inline: true },
-      { name: '🕒 Heure', value: `<t:${Math.floor(Date.now()/1000)}:T>`, inline: true },
-      { name: '📌 Priorité', value: `${getPriorityEmoji(ticket.priority)} ${ticket.priority}`, inline: true },
-      { name: '👤 Assigné à', value: ticket.assignedTo ? `<@${ticket.assignedTo}>` : 'Personne', inline: true },
+      { name: '🆔 ID du ticket', value: `\`${ticketId}\``, inline: true },
+      { name: '📂 Catégorie', value: category.name, inline: true },
+      { name: '📅 Date d\'ouverture', value: `<t:${Math.floor(Date.now()/1000)}:F>`, inline: true },
+      { name: '⏳ Statut', value: 'Ouvert', inline: true },
+      { name: '👤 Utilisateur', value: user.tag, inline: true },
       ...embedFields
     )
-    .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+    .setThumbnail(client.user.displayAvatarURL({ dynamic: true }))
+    .setFooter({ text: `${guild.name} • Ticket privé`, iconURL: client.user.displayAvatarURL({ dynamic: true }) })
     .setTimestamp();
 
   let pingContent = '';
@@ -390,8 +389,8 @@ async function createTicket(user, categoryId, formData = {}) {
 
   const components = createTicketActionRows(ticketId);
   const messageOptions = {
-    embeds: [embed],
-    components: components,
+    embeds: [staffEmbed],
+    components,
   };
   if (pingContent) messageOptions.content = pingContent;
 
@@ -402,20 +401,28 @@ async function createTicket(user, categoryId, formData = {}) {
   if (category.autoReply) {
     await channel.send({
       embeds: [new EmbedBuilder()
-        .setColor(category.color || COULEUR_EMBED)
+        .setColor(category.color || '#2E8BFF')
         .setDescription(category.autoReply)
         .setTimestamp()]
     });
   }
 
+  const userEmbed = new EmbedBuilder()
+    .setColor('#2E8BFF')
+    .setTitle('📩 Nouveau Ticket')
+    .setDescription(`Bonjour **${user.username}**,\n\nVotre demande a bien été prise en compte.\n\nUn membre du staff va vous répondre dès que possible.\n\nContinuez simplement à envoyer vos messages ici.\n\nTous vos messages seront automatiquement transmis à l'équipe du serveur.\n\nMerci de ne pas spam.`)
+    .addFields(
+      { name: '🆔 ID du ticket', value: `\`${ticketId}\``, inline: true },
+      { name: '📂 Catégorie', value: category.name, inline: true },
+      { name: '📅 Date d\'ouverture', value: `<t:${Math.floor(Date.now()/1000)}:F>`, inline: true },
+      { name: '⏳ Statut', value: 'Ouvert', inline: true }
+    )
+    .setThumbnail(client.user.displayAvatarURL({ dynamic: true }))
+    .setFooter({ text: `${guild.name}`, iconURL: client.user.displayAvatarURL({ dynamic: true }) })
+    .setTimestamp();
+
   try {
-    await user.send({
-      embeds: [new EmbedBuilder()
-        .setColor(category.color || COULEUR_EMBED)
-        .setTitle('✅ Ticket créé')
-        .setDescription(`Votre ticket **#${ticketId.slice(0, 6)}** a été ouvert.\nUn membre de l'équipe vous répondra dans les plus brefs délais.\n\nVous pouvez continuer à envoyer des messages ici, ils seront transmis.`)
-        .setTimestamp()]
-    });
+    await user.send({ embeds: [userEmbed] });
   } catch (e) {}
 
   await addLog('Création ticket', user.id, user.tag, ticketId, `Catégorie: ${category.name}`);
@@ -816,9 +823,10 @@ async function handleDM(message) {
   );
 
   const embed = new EmbedBuilder()
-    .setColor(COULEUR_EMBED)
-    .setTitle('📩 Ouverture d\'un ticket')
-    .setDescription('Bienvenue ! Veuillez sélectionner la catégorie correspondant à votre demande.')
+    .setColor('#2E8BFF')
+    .setTitle('📩 Ouvrir un ticket')
+    .setDescription('Bienvenue sur le support. Sélectionnez la catégorie correspondant à votre demande pour ouvrir un ticket privé avec le staff.')
+    .setFooter({ text: 'PulseBot-style ticket system', iconURL: client.user.displayAvatarURL({ dynamic: true }) })
     .setTimestamp();
 
   await message.reply({ embeds: [embed], components: [row] });
@@ -886,7 +894,7 @@ async function handleCategorySelect(interaction) {
   const categoryId = interaction.values[0];
   const category = config.ticketCategories.find(c => c.id === categoryId);
   if (!category) {
-    return interaction.reply({ content: '❌ Catégorie invalide.', ephemeral: true });
+    return interaction.reply({ content: '❌ Catégorie invalide.', flags: InteractionResponseFlags.Ephemeral });
   }
 
   if (category.form && category.form.fields && category.form.fields.length > 0) {
@@ -907,18 +915,23 @@ async function handleCategorySelect(interaction) {
     return;
   }
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: InteractionResponseFlags.Ephemeral });
   try {
-    const ticket = await createTicket(interaction.user, categoryId, {});
-    await interaction.editReply(`✅ Votre ticket a été créé : <#${ticket.channelId}> (ID: #${ticket.id.slice(0, 6)})`);
+    await createTicket(interaction.user, categoryId, {});
+    const successEmbed = new EmbedBuilder()
+      .setColor('#2E8BFF')
+      .setTitle('✅ Ticket ouvert')
+      .setDescription('Votre ticket a bien été ouvert. Continuez simplement à envoyer des messages ici, ils seront automatiquement transmis au staff.')
+      .setTimestamp();
+    await interaction.editReply({ embeds: [successEmbed] });
   } catch (error) {
-    await interaction.editReply(`❌ Erreur: ${error.message}`);
+    await interaction.editReply({ content: `❌ Erreur: ${error.message}` });
   }
 }
 
 // ---- Formulaire modal ----
 async function handleTicketForm(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: InteractionResponseFlags.Ephemeral });
   const categoryId = interaction.customId.replace('ticket_form_', '');
   const category = config.ticketCategories.find(c => c.id === categoryId);
   if (!category) {
@@ -932,10 +945,15 @@ async function handleTicketForm(interaction) {
   }
 
   try {
-    const ticket = await createTicket(interaction.user, categoryId, formData);
-    await interaction.editReply(`✅ Votre ticket a été créé : <#${ticket.channelId}> (ID: #${ticket.id.slice(0, 6)})`);
+    await createTicket(interaction.user, categoryId, formData);
+    const successEmbed = new EmbedBuilder()
+      .setColor('#2E8BFF')
+      .setTitle('✅ Ticket ouvert')
+      .setDescription('Votre ticket a bien été ouvert. Continuez simplement à envoyer des messages ici, ils seront automatiquement transmis au staff.')
+      .setTimestamp();
+    await interaction.editReply({ embeds: [successEmbed] });
   } catch (error) {
-    await interaction.editReply(`❌ Erreur: ${error.message}`);
+    await interaction.editReply({ content: `❌ Erreur: ${error.message}` });
   }
 }
 
@@ -947,14 +965,14 @@ async function handleTicketButton(interaction) {
 
   const ticket = tickets[ticketId];
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
   }
 
   const member = interaction.member;
   const isStaff = member.permissions.has(PermissionsBitField.Flags.Administrator) ||
                   member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id));
   if (!isStaff) {
-    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'effectuer cette action.', ephemeral: true });
+    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'effectuer cette action.', flags: InteractionResponseFlags.Ephemeral });
   }
 
   const staffId = interaction.user.id;
@@ -962,13 +980,13 @@ async function handleTicketButton(interaction) {
 
   switch (action) {
     case 'close': {
-      await interaction.reply({ content: '🔒 Fermeture du ticket...', ephemeral: true });
+      await interaction.reply({ content: '🔒 Fermeture du ticket...', flags: InteractionResponseFlags.Ephemeral });
       await closeTicket(ticketId, staffId, staffTag, 'Fermé par staff');
       await interaction.editReply('✅ Ticket fermé.');
       break;
     }
     case 'reopen': {
-      await interaction.reply({ content: '🔓 Réouverture du ticket...', ephemeral: true });
+      await interaction.reply({ content: '🔓 Réouverture du ticket...', flags: InteractionResponseFlags.Ephemeral });
       await reopenTicket(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Ticket réouvert.');
       break;
@@ -994,7 +1012,7 @@ async function handleTicketButton(interaction) {
           .setCustomId('ticket_assign_select')
           .setPlaceholder('Sélectionnez un membre du staff')
       );
-      await interaction.reply({ content: 'Choisissez le staff à assigner :', components: [row], ephemeral: true });
+      await interaction.reply({ content: 'Choisissez le staff à assigner :', components: [row], flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'priority': {
@@ -1009,13 +1027,13 @@ async function handleTicketButton(interaction) {
             { label: '🔴 Urgente', value: 'urgent' }
           ])
       );
-      await interaction.reply({ content: 'Choisissez la priorité :', components: [row], ephemeral: true });
+      await interaction.reply({ content: 'Choisissez la priorité :', components: [row], flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'category': {
       const categories = config.ticketCategories.filter(c => c.categoryId && c.id !== ticket.categoryId);
       if (!categories.length) {
-        return interaction.reply({ content: '❌ Aucune autre catégorie disponible.', ephemeral: true });
+        return interaction.reply({ content: '❌ Aucune autre catégorie disponible.', flags: InteractionResponseFlags.Ephemeral });
       }
       const options = categories.map(c => {
         const option = {
@@ -1032,7 +1050,7 @@ async function handleTicketButton(interaction) {
           .setPlaceholder('Choisissez une catégorie')
           .addOptions(options)
       );
-      await interaction.reply({ content: 'Choisissez la nouvelle catégorie :', components: [row], ephemeral: true });
+      await interaction.reply({ content: 'Choisissez la nouvelle catégorie :', components: [row], flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'transfer': {
@@ -1041,7 +1059,7 @@ async function handleTicketButton(interaction) {
           .setCustomId('ticket_transfer_select')
           .setPlaceholder('Sélectionnez le staff destinataire')
       );
-      await interaction.reply({ content: 'Choisissez le staff à qui transférer :', components: [row], ephemeral: true });
+      await interaction.reply({ content: 'Choisissez le staff à qui transférer :', components: [row], flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'note': {
@@ -1060,19 +1078,19 @@ async function handleTicketButton(interaction) {
       break;
     }
     case 'export': {
-      await interaction.reply({ content: '📄 Export en cours...', ephemeral: true });
+      await interaction.reply({ content: '📄 Export en cours...', flags: InteractionResponseFlags.Ephemeral });
       await exportTicketHTML(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Export HTML envoyé dans le salon de logs.');
       break;
     }
     case 'blacklist': {
-      await interaction.reply({ content: '🚫 Blacklist de l\'utilisateur...', ephemeral: true });
+      await interaction.reply({ content: '🚫 Blacklist de l\'utilisateur...', flags: InteractionResponseFlags.Ephemeral });
       await blacklistUser(ticketId, staffId, staffTag);
       await interaction.editReply('✅ Utilisateur blacklisté et ticket fermé.');
       break;
     }
     default: {
-      await interaction.reply({ content: '❌ Action inconnue.', ephemeral: true });
+      await interaction.reply({ content: '❌ Action inconnue.', flags: InteractionResponseFlags.Ephemeral });
     }
   }
 }
@@ -1082,40 +1100,40 @@ async function handleAssignSelect(interaction) {
   const userId = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
   }
   await assignTicket(ticket.id, userId, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Ticket assigné à <@${userId}>.`, ephemeral: true });
+  await interaction.reply({ content: `✅ Ticket assigné à <@${userId}>.`, flags: InteractionResponseFlags.Ephemeral });
 }
 
 async function handleTransferSelect(interaction) {
   const targetId = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
   }
   await assignTicket(ticket.id, targetId, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Ticket transféré à <@${targetId}>.`, ephemeral: true });
+  await interaction.reply({ content: `✅ Ticket transféré à <@${targetId}>.`, flags: InteractionResponseFlags.Ephemeral });
 }
 
 async function handlePrioritySelect(interaction) {
   const priority = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
   }
   await setPriority(ticket.id, priority, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Priorité définie sur ${priority}.`, ephemeral: true });
+  await interaction.reply({ content: `✅ Priorité définie sur ${priority}.`, flags: InteractionResponseFlags.Ephemeral });
 }
 
 async function handleCategorySelectMove(interaction) {
   const newCategoryId = interaction.values[0];
   const ticket = getTicketByChannelId(interaction.channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+    return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
   }
   await changeCategory(ticket.id, newCategoryId, interaction.user.id, interaction.user.tag);
-  await interaction.reply({ content: `✅ Catégorie changée.`, ephemeral: true });
+  await interaction.reply({ content: `✅ Catégorie changée.`, flags: InteractionResponseFlags.Ephemeral });
 }
 
 // ---- Modals ----
@@ -1123,13 +1141,13 @@ async function handleRenameModal(interaction) {
   const newName = interaction.fields.getTextInputValue('new_name');
   const ticketId = global.ticketRenameCache?.[interaction.user.id];
   if (!ticketId) {
-    return interaction.reply({ content: '❌ Erreur: session expirée.', ephemeral: true });
+    return interaction.reply({ content: '❌ Erreur: session expirée.', flags: InteractionResponseFlags.Ephemeral });
   }
   try {
     await renameTicket(ticketId, newName, interaction.user.id, interaction.user.tag);
-    await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, ephemeral: true });
+    await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, flags: InteractionResponseFlags.Ephemeral });
   } catch (error) {
-    await interaction.reply({ content: `❌ Erreur: ${error.message}`, ephemeral: true });
+    await interaction.reply({ content: `❌ Erreur: ${error.message}`, flags: InteractionResponseFlags.Ephemeral });
   }
   delete global.ticketRenameCache[interaction.user.id];
 }
@@ -1138,13 +1156,13 @@ async function handleNoteModal(interaction) {
   const note = interaction.fields.getTextInputValue('note_content');
   const ticketId = global.ticketNoteCache?.[interaction.user.id];
   if (!ticketId) {
-    return interaction.reply({ content: '❌ Erreur: session expirée.', ephemeral: true });
+    return interaction.reply({ content: '❌ Erreur: session expirée.', flags: InteractionResponseFlags.Ephemeral });
   }
   try {
     await setPrivateNote(ticketId, note, interaction.user.id, interaction.user.tag);
-    await interaction.reply({ content: `✅ Note privée enregistrée.`, ephemeral: true });
+    await interaction.reply({ content: `✅ Note privée enregistrée.`, flags: InteractionResponseFlags.Ephemeral });
   } catch (error) {
-    await interaction.reply({ content: `❌ Erreur: ${error.message}`, ephemeral: true });
+    await interaction.reply({ content: `❌ Erreur: ${error.message}`, flags: InteractionResponseFlags.Ephemeral });
   }
   delete global.ticketNoteCache[interaction.user.id];
 }
@@ -1155,12 +1173,12 @@ async function handleEvaluation(interaction) {
   const rating = parseInt(parts[1]);
   const ticketId = parts[2];
   const ticket = tickets[ticketId];
-  if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', ephemeral: true });
+  if (!ticket) return interaction.reply({ content: '❌ Ticket introuvable.', flags: InteractionResponseFlags.Ephemeral });
 
   ticket.evaluation = rating;
   sauverTickets();
 
-  await interaction.reply({ content: `⭐ Merci pour votre évaluation de ${rating}/5 !`, ephemeral: true });
+  await interaction.reply({ content: `⭐ Merci pour votre évaluation de ${rating}/5 !`, flags: InteractionResponseFlags.Ephemeral });
   const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
   if (channel) {
     const embed = new EmbedBuilder()
@@ -1379,18 +1397,18 @@ client.on('interactionCreate', async (interaction) => {
 async function handleSlashCommand(interaction) {
   const channel = interaction.channel;
   if (channel.type !== ChannelType.GuildText) {
-    return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un salon de ticket.', ephemeral: true });
+    return interaction.reply({ content: '❌ Cette commande n\'est disponible que dans un salon de ticket.', flags: InteractionResponseFlags.Ephemeral });
   }
 
   const ticket = getTicketByChannelId(channel.id);
   if (!ticket) {
-    return interaction.reply({ content: '❌ Ce salon n\'est pas un ticket valide.', ephemeral: true });
+    return interaction.reply({ content: '❌ Ce salon n\'est pas un ticket valide.', flags: InteractionResponseFlags.Ephemeral });
   }
 
   const isStaff = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
                   interaction.member.roles.cache.some(r => config.ticketStaffRoleIds.includes(r.id));
   if (!isStaff) {
-    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'utiliser cette commande.', ephemeral: true });
+    return interaction.reply({ content: '❌ Vous n\'avez pas la permission d\'utiliser cette commande.', flags: InteractionResponseFlags.Ephemeral });
   }
 
   const staffId = interaction.user.id;
@@ -1401,56 +1419,56 @@ async function handleSlashCommand(interaction) {
     case 'close': {
       const reason = interaction.options.getString('raison') || '';
       await closeTicket(ticketId, staffId, staffTag, reason);
-      await interaction.reply({ content: '🔒 Ticket fermé.', ephemeral: true });
+      await interaction.reply({ content: '🔒 Ticket fermé.', flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'reopen': {
       await reopenTicket(ticketId, staffId, staffTag);
-      await interaction.reply({ content: '🔓 Ticket réouvert.', ephemeral: true });
+      await interaction.reply({ content: '🔓 Ticket réouvert.', flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'rename': {
       const newName = interaction.options.getString('nom');
       await renameTicket(ticketId, newName, staffId, staffTag);
-      await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, ephemeral: true });
+      await interaction.reply({ content: `✅ Ticket renommé en **${newName}**.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'assign': {
       const user = interaction.options.getUser('staff');
       await assignTicket(ticketId, user.id, staffId, staffTag);
-      await interaction.reply({ content: `✅ Ticket assigné à ${user.tag}.`, ephemeral: true });
+      await interaction.reply({ content: `✅ Ticket assigné à ${user.tag}.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'priority': {
       const level = interaction.options.getString('niveau');
       await setPriority(ticketId, level, staffId, staffTag);
-      await interaction.reply({ content: `✅ Priorité définie sur ${level}.`, ephemeral: true });
+      await interaction.reply({ content: `✅ Priorité définie sur ${level}.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'category': {
       const catId = interaction.options.getString('categorie');
       await changeCategory(ticketId, catId, staffId, staffTag);
-      await interaction.reply({ content: `✅ Catégorie changée.`, ephemeral: true });
+      await interaction.reply({ content: `✅ Catégorie changée.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'note': {
       const content = interaction.options.getString('contenu');
       await setPrivateNote(ticketId, content, staffId, staffTag);
-      await interaction.reply({ content: `✅ Note privée enregistrée.`, ephemeral: true });
+      await interaction.reply({ content: `✅ Note privée enregistrée.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'export': {
       await exportTicketHTML(ticketId, staffId, staffTag);
-      await interaction.reply({ content: `📄 Export HTML envoyé dans le salon de logs.`, ephemeral: true });
+      await interaction.reply({ content: `📄 Export HTML envoyé dans le salon de logs.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     case 'blacklist': {
       await blacklistUser(ticketId, staffId, staffTag);
-      await interaction.reply({ content: `🚫 Utilisateur blacklisté et ticket fermé.`, ephemeral: true });
+      await interaction.reply({ content: `🚫 Utilisateur blacklisté et ticket fermé.`, flags: InteractionResponseFlags.Ephemeral });
       break;
     }
     default: {
-      await interaction.reply({ content: '❌ Commande inconnue.', ephemeral: true });
+      await interaction.reply({ content: '❌ Commande inconnue.', flags: InteractionResponseFlags.Ephemeral });
     }
   }
 }
