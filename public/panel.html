@@ -21,25 +21,23 @@
     }
 
     :root {
-      --bg-primary: #080c1a;
-      --bg-secondary: #0e1528;
-      --glass-bg: rgba(255, 255, 255, 0.04);
-      --glass-border: rgba(255, 255, 255, 0.06);
-      --glass-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.8);
-      --glass-blur: 20px;
-      --text-primary: #f0f4ff;
-      --text-secondary: #8899c4;
-      --text-muted: #4f658a;
-      --accent: #4f8cff;
-      --accent-glow: rgba(79, 140, 255, 0.25);
-      --accent-gradient: linear-gradient(135deg, #4f8cff, #7c6aff);
+      --bg: #070c18;
+      --surface: rgba(8, 15, 32, 0.92);
+      --surface-soft: rgba(15, 26, 52, 0.94);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-soft: rgba(255, 255, 255, 0.05);
+      --text-primary: #eef4ff;
+      --text-secondary: #a2b1db;
+      --text-muted: #93a6d3;
+      --accent: #5f8cff;
+      --accent-strong: #7e63ff;
+      --accent-gradient: linear-gradient(135deg, #5f8cff, #7e63ff);
       --danger: #ff6b7a;
       --success: #34d399;
-      --warning: #fbbf24;
-      --radius: 16px;
-      --radius-sm: 10px;
-      --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --radius: 18px;
+      --radius-sm: 12px;
+      --transition: 0.25s ease;
+      --shadow-card: 0 20px 60px rgba(0, 0, 0, 0.35);
     }
 
     html {
@@ -48,7 +46,9 @@
 
     body {
       font-family: 'Inter', sans-serif;
-      background: var(--bg-primary);
+      background: radial-gradient(circle at top left, rgba(95, 140, 255, 0.16), transparent 24%),
+                  radial-gradient(circle at bottom right, rgba(126, 99, 255, 0.12), transparent 20%),
+                  var(--bg);
       color: var(--text-primary);
       min-height: 100vh;
       display: flex;
@@ -56,9 +56,15 @@
       position: relative;
     }
 
-    /* ============================================================
-       ANIMATED BACKGROUND
-       ============================================================ */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
     .bg-canvas {
       position: fixed;
       inset: 0;
@@ -70,39 +76,36 @@
     .bg-canvas .orb {
       position: absolute;
       border-radius: 50%;
-      filter: blur(120px);
-      opacity: 0.4;
-      animation: orbFloat 20s ease-in-out infinite alternate;
+      filter: blur(110px);
+      opacity: 0.35;
+      animation: orbFloat 24s ease-in-out infinite alternate;
     }
 
     .bg-canvas .orb:nth-child(1) {
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, #4f8cff, transparent 70%);
-      top: -10%;
-      left: -5%;
-      animation-duration: 25s;
+      width: 620px;
+      height: 620px;
+      background: radial-gradient(circle, rgba(95, 140, 255, 0.38), transparent 68%);
+      top: -12%;
+      left: -10%;
     }
 
     .bg-canvas .orb:nth-child(2) {
-      width: 500px;
-      height: 500px;
-      background: radial-gradient(circle, #7c6aff, transparent 70%);
-      bottom: -10%;
-      right: -5%;
+      width: 520px;
+      height: 520px;
+      background: radial-gradient(circle, rgba(126, 99, 255, 0.28), transparent 70%);
+      bottom: -14%;
+      right: -8%;
       animation-duration: 30s;
-      animation-delay: -5s;
     }
 
     .bg-canvas .orb:nth-child(3) {
-      width: 400px;
-      height: 400px;
-      background: radial-gradient(circle, #4f8cff, transparent 70%);
-      top: 50%;
-      left: 50%;
+      width: 460px;
+      height: 460px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 68%);
+      top: 48%;
+      left: 58%;
       transform: translate(-50%, -50%);
-      animation-duration: 35s;
-      animation-delay: -10s;
+      animation-duration: 28s;
     }
 
     @keyframes orbFloat {
@@ -110,13 +113,13 @@
         transform: translate(0, 0) scale(1);
       }
       33% {
-        transform: translate(60px, -40px) scale(1.1);
+        transform: translate(44px, -28px) scale(1.05);
       }
       66% {
-        transform: translate(-30px, 50px) scale(0.9);
+        transform: translate(-26px, 36px) scale(0.95);
       }
       100% {
-        transform: translate(20px, -20px) scale(1.05);
+        transform: translate(18px, -18px) scale(1.02);
       }
     }
 
@@ -124,69 +127,66 @@
        SIDEBAR
        ============================================================ */
     .sidebar {
-      width: 260px;
+      width: 280px;
       flex-shrink: 0;
-      background: rgba(14, 21, 40, 0.6);
-      backdrop-filter: blur(var(--glass-blur));
-      border-right: 1px solid var(--glass-border);
-      padding: 24px 16px;
+      background: rgba(8, 15, 32, 0.9);
+      backdrop-filter: blur(28px);
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 28px 20px;
       height: 100vh;
       position: sticky;
       top: 0;
       z-index: 10;
       display: flex;
       flex-direction: column;
-      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       overflow-y: auto;
     }
 
     .sidebar .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 14px;
       font-family: 'Clash Display', sans-serif;
       font-weight: 700;
-      font-size: 20px;
+      font-size: 22px;
       letter-spacing: -0.02em;
-      padding: 0 8px 24px;
-      border-bottom: 1px solid var(--glass-border);
-      margin-bottom: 20px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      margin-bottom: 26px;
     }
 
     .sidebar .brand .logo-icon {
-      width: 36px;
-      height: 36px;
+      width: 42px;
+      height: 42px;
       background: var(--accent-gradient);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
       font-size: 20px;
-      box-shadow: 0 0 30px var(--accent-glow);
+      box-shadow: 0 18px 50px rgba(95, 140, 255, 0.24);
     }
 
     .sidebar .nav-item {
       display: flex;
       align-items: center;
-      gap: 14px;
-      padding: 10px 14px;
-      border-radius: var(--radius-sm);
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
       color: var(--text-secondary);
       font-weight: 500;
       font-size: 14px;
       cursor: pointer;
       transition: all var(--transition);
-      margin-bottom: 2px;
-      position: relative;
+      margin-bottom: 8px;
     }
 
     .sidebar .nav-item:hover {
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(95, 140, 255, 0.08);
       color: var(--text-primary);
     }
 
     .sidebar .nav-item.active {
-      background: rgba(79, 140, 255, 0.12);
+      background: rgba(95, 140, 255, 0.16);
       color: #fff;
       box-shadow: inset 3px 0 0 var(--accent);
     }
@@ -236,15 +236,16 @@
        ============================================================ */
     .main {
       flex: 1;
-      padding: 30px 40px 60px;
-      max-width: 1300px;
+      padding: 36px;
+      max-width: 1400px;
       position: relative;
       z-index: 1;
+      min-height: 100vh;
     }
 
     .page {
       display: none;
-      animation: fadeSlideUp 0.5s ease forwards;
+      animation: fadeSlideUp 0.4s ease forwards;
     }
 
     .page.active {
@@ -280,19 +281,19 @@
        CARDS & GLASS
        ============================================================ */
     .glass-card {
-      background: var(--glass-bg);
-      backdrop-filter: blur(var(--glass-blur));
-      border: 1px solid var(--glass-border);
+      background: rgba(15, 22, 41, 0.94);
+      backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: var(--radius);
-      box-shadow: var(--glass-shadow);
-      padding: 24px;
-      transition: all var(--transition);
-      margin-bottom: 20px;
+      box-shadow: var(--shadow-card);
+      padding: 26px;
+      transition: transform var(--transition), border-color var(--transition);
+      margin-bottom: 24px;
     }
 
     .glass-card:hover {
+      transform: translateY(-1px);
       border-color: rgba(255, 255, 255, 0.12);
-      box-shadow: 0 12px 48px -12px rgba(0, 0, 0, 0.6);
     }
 
     .glass-card .card-title {
@@ -355,36 +356,33 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 22px;
-      border: none;
+      padding: 12px 22px;
       border-radius: var(--radius-sm);
       font-weight: 600;
       font-size: 14px;
       cursor: pointer;
-      transition: all var(--transition);
-      background: var(--glass-bg);
-      backdrop-filter: blur(8px);
-      border: 1px solid var(--glass-border);
+      transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       color: var(--text-primary);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
     }
 
     .btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+      border-color: rgba(95, 140, 255, 0.24);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
     }
 
     .btn-primary {
       background: var(--accent-gradient);
       border-color: transparent;
       color: #fff;
-      box-shadow: 0 6px 24px var(--accent-glow);
+      box-shadow: 0 14px 34px rgba(79, 140, 255, 0.28);
     }
 
     .btn-primary:hover {
-      box-shadow: 0 10px 32px var(--accent-glow);
-      transform: translateY(-2px);
+      box-shadow: 0 18px 40px rgba(79, 140, 255, 0.34);
     }
 
     .btn-danger {
@@ -427,20 +425,21 @@
 
     .input-field {
       width: 100%;
-      padding: 10px 14px;
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid var(--glass-border);
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: var(--radius-sm);
       color: var(--text-primary);
       font-size: 14px;
-      transition: all var(--transition);
+      transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
       outline: none;
       font-family: inherit;
     }
 
     .input-field:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
+      border-color: rgba(95, 140, 255, 0.7);
+      box-shadow: 0 0 0 4px rgba(95, 140, 255, 0.12);
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .input-field::placeholder {
@@ -472,17 +471,20 @@
     .role-selector .search-box {
       display: flex;
       align-items: center;
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid var(--glass-border);
+      gap: 10px;
+      flex-wrap: wrap;
+      min-height: 50px;
+      padding: 10px 14px;
       border-radius: var(--radius-sm);
-      padding: 6px 12px;
-      transition: all var(--transition);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      transition: border-color var(--transition), box-shadow var(--transition);
       cursor: text;
     }
 
     .role-selector .search-box:focus-within {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-glow);
+      border-color: rgba(95, 140, 255, 0.7);
+      box-shadow: 0 0 0 4px rgba(95, 140, 255, 0.12);
     }
 
     .role-selector .search-box input {
@@ -676,17 +678,16 @@
     }
 
     .modal-box {
-      background: rgba(14, 21, 40, 0.9);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--glass-border);
+      width: min(92vw, 560px);
+      background: rgba(14, 21, 40, 0.98);
+      backdrop-filter: blur(22px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: var(--radius);
-      max-width: 560px;
-      width: 92%;
       padding: 32px;
-      box-shadow: var(--shadow-card);
-      transform: scale(0.96);
-      transition: transform 0.3s ease;
-      max-height: 90vh;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+      transform: scale(0.98);
+      transition: transform 0.22s ease;
+      max-height: 92vh;
       overflow-y: auto;
     }
 
@@ -1090,6 +1091,10 @@
         <div class="input-group">
           <label>Rôles staff ayant accès aux tickets</label>
           <div id="staffRoleSelector" class="role-selector"></div>
+        </div>
+        <div class="input-group">
+          <label>Rôles autorisés à accéder au panneau de modération</label>
+          <div id="moderationRoleSelector" class="role-selector"></div>
         </div>
 
         <hr style="border-color:var(--glass-border);margin:24px 0;" />
@@ -1767,6 +1772,16 @@
         selectors.staffRole.setRoles(allRoles);
       }
 
+      if (!selectors.moderationRole) {
+        selectors.moderationRole = new RoleSelector('moderationRoleSelector', {
+          roles: allRoles,
+          selected: [],
+          onChange: (val) => { /* will be saved later */ }
+        });
+      } else {
+        selectors.moderationRole.setRoles(allRoles);
+      }
+
       // Candidature roles
       if (!selectors.candValid) {
         selectors.candValid = new RoleSelector('candValidRoles', {
@@ -2155,6 +2170,9 @@
         if (selectors.staffRole) {
           selectors.staffRole.setSelected(params.ticketStaffRoleIds || []);
         }
+        if (selectors.moderationRole) {
+          selectors.moderationRole.setSelected(params.moderationRoleIds || []);
+        }
       } catch (e) { console.error(e); }
     }
 
@@ -2172,6 +2190,7 @@
             ticketTranscriptChannelId: document.getElementById('transcriptSelect').value,
             ticketAutoCloseHours: document.getElementById('autoCloseHours').value,
             ticketStaffRoleIds: selectors.staffRole ? selectors.staffRole.getSelected() : [],
+            moderationRoleIds: selectors.moderationRole ? selectors.moderationRole.getSelected() : [],
             modLogsChannelId: document.getElementById('modLogsSelect').value,
             leaveLogsChannelId: document.getElementById('leaveLogsSelect').value,
           })
@@ -2522,20 +2541,56 @@
     }
 
     async function editerCategorie(id) {
-      const newName = prompt('Nouveau nom :');
-      if (newName === null) return;
       try {
-        const res = await fetch(`/api/ticket-categories/${id}`, {
+        const res = await fetch('/api/ticket-categories');
+        const categories = await res.json();
+        const cat = categories.find(c => c.id === id);
+        if (!cat) return showNotification('❌ Catégorie introuvable', 'error');
+
+        const newName = prompt('Nom', cat.name);
+        if (newName === null) return;
+        const newEmoji = prompt('Emoji', cat.emoji || '📌');
+        if (newEmoji === null) return;
+        const newDescription = prompt('Description', cat.description || '') || '';
+        const newCategoryId = prompt('Catégorie Discord (ID)', cat.categoryId || '');
+        if (newCategoryId === null) return;
+        const newColor = prompt('Couleur hex', cat.color || '#5865F2') || '#5865F2';
+        const newDefaultPriority = prompt('Priorité (low, normal, high, urgent)', cat.defaultPriority || 'normal') || 'normal';
+        const newPingRoles = prompt('Rôles à ping (IDs séparés par des virgules)', (cat.pingRoles || []).join(',')) || '';
+        const newStaffRoles = prompt('Rôles staff (IDs séparés par des virgules)', (cat.staffRoles || []).join(',')) || '';
+        const newAutoReply = prompt('Message automatique', cat.autoReply || '') || '';
+        const newAutoCloseAfter = prompt('Fermeture auto (heures, 0 = désactivé)', cat.autoCloseAfter?.toString() || '0');
+        const newActive = prompt('Activer la catégorie ? (oui/non)', cat.active === false ? 'non' : 'oui');
+
+        const body = {
+          name: newName,
+          emoji: newEmoji,
+          description: newDescription,
+          categoryId: newCategoryId,
+          color: newColor,
+          defaultPriority: newDefaultPriority,
+          pingRoles: newPingRoles.split(',').map(s => s.trim()).filter(Boolean),
+          staffRoles: newStaffRoles.split(',').map(s => s.trim()).filter(Boolean),
+          autoReply: newAutoReply,
+          autoCloseAfter: parseInt(newAutoCloseAfter) || 0,
+          active: newActive?.toLowerCase() === 'oui',
+        };
+
+        const updateRes = await fetch(`/api/ticket-categories/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName })
+          body: JSON.stringify(body)
         });
-        if (res.ok) {
+        if (updateRes.ok) {
           playSuccessSound();
           showNotification('✅ Catégorie mise à jour', 'success');
           chargerCategories();
-        } else showNotification('❌ Erreur', 'error');
-      } catch (e) { showNotification('❌ Erreur', 'error'); }
+        } else {
+          showNotification('❌ Erreur', 'error');
+        }
+      } catch (e) {
+        showNotification('❌ Erreur', 'error');
+      }
     }
 
     async function supprimerCategorie(id) {
