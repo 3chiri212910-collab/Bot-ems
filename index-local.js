@@ -112,6 +112,7 @@ const CONFIG_DEFAUT = {
   // Tickets
   ticketLogsChannelId: null,
   ticketTranscriptChannelId: null,
+  ticketStaffChannelId: null,
   ticketAutoCloseHours: 0,
   ticketStaffRoleIds: [],
   ticketCategories: [],
@@ -2305,6 +2306,7 @@ app.get('/api/settings', authRequis, (req, res) => {
     leaveLogsChannelId: config.leaveLogsChannelId,
     ticketLogsChannelId: config.ticketLogsChannelId,
     ticketTranscriptChannelId: config.ticketTranscriptChannelId,
+    ticketStaffChannelId: config.ticketStaffChannelId,
     ticketAutoCloseHours: config.ticketAutoCloseHours || 0,
     ticketStaffRoleIds: config.ticketStaffRoleIds || [],
     moderationRoleIds: config.moderationRoleIds || [],
