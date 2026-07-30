@@ -799,12 +799,15 @@ async function handleDM(message) {
     return;
   }
 
-  const options = categories.map(c => ({
-    label: c.name,
-    value: c.id,
-    description: c.description || '',
-    emoji: isValidEmoji(c.emoji) ? c.emoji : undefined,
-  }));
+  const options = categories.map(c => {
+    const option = {
+      label: c.name,
+      value: c.id,
+    };
+    if (c.description && c.description.length > 0) option.description = c.description;
+    if (isValidEmoji(c.emoji)) option.emoji = c.emoji;
+    return option;
+  });
   const row = new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('ticket_category_select')
@@ -1014,12 +1017,15 @@ async function handleTicketButton(interaction) {
       if (!categories.length) {
         return interaction.reply({ content: '❌ Aucune autre catégorie disponible.', ephemeral: true });
       }
-      const options = categories.map(c => ({
-        label: c.name,
-        value: c.id,
-        description: c.description || '',
-        emoji: isValidEmoji(c.emoji) ? c.emoji : undefined,
-      }));
+      const options = categories.map(c => {
+        const option = {
+          label: c.name,
+          value: c.id,
+        };
+        if (c.description && c.description.length > 0) option.description = c.description;
+        if (isValidEmoji(c.emoji)) option.emoji = c.emoji;
+        return option;
+      });
       const row = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('ticket_category_select_move')
