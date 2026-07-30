@@ -76,6 +76,10 @@ const EVALUATIONS_FILE = path.join(DATA_DIR, 'evaluations.json');
 // ---- Fonctions de lecture/écriture ----
 function lire(fichier, defaut) {
   try {
+    if (!fs.existsSync(fichier)) {
+      ecrire(fichier, defaut);
+      return defaut;
+    }
     const raw = fs.readFileSync(fichier, 'utf8');
     const data = JSON.parse(raw);
     if (fichier === CONFIG_FILE) {
@@ -90,7 +94,12 @@ function lire(fichier, defaut) {
   }
 }
 function ecrire(fichier, data) {
-  try { fs.writeFileSync(fichier, JSON.stringify(data, null, 2)); } catch (e) { console.error(`Erreur écriture ${fichier}:`, e); }
+  try {
+    fs.mkdirSync(path.dirname(fichier), { recursive: true });
+    fs.writeFileSync(fichier, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error(`Erreur écriture ${fichier}:`, e);
+  }
 }
 
 // ---- Données initiales ----
@@ -360,6 +369,8 @@ async function createTicket(user, categoryId, formData = {}) {
   const ticket = {
     id: ticketId,
     userId: user.id,
+    userTag: user.tag,
+    username: user.username,
     channelId: channel.id,
     categoryId: category.id,
     status: 'open',
@@ -372,6 +383,7 @@ async function createTicket(user, categoryId, formData = {}) {
     closedAt: null,
     closedBy: null,
     evaluation: null,
+    evaluationComment: null,
     embedMessageId: null,
     claimAt: null,
     claimedBy: null,
@@ -1639,7 +1651,12 @@ const server = http.createServer(app);
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+const publicDir = path.join(__dirname, 'public');
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+} else {
+  app.use(express.static(__dirname));
+}
 
 app.use(session({
   secret: SESSION_SECRET,
