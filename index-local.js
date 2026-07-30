@@ -1653,10 +1653,11 @@ const server = http.createServer(app);
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
 const publicDir = path.join(__dirname, 'public');
-if (fs.existsSync(publicDir)) {
-  app.use(express.static(publicDir));
-} else {
-  app.use(express.static(__dirname));
+const publicExists = fs.existsSync(publicDir);
+app.use(express.static(publicExists ? publicDir : __dirname));
+
+function getPublicFile(filename) {
+  return publicExists ? path.join(publicDir, filename) : path.join(__dirname, filename);
 }
 
 app.use(session({
@@ -1690,11 +1691,11 @@ app.get('/', (req, res) => {
 });
 app.get('/login', (req, res) => {
   if (req.session.user) return res.redirect('/panel');
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  res.sendFile(getPublicFile('login.html'));
 });
 app.get('/panel', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
-  res.sendFile(path.join(__dirname, 'public', 'panel.html'));
+  res.sendFile(getPublicFile('panel.html'));
 });
 
 app.get('/auth/discord', (req, res) => {
